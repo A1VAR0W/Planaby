@@ -305,6 +305,15 @@ struct SettingsView: View {
 
     private var musicSection: some View {
         Section {
+            NavigationLink {
+                SpotifySettingsView()
+            } label: {
+                LabeledContent {
+                    Text(SpotifyController.shared.isConnected ? (SpotifyController.shared.accountName ?? "Conectado") : "Sin conectar")
+                } label: {
+                    Label("Spotify", systemImage: "dot.radiowaves.left.and.right")
+                }
+            }
             LabeledContent {
                 TextField("Enlace de la lista", text: $focusMusic)
                     .textContentType(.URL)
@@ -332,7 +341,7 @@ struct SettingsView: View {
         } header: {
             Text("Música")
         } footer: {
-            Text("Pega el enlace de una lista de Spotify (Compartir › Copiar enlace), Apple Music o YouTube Music. Los de Spotify se abren en su app. Con la opción activada, al empezar una sesión o un descanso con Planaby abierta se abre su música; si no, tócala en Enfoque (♪).")
+            Text("Con Spotify conectado, Planaby muestra lo que suena con su carátula (Enfoque y modo escritorio) y lo controla. Las listas: pega el enlace de una lista de Spotify (Compartir › Copiar enlace), Apple Music o YouTube Music. Con la opción activada, al empezar una sesión o un descanso con Planaby abierta suena su lista (con Spotify conectado, sin salir de Planaby).")
         }
     }
 

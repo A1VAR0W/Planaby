@@ -8,6 +8,7 @@ struct FocusView: View {
     @State private var showingMethods = false
     @State private var voice: VoiceTaskFlow?
     @State private var showsInbox = false
+    @State private var showsPlayer = false
     @Query(filter: #Predicate<MessageItem> { !$0.isRead }) private var unread: [MessageItem]
     @AppStorage(MusicLinks.Keys.focus) private var focusMusic = ""
     @AppStorage(MusicLinks.Keys.rest) private var restMusic = ""
@@ -66,7 +67,11 @@ struct FocusView: View {
         // Música de la fase actual, si hay un enlace en Ajustes › Música.
         .overlay(alignment: .topLeading) {
             let phase = timer.state?.phase ?? .focus
-            if MusicLinks.url(from: phase.isBreak ? restMusic : focusMusic) != nil {
+            if SpotifyController.shared.isConnected {
+                // Lo que suena en Spotify; al tocarlo, la carátula grande con los controles.
+                MiniPlayer { showsPlayer = true }
+                    .padding(Space.m)
+            } else if MusicLinks.url(from: phase.isBreak ? restMusic : focusMusic) != nil {
                 Button { MusicLinks.open(for: phase) } label: {
                     Image(systemName: "music.note")
                         .font(.system(size: 18, weight: .semibold))
@@ -81,6 +86,10 @@ struct FocusView: View {
         .voiceTaskSheet($voice)
         .sheet(isPresented: $showsInbox) {
             NavigationStack { InboxView() }
+        }
+        .sheet(isPresented: $showsPlayer) {
+            NavigationStack { NowPlayingView() }
+                .presentationDetents([.large])
         }
         .toolbarVisibility(.hidden, for: .navigationBar)
         .toolbarVisibility(isRunning ? .hidden : .visible, for: .tabBar)

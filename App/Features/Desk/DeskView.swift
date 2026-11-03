@@ -16,6 +16,7 @@ struct DeskView: View {
     @AppStorage(Preferences.deskNightEnd) private var nightEnd = 7
     @AppStorage(Preferences.deskKeepAwake) private var keepAwake = true
     @AppStorage(Preferences.deskShowsTasks) private var showsTasks = false
+    @AppStorage(Preferences.deskShowsMusic) private var showsMusic = false
     @State private var isCharging = false
     /// Hasta cuándo se ven los controles mientras la sesión corre.
     @State private var controlsUntil = Date.now.addingTimeInterval(DeskView.controlsTimeout)
@@ -41,14 +42,20 @@ struct DeskView: View {
 
                 VStack(spacing: 0) {
                     HStack(spacing: Space.l) {
-                        VStack(spacing: 0) {
-                            Spacer(minLength: 0)
-                            face(state: state, date: context.date, tint: tint, ink: ink)
-                            Spacer(minLength: 0)
+                        if musicVisible {
+                            // Modo carátula: lo que suena en Spotify, como en StandBy.
+                            DeskNowPlaying(state: state, date: context.date, tint: tint, ink: ink, night: night)
+                                .transition(.opacity)
+                        } else {
+                            VStack(spacing: 0) {
+                                Spacer(minLength: 0)
+                                face(state: state, date: context.date, tint: tint, ink: ink)
+                                Spacer(minLength: 0)
+                            }
+                            .frame(maxWidth: .infinity)
                         }
-                        .frame(maxWidth: .infinity)
 
-                        if showsTasks {
+                        if showsTasks && !musicVisible {
                             DeskTaskList(tint: tint, ink: ink, onInteract: reveal)
                                 .frame(width: 300)
                                 .padding(.top, Space.s)
@@ -73,6 +80,7 @@ struct DeskView: View {
                 .padding(.vertical, Space.s)
                 .animation(.smooth(duration: 0.4), value: showControls)
                 .animation(.smooth(duration: 0.4), value: showsTasks)
+                .animation(.smooth(duration: 0.4), value: musicVisible)
 
                 if dimmed {
                     Color.black.opacity(0.45)
@@ -166,6 +174,7 @@ struct DeskView: View {
                 VoiceButton(compact: true) {
                     voice = VoiceTaskFlow()
                 }
+                if SpotifyController.shared.isConnected { musicButton }
                 tasksButton
                 dimButton
             }
@@ -237,6 +246,22 @@ struct DeskView: View {
         })
         .accessibilityLabel("Método: \(library.selected.name)")
         .accessibilityHint("Cambia de método sin perder la sesión")
+    }
+
+    private var musicVisible: Bool { showsMusic && SpotifyController.shared.isConnected }
+
+    private var musicButton: some View {
+        Button {
+            reveal()
+            showsMusic.toggle()
+        } label: {
+            Image(systemName: showsMusic ? "music.note.list" : "music.note")
+                .font(.system(size: 16, weight: .medium))
+                .frame(width: 44, height: 44)
+        }
+        .buttonStyle(.glass)
+        .buttonBorderShape(.circle)
+        .accessibilityLabel(showsMusic ? "Ocultar la música" : "Mostrar la música")
     }
 
     private var tasksButton: some View {

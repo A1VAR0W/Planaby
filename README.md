@@ -30,7 +30,7 @@ Recuerda refrescar la app en SideStore cada 7 días.
 - [x] Hito 3: calendario propio con planes Trabajo y Normal, planificación con IA (chat y plantillas, siempre con confirmación) y recordatorios.
 - [x] Secretaria personal: test de ritmo, adjuntos con estimación por IA, reorganizar por prioridad y tareas con checks en modo escritorio.
 - [x] Hito 4: bloqueo con fricción mediante Atajos, estadísticas avanzadas, tareas y vista de mes.
-- [x] Hito 5: filtro de mensajes con IA (iMessage/SMS con Atajos y correo por IMAP), avisos según la Concentración y música por fase (Spotify con enlaces). Pendiente: control de Spotify con App Remote (necesita un Client ID de Spotify).
+- [x] Hito 5: filtro de mensajes con IA (iMessage/SMS con Atajos y correo por IMAP), avisos según la Concentración y música por fase (Spotify con enlaces). Spotify como mando con la API web (carátula, controles y listas).
 
 ## Atajos útiles
 
@@ -46,6 +46,7 @@ Recuerda refrescar la app en SideStore cada 7 días.
 - **Correo (IMAP):** Ajustes › Filtro de mensajes › Correo: Gmail, iCloud, Outlook/Hotmail, Yahoo u otro servidor, con una contraseña de aplicación (se guarda en el Llavero). Planaby lee los correos sin abrir de los dos últimos días sin marcarlos como leídos, al abrirse (como mucho cada 10 minutos), al deslizar en la bandeja o con «Comprobar correo». Las cuentas de Microsoft 365 del trabajo suelen tener IMAP bloqueado.
 - **Bandeja:** el botón de bandeja de Enfoque (con el número de urgentes e importantes sin leer). Tocar marca leído; deslizar a la derecha manda el mensaje al chat del plan («Al plan»); a la izquierda, borrar; mantener pulsado, moverlo de categoría. Es una copia: los mensajes de verdad siguen en sus apps.
 - **Que no interrumpan:** en Ajustes de iOS › Concentración (p. ej. Trabajo) silencia Mensajes y Correo y permite Planaby; Planaby avisará solo de lo que importa.
+- **Spotify como mando:** Ajustes › Música › Spotify. Una sola vez: en developer.spotify.com/dashboard, «Create app» con la Redirect URI `planaby-spotify://callback` y «Web API», y pega el Client ID en Planaby. Se conecta con PKCE (sin secreto; la sesión va al Llavero) y no usa ningún App ID de Apple. Enfoque muestra lo que suena (carátula, canción, reproducir/pausar) y al tocarlo, el reproductor completo con progreso, anterior/siguiente, aleatorio y tus listas. En el modo escritorio, el botón ♪ pone la carátula a pantalla completa con los controles y el temporizador en pequeño (de noche, en rojo como StandBy). Ver lo que suena funciona con cualquier cuenta; controlar desde Planaby necesita Spotify Premium (si no hay dispositivo activo, pasa la música a este iPhone o abre Spotify para despertarlo).
 - **Música:** Ajustes › Música: un enlace de lista para concentrarte y otro para descansar (Spotify, Apple Music o YouTube Music). Los de Spotify se abren en su app. Con «Abrir al empezar cada fase», al empezar una sesión o un descanso con Planaby abierta se abre su música; si no, el botón ♪ de Enfoque.
 
 ## Tus datos

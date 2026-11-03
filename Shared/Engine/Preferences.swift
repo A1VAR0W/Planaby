@@ -13,6 +13,7 @@ enum Preferences {
     static let deskNightEnd = "deskNightEnd"
     static let deskKeepAwake = "deskKeepAwake"
     static let deskShowsTasks = "deskShowsTasks"
+    static let deskShowsMusic = "deskShowsMusic"
 
     // Solo la app: pestaña Plan
     static let planShowsMonth = "planShowsMonth"

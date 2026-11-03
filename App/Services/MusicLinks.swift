@@ -22,6 +22,12 @@ enum MusicLinks {
     /// Abre la música de la fase. Los enlaces de Spotify se abren directamente en su app.
     static func open(for phase: PhaseKind) {
         guard let web = url(from: link(for: phase)) else { return }
+        // Con Spotify conectado se pone desde Planaby, sin salir de la app.
+        let spotify = SpotifyController.shared
+        if spotify.isConnected, let uri = spotifyURI(for: web) {
+            Task { await spotify.play(uri: uri.absoluteString) }
+            return
+        }
         if let app = spotifyURI(for: web) {
             UIApplication.shared.open(app) { opened in
                 if !opened { UIApplication.shared.open(web) }

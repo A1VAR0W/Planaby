@@ -54,7 +54,7 @@ enum BackupService {
         "customMethods", "selectedMethodID", "focusProfile",
     ]
     private static let localKeys = [
-        "deskDimmed", "deskNightMode", "deskNightStart", "deskNightEnd", "deskKeepAwake", "deskShowsTasks", "planShowsMonth",
+        "deskDimmed", "deskNightMode", "deskNightStart", "deskNightEnd", "deskKeepAwake", "deskShowsTasks", "deskShowsMusic", "planShowsMonth", "spotifyClientID",
         "frictionEnabled", "frictionScope", "frictionPauseSeconds", "frictionPassMinutes", "musicFocusURL", "musicBreakURL", "musicAutoOpen", "messageNotifyLevel",
         "externalCalendars", "calendarSubscriptions", CalendarMirror.enabledKey, "deviceCalendarsAdopted",
     ]
