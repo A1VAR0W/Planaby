@@ -16,6 +16,9 @@ struct SpotifySettingsView: View {
                 Section {
                     LabeledContent("Cuenta", value: spotify.accountName ?? (spotify.isWebLinked ? "Conectada" : "Solo con la app de Spotify"))
                     LabeledContent("App de Spotify", value: spotify.isRemoteConnected ? "Conectada" : "Sin conectar")
+                    if !spotify.hasSession {
+                        Button("Mantener conectado sin abrir Spotify") { spotify.connectWithApp() }
+                    }
                     if spotify.needsReconnect {
                         Label("Desconecta y vuelve a conectar para controlar la app de Spotify con tu cuenta gratuita.", systemImage: "arrow.triangle.2.circlepath")
                             .foregroundStyle(Theme.orange)
@@ -32,7 +35,7 @@ struct SpotifySettingsView: View {
                     }
                     Button("Desconectar", role: .destructive) { spotify.disconnect() }
                 } footer: {
-                    Text("En Enfoque verás lo que suena con su carátula, y en el modo escritorio el botón ♪ lo pone a pantalla completa. Planaby controla la app de Spotify del iPhone (también con cuenta gratuita); si Spotify estaba cerrado, se abre un instante para despertarlo y vuelve a Planaby." + (spotify.isWebLinked ? "" : " Sin la API web, el acceso que da Spotify dura una hora: al caducar, el primer toque en reproducir abre Spotify un instante para renovarlo."))
+                    Text("En Enfoque verás lo que suena con su carátula, y en el modo escritorio el botón ♪ lo pone a pantalla completa. Planaby controla la app de Spotify del iPhone (también con cuenta gratuita); si Spotify estaba cerrado, se abre un instante para despertarlo y vuelve a Planaby." + (spotify.hasSession ? " Si Spotify está dormido (nada sonando un buen rato), al pulsar reproducir se abre un instante para despertarlo." : " Sin sesión renovable, el acceso dura una hora y Spotify se abre al caducar: pulsa «Mantener conectado» una vez para evitarlo."))
                 }
                 .task { await spotify.refresh() }
             } else {
@@ -73,10 +76,10 @@ struct SpotifySettingsView: View {
                         }
                     }
                     .disabled(connecting || clientID.trimmingCharacters(in: .whitespaces).count < 20)
-                    Button("Conectar solo con la app de Spotify") { spotify.wakeSpotify() }
+                    Button("Conectar solo con la app de Spotify") { spotify.connectWithApp() }
                         .disabled(connecting || clientID.trimmingCharacters(in: .whitespaces).count < 20)
                 } footer: {
-                    Text("«Conectar con Spotify» necesita «Web API»: inicias sesión una vez y Planaby reconecta solo, y ve lo que suena aunque Spotify esté cerrado o en otro dispositivo. «Solo con la app de Spotify» no la usa: Spotify se abre, te da acceso durante una hora y vuelve; al caducar, se abre otra vez un instante cuando toques reproducir.")
+                    Text("«Conectar con Spotify» necesita «Web API»: inicias sesión una vez y Planaby reconecta solo, y ve lo que suena aunque Spotify esté cerrado o en otro dispositivo. «Solo con la app de Spotify» no la usa: Spotify se abre una vez para dar permiso y vuelve; después Planaby lo controla sin abrirlo (solo lo despierta si está dormido y pulsas reproducir).")
                 }
             }
         }

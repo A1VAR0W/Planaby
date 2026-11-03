@@ -182,21 +182,20 @@ struct DeskView: View {
     }
 
     /// Una sola barra: método a la izquierda, acción principal en el centro y atenuar a la derecha.
+    /// Tres columnas: las laterales se reparten el sitio que deja la central, así los controles
+    /// de la sesión nunca se montan sobre los botones (el nombre del método se acorta si hace falta).
     private func bottomBar(state: TimerState?, tint: Color, ink: Color) -> some View {
-        ZStack {
+        HStack(spacing: Space.m) {
             HStack(spacing: Space.s) {
                 methodMenu(ink: ink)
-                Spacer(minLength: Space.m)
                 VoiceButton(compact: true) {
                     voice = VoiceTaskFlow()
                 }
-                if SpotifyController.shared.isConnected { musicButton }
-                tasksButton
-                dimButton
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             if let state {
-                HStack(spacing: Space.l) {
+                HStack(spacing: Space.m) {
                     RoundButton(label: "Terminar", systemImage: "stop.fill", compact: true) {
                         reveal()
                         confirmingStop = true
@@ -231,6 +230,13 @@ struct DeskView: View {
                 .tint(tint)
                 .controlSize(.large)
             }
+
+            HStack(spacing: Space.s) {
+                if SpotifyController.shared.isConnected { musicButton }
+                tasksButton
+                dimButton
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
         }
     }
 
