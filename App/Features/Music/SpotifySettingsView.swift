@@ -40,7 +40,7 @@ struct SpotifySettingsView: View {
                     VStack(alignment: .leading, spacing: Space.s) {
                         Step(number: 1, text: "Abre developer.spotify.com/dashboard con tu cuenta de Spotify y pulsa «Create app».")
                         Step(number: 2, text: "Nombre: Planaby. En Redirect URIs añade exactamente: \(SpotifyController.redirectURI)")
-                        Step(number: 3, text: "Marca «iOS» con el Bundle ID com.alvaro.planaby. «Web API» es opcional (mira abajo). Acepta y guarda.")
+                        Step(number: 3, text: "Marca «iOS» y pon como Bundle ID exactamente: \(Self.bundleID) (SideStore le añade tu Team ID). «Web API» es opcional (mira abajo). Acepta y guarda.")
                         Step(number: 4, text: "En Settings copia el «Client ID» y pégalo aquí debajo.")
                     }
                     .padding(.vertical, Space.xs)
@@ -48,6 +48,7 @@ struct SpotifySettingsView: View {
                         if let url = URL(string: "https://developer.spotify.com/dashboard") { openURL(url) }
                     }
                     Button("Copiar la Redirect URI") { UIPasteboard.general.string = SpotifyController.redirectURI }
+                    Button("Copiar el Bundle ID") { UIPasteboard.general.string = Self.bundleID }
                 } header: {
                     Text("Una sola vez")
                 } footer: {
@@ -82,6 +83,9 @@ struct SpotifySettingsView: View {
         .navigationTitle("Spotify")
         .navigationBarTitleDisplayMode(.inline)
     }
+
+    /// El identificador real de la app instalada (SideStore añade el Team ID al final).
+    private static let bundleID = Bundle.main.bundleIdentifier ?? "com.alvaro.planaby"
 
     private func connect() async {
         guard let url = spotify.authorizationURL() else { return }
