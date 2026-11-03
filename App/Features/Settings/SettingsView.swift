@@ -14,6 +14,7 @@ struct SettingsView: View {
     @AppStorage(Preferences.phaseAlerts, store: AppGroup.defaults) private var phaseAlerts = true
     @AppStorage(Preferences.deskKeepAwake) private var keepAwake = true
     @AppStorage(Preferences.deskDimmed) private var dimmed = false
+    @AppStorage(Preferences.deskAutoMusic) private var deskAutoMusic = true
     @AppStorage(Preferences.deskNightMode) private var nightMode = true
     @AppStorage(Preferences.deskNightStart) private var nightStart = 22
     @AppStorage(Preferences.deskNightEnd) private var nightEnd = 7
@@ -209,6 +210,9 @@ struct SettingsView: View {
             Toggle(isOn: $nightMode) {
                 Label("Tono rojo por la noche", systemImage: "moon.stars")
             }
+            Toggle(isOn: $deskAutoMusic) {
+                Label("Carátula al sonar música", systemImage: "music.note")
+            }
             if nightMode {
                 Picker("Desde", selection: $nightStart) {
                     ForEach(0..<24, id: \.self) { Text(Self.hourLabel($0)).tag($0) }
@@ -335,13 +339,13 @@ struct SettingsView: View {
                 Label("Descanso", systemImage: "cup.and.saucer")
             }
             Toggle(isOn: $musicAutoOpen) {
-                Label("Abrir al empezar cada fase", systemImage: "play.circle")
+                Label("Reproducir al empezar cada fase", systemImage: "play.circle")
             }
-            .disabled(MusicLinks.url(from: focusMusic) == nil && MusicLinks.url(from: restMusic) == nil)
+            .disabled(!SpotifyController.shared.isConnected && MusicLinks.url(from: focusMusic) == nil && MusicLinks.url(from: restMusic) == nil)
         } header: {
             Text("Música")
         } footer: {
-            Text("Con Spotify conectado, Planaby muestra lo que suena con su carátula (Enfoque y modo escritorio) y lo controla. Las listas: pega el enlace de una lista de Spotify (Compartir › Copiar enlace), Apple Music o YouTube Music. Con la opción activada, al empezar una sesión o un descanso con Planaby abierta suena su lista (con Spotify conectado, sin salir de Planaby).")
+            Text("Con Spotify conectado, Planaby muestra lo que suena con su carátula (Enfoque y modo escritorio) y lo controla. Las listas: pega el enlace de una lista de Spotify (Compartir › Copiar enlace), Apple Music o YouTube Music. Con «Reproducir al empezar cada fase», al empezar una sesión o un descanso con Planaby abierta suena su lista; con Spotify conectado y sin lista, al concentrarte reanuda lo que tenías y al terminar la sesión lo pausa. En el modo escritorio, la carátula aparece sola cuando empieza a sonar (se cambia en Modo escritorio).")
         }
     }
 

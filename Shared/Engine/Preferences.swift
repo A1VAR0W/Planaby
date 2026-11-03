@@ -14,6 +14,8 @@ enum Preferences {
     static let deskKeepAwake = "deskKeepAwake"
     static let deskShowsTasks = "deskShowsTasks"
     static let deskShowsMusic = "deskShowsMusic"
+    /// La carátula aparece sola cuando empieza a sonar Spotify, como en StandBy.
+    static let deskAutoMusic = "deskAutoMusic"
 
     // Solo la app: pestaña Plan
     static let planShowsMonth = "planShowsMonth"

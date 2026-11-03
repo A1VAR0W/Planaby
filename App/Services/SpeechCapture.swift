@@ -3,8 +3,9 @@ import Foundation
 import Observation
 @preconcurrency import Speech
 
-/// Dictado en español con el reconocimiento de voz del iPhone (en el dispositivo si es posible).
-/// Se para solo tras un silencio, al pulsar Listo, si no se dice nada en 8 s o a los 45 s.
+/// Dictado en español con el reconocimiento de voz del iPhone. Usa el servidor de Apple, que entiende
+/// mejor fechas, horas y nombres; sin conexión pasa solo al reconocimiento en el dispositivo.
+/// Se para solo tras una pausa larga, al pulsar Listo, si no se dice nada en 10 s o a los 60 s.
 @Observable
 @MainActor
 final class SpeechCapture {
@@ -31,29 +32,42 @@ final class SpeechCapture {
     @ObservationIgnored private var lastChange = Date.now
     @ObservationIgnored private var startedAt = Date.now
     @ObservationIgnored private var finish: CheckedContinuation<String, Never>?
+    @ObservationIgnored private var recognizer: SFSpeechRecognizer?
+    /// La petición en curso; el micrófono escribe aquí (se cambia al pasar al dispositivo).
+    @ObservationIgnored private let sink = RequestSink()
+    /// Lo reconocido antes de que el reconocedor empezara de nuevo tras una pausa.
+    @ObservationIgnored private var committed = ""
+    /// Último resultado parcial del reconocedor (sin lo ya fijado).
+    @ObservationIgnored private var partial = ""
+    @ObservationIgnored private var onDevice = false
 
-    private static let silence: TimeInterval = 1.8
-    private static let maximum: TimeInterval = 45
+    /// Pausa con la que se da por terminado: deja pensar a media frase.
+    private static let silence: TimeInterval = 2.6
+    private static let maximum: TimeInterval = 60
     /// Si no se dice nada en este tiempo, se deja de escuchar.
-    private static let waitForSpeech: TimeInterval = 8
+    private static let waitForSpeech: TimeInterval = 10
+    /// Palabras que ayudan a acertar con tareas y fechas.
+    private static let vocabulary = [
+        "Planaby", "Trabajo", "Normal", "bloque", "bloques", "entrega", "entregar", "reunión", "cita", "examen",
+        "recordatorio", "recuérdame", "pasado mañana", "esta tarde", "esta noche", "a primera hora",
+        "lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo",
+        "media hora", "una hora", "dos horas", "tres horas", "minutos", "prioridad alta", "urgente", "fecha límite",
+    ]
 
     /// Escucha hasta el silencio y devuelve lo dictado (vacío si no se dijo nada o se canceló).
     func listen() async throws -> String {
         guard await Self.authorize() else { throw Failure.denied }
-        let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "es-ES")) ?? SFSpeechRecognizer()
-        guard let recognizer, recognizer.isAvailable else { throw Failure.unavailable }
-
-        let request = SFSpeechAudioBufferRecognitionRequest()
-        request.shouldReportPartialResults = true
-        request.addsPunctuation = true
-        if recognizer.supportsOnDeviceRecognition { request.requiresOnDeviceRecognition = true }
-        request.contextualStrings = ["Planaby", "Trabajo", "Normal", "bloque", "entrega"]
+        guard let recognizer = Self.makeRecognizer(), recognizer.isAvailable else { throw Failure.unavailable }
+        self.recognizer = recognizer
+        onDevice = false
+        let request = makeRequest(onDevice: false)
+        sink.set(request)
 
         do {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.record, mode: .measurement, options: .duckOthers)
             try session.setActive(true, options: .notifyOthersOnDeactivation)
-            Self.installTap(on: engine.inputNode, request: request) { [weak self] level in
+            Self.installTap(on: engine.inputNode, sink: sink) { [weak self] level in
                 Task { @MainActor in self?.level = level }
             }
             engine.prepare()
@@ -65,13 +79,13 @@ final class SpeechCapture {
 
         self.request = request
         transcript = ""
+        committed = ""
+        partial = ""
         level = 0
         isListening = true
         lastChange = .now
         startedAt = .now
-        task = Self.recognize(with: recognizer, request: request) { [weak self] text, isFinal in
-            Task { @MainActor in self?.received(text, isFinal: isFinal) }
-        }
+        startRecognition(request)
 
         return await withCheckedContinuation { continuation in
             finish = continuation
@@ -87,13 +101,49 @@ final class SpeechCapture {
 
     // MARK: - Interno
 
-    private func received(_ text: String?, isFinal: Bool) {
-        guard isListening else { return }
-        if let text, text != transcript {
-            transcript = text
-            lastChange = .now
+    private func makeRequest(onDevice: Bool) -> SFSpeechAudioBufferRecognitionRequest {
+        let request = SFSpeechAudioBufferRecognitionRequest()
+        request.shouldReportPartialResults = true
+        request.addsPunctuation = true
+        request.taskHint = .dictation
+        request.requiresOnDeviceRecognition = onDevice
+        request.contextualStrings = Self.vocabulary
+        return request
+    }
+
+    private func startRecognition(_ request: SFSpeechAudioBufferRecognitionRequest) {
+        guard let recognizer else { return }
+        task = Self.recognize(with: recognizer, request: request) { [weak self] text, isFinal, failed in
+            Task { @MainActor in self?.received(text, isFinal: isFinal, failed: failed) }
         }
-        if isFinal { complete(with: transcript) }
+    }
+
+    private func received(_ text: String?, isFinal: Bool, failed: Bool) {
+        guard isListening else { return }
+        // Sin conexión, el servidor falla enseguida: se sigue escuchando en el dispositivo.
+        if failed, !onDevice, transcript.isEmpty, recognizer?.supportsOnDeviceRecognition == true {
+            onDevice = true
+            task?.cancel()
+            let request = makeRequest(onDevice: true)
+            self.request = request
+            sink.set(request)
+            startRecognition(request)
+            return
+        }
+        if let text, !text.isEmpty {
+            // Tras una pausa el reconocedor a veces empieza de cero: se conserva lo anterior.
+            if !partial.isEmpty, text.count < partial.count / 2,
+               !partial.lowercased().hasPrefix(String(text.lowercased().prefix(4))) {
+                committed += partial + " "
+            }
+            partial = text
+            let joined = committed + text
+            if joined != transcript {
+                transcript = joined
+                lastChange = .now
+            }
+        }
+        if isFinal || failed { complete(with: transcript) }
     }
 
     private func watchSilence() async {
@@ -111,6 +161,7 @@ final class SpeechCapture {
         guard isListening else { return }
         isListening = false
         level = 0
+        sink.set(nil)
         request?.endAudio()
         task?.cancel()
         task = nil
@@ -138,14 +189,22 @@ final class SpeechCapture {
         return await AVAudioApplication.requestRecordPermission()
     }
 
+    /// Español del iPhone si está en español (es-MX, es-AR…); si no, de España.
+    private static func makeRecognizer() -> SFSpeechRecognizer? {
+        let current = Locale.current
+        if current.language.languageCode == .spanish, let recognizer = SFSpeechRecognizer(locale: current) {
+            return recognizer
+        }
+        return SFSpeechRecognizer(locale: Locale(identifier: "es-ES")) ?? SFSpeechRecognizer()
+    }
+
     private nonisolated static func installTap(
-        on input: AVAudioInputNode, request: SFSpeechAudioBufferRecognitionRequest,
+        on input: AVAudioInputNode, sink: RequestSink,
         level: @escaping @Sendable (Double) -> Void
     ) {
-        nonisolated(unsafe) let request = request
         let format = input.outputFormat(forBus: 0)
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
-            request.append(buffer)
+            sink.append(buffer)
             guard let samples = buffer.floatChannelData?[0], buffer.frameLength > 0 else { return }
             var sum: Float = 0
             for index in 0..<Int(buffer.frameLength) { sum += samples[index] * samples[index] }
@@ -156,10 +215,24 @@ final class SpeechCapture {
 
     private nonisolated static func recognize(
         with recognizer: SFSpeechRecognizer, request: SFSpeechAudioBufferRecognitionRequest,
-        update: @escaping @Sendable (String?, Bool) -> Void
+        update: @escaping @Sendable (String?, Bool, Bool) -> Void
     ) -> SFSpeechRecognitionTask {
         recognizer.recognitionTask(with: request) { result, error in
-            update(result?.bestTranscription.formattedString, (result?.isFinal ?? false) || error != nil)
+            update(result?.bestTranscription.formattedString, result?.isFinal ?? false, error != nil)
         }
+    }
+}
+
+/// Une el hilo de audio con la petición de voz actual, que puede cambiar a media escucha.
+private final class RequestSink: @unchecked Sendable {
+    private let lock = NSLock()
+    private var request: SFSpeechAudioBufferRecognitionRequest?
+
+    func set(_ request: SFSpeechAudioBufferRecognitionRequest?) {
+        lock.withLock { self.request = request }
+    }
+
+    func append(_ buffer: AVAudioPCMBuffer) {
+        lock.withLock { request }?.append(buffer)
     }
 }

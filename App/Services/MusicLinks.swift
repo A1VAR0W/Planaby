@@ -39,10 +39,21 @@ enum MusicLinks {
 
     /// Lo llama la interfaz cuando cambia la fase con la app delante.
     static func phaseChanged(to phase: PhaseKind?, from old: PhaseKind?) {
-        guard autoOpen, let phase else { return }
+        guard autoOpen else { return }
+        let spotify = SpotifyController.shared
+        guard let phase else {
+            // Fin de la sesión: se pausa lo que sonara en Spotify.
+            if old != nil, spotify.isConnected { Task { await spotify.pause() } }
+            return
+        }
         // De un descanso a otro (corto → largo) no hace falta cambiar de música.
         if let old, old.isBreak == phase.isBreak { return }
-        open(for: phase)
+        if hasLink(for: phase) {
+            open(for: phase)
+        } else if !phase.isBreak, spotify.isConnected {
+            // Sin lista de concentración: sigue lo que estabas escuchando.
+            Task { await spotify.resume() }
+        }
     }
 
     /// Acepta enlaces https y URIs spotify:; nil si no es un enlace válido.

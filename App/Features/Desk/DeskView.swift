@@ -17,6 +17,11 @@ struct DeskView: View {
     @AppStorage(Preferences.deskKeepAwake) private var keepAwake = true
     @AppStorage(Preferences.deskShowsTasks) private var showsTasks = false
     @AppStorage(Preferences.deskShowsMusic) private var showsMusic = false
+    @AppStorage(Preferences.deskAutoMusic) private var autoMusic = true
+    /// La carátula se puso sola al empezar a sonar la música.
+    @State private var autoShown = false
+    /// Se ocultó a mano mientras sonaba; vuelve a aparecer sola con la siguiente reproducción.
+    @State private var hidesMusic = false
     @State private var isCharging = false
     /// Hasta cuándo se ven los controles mientras la sesión corre.
     @State private var controlsUntil = Date.now.addingTimeInterval(DeskView.controlsTimeout)
@@ -91,6 +96,17 @@ struct DeskView: View {
         }
         .contentShape(.rect)
         .onTapGesture { reveal() }
+        // Reproductor automático: escucha a Spotify aunque la carátula no esté a la vista.
+        .task(id: autoMusic && !musicVisible) {
+            guard autoMusic, !musicVisible, SpotifyController.shared.isConnected else { return }
+            await SpotifyController.shared.connectRemote()
+            await SpotifyController.shared.watch()
+        }
+        .onAppear { updateAutoMusic(playing: SpotifyController.shared.isPlaying) }
+        .onChange(of: SpotifyController.shared.isPlaying) { _, playing in updateAutoMusic(playing: playing) }
+        .onChange(of: SpotifyController.shared.track == nil) { _, empty in
+            if empty { autoShown = false }
+        }
         .overlay {
             if let voice {
                 ZStack {
@@ -248,20 +264,35 @@ struct DeskView: View {
         .accessibilityHint("Cambia de método sin perder la sesión")
     }
 
-    private var musicVisible: Bool { showsMusic && SpotifyController.shared.isConnected }
+    private var musicVisible: Bool { (showsMusic || autoShown) && SpotifyController.shared.isConnected }
+
+    private func updateAutoMusic(playing: Bool) {
+        if !playing {
+            hidesMusic = false
+        } else if autoMusic, !hidesMusic, SpotifyController.shared.track != nil {
+            autoShown = true
+        }
+    }
 
     private var musicButton: some View {
         Button {
             reveal()
-            showsMusic.toggle()
+            if musicVisible {
+                showsMusic = false
+                autoShown = false
+                hidesMusic = SpotifyController.shared.isPlaying
+            } else {
+                showsMusic = true
+                hidesMusic = false
+            }
         } label: {
-            Image(systemName: showsMusic ? "music.note.list" : "music.note")
+            Image(systemName: musicVisible ? "music.note.list" : "music.note")
                 .font(.system(size: 16, weight: .medium))
                 .frame(width: 44, height: 44)
         }
         .buttonStyle(.glass)
         .buttonBorderShape(.circle)
-        .accessibilityLabel(showsMusic ? "Ocultar la música" : "Mostrar la música")
+        .accessibilityLabel(musicVisible ? "Ocultar la música" : "Mostrar la música")
     }
 
     private var tasksButton: some View {

@@ -248,6 +248,22 @@ final class SpotifyController {
         }
     }
 
+    /// Reanuda si está en pausa (reproducción automática al concentrarse).
+    func resume() async {
+        if !isPlaying { await togglePlay() }
+    }
+
+    /// Pausa si está sonando (al terminar la sesión).
+    func pause() async {
+        if let api = await remotePlayer() {
+            api.pause(nil)
+            progress = position(at: .now)
+            isPlaying = false
+            return
+        }
+        if isPlaying, isWebLinked { await togglePlay() }
+    }
+
     func next() async {
         if let api = await remotePlayer() { api.skip(toNext: nil); return }
         await command("POST", "/me/player/next")

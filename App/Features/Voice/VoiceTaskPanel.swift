@@ -358,16 +358,37 @@ extension View {
     /// Hoja de "Añadir por voz" para las pantallas en vertical.
     func voiceTaskSheet(_ flow: Binding<VoiceTaskFlow?>) -> some View {
         sheet(item: flow) { current in
-            NavigationStack {
-                ScrollView {
-                    VoiceTaskPanel(flow: current, allowsReview: true) { flow.wrappedValue = nil }
-                }
-                .scrollBounceBehavior(.basedOnSize)
-                .background(Color.black)
-                .navigationTitle("Añadir por voz")
-                .navigationBarTitleDisplayMode(.inline)
+            VoiceTaskSheet(flow: current) { flow.wrappedValue = nil }
+        }
+    }
+}
+
+/// La hoja de voz: a media altura mientras escucha y entera en cuanto hay algo que revisar,
+/// para que la propuesta y sus botones se vean sin recortes.
+private struct VoiceTaskSheet: View {
+    let flow: VoiceTaskFlow
+    let onClose: () -> Void
+    @State private var detent = PresentationDetent.medium
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VoiceTaskPanel(flow: flow, allowsReview: true, onClose: onClose)
             }
-            .presentationDetents([.medium, .large])
+            .scrollBounceBehavior(.basedOnSize)
+            .navigationTitle("Añadir por voz")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .presentationDetents([.medium, .large], selection: $detent)
+        .presentationBackground(.black)
+        .presentationDragIndicator(.visible)
+        // Mientras piensa no se cierra por accidente.
+        .interactiveDismissDisabled(flow.phase == .thinking)
+        .onChange(of: flow.phase) { _, phase in
+            switch phase {
+            case .ready, .askingMode: detent = .large
+            default: break
+            }
         }
     }
 }
