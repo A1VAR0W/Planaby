@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MethodPickerView: View {
     @Environment(MethodLibrary.self) private var library
+    @Environment(FocusTimer.self) private var timer
     @Environment(\.dismiss) private var dismiss
     @State private var editing: FocusMethod?
 
@@ -35,7 +36,7 @@ struct MethodPickerView: View {
 
     private func row(_ method: FocusMethod) -> some View {
         Button {
-            library.selectedID = method.id
+            timer.select(method)
             dismiss()
         } label: {
             HStack(spacing: 16) {

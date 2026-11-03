@@ -4,6 +4,7 @@ import Foundation
 struct FocusActivityAttributes: ActivityAttributes {
     struct ContentState: Codable, Hashable, Sendable {
         var phase: PhaseKind
+        var methodName: String
         var phaseStart: Date
         var phaseEnd: Date?
         var pausedAt: Date?
@@ -11,6 +12,7 @@ struct FocusActivityAttributes: ActivityAttributes {
 
         init(_ state: TimerState) {
             phase = state.phase
+            methodName = state.method.name
             phaseStart = state.phaseStart
             phaseEnd = state.phaseEnd
             pausedAt = state.pausedAt
@@ -37,11 +39,9 @@ struct FocusActivityAttributes: ActivityAttributes {
         }
     }
 
-    var methodName: String
     var sessionStart: Date
 
     init(_ state: TimerState) {
-        methodName = state.method.name
         sessionStart = state.sessionStart
     }
 }

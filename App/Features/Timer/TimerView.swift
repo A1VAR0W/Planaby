@@ -17,7 +17,11 @@ struct TimerView: View {
             } else {
                 Group {
                     if let state = timer.state {
-                        ActiveTimerView(state: state) { timer.stop() }
+                        ActiveTimerView(
+                            state: state,
+                            onStop: { timer.stop() },
+                            onChangeMethod: { showingMethods = true }
+                        )
                     } else {
                         idleView
                     }
@@ -105,6 +109,7 @@ struct TimerView: View {
 private struct ActiveTimerView: View {
     let state: TimerState
     let onStop: () -> Void
+    let onChangeMethod: () -> Void
     @Environment(FocusTimer.self) private var timer
     @State private var confirmingStop = false
 
@@ -135,10 +140,18 @@ private struct ActiveTimerView: View {
             .padding(.vertical, 32)
 
             CycleDots(state: state)
-            Text(state.method.name)
-                .font(.footnote)
-                .foregroundStyle(.tertiary)
-                .padding(.top, 14)
+            Button(action: onChangeMethod) {
+                HStack(spacing: 6) {
+                    Text(state.method.name)
+                    Image(systemName: "chevron.down").font(.caption2.weight(.semibold))
+                }
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(.white.opacity(0.7))
+                .padding(.horizontal, 4)
+            }
+            .buttonStyle(.glass)
+            .accessibilityHint("Cambia de método sin perder la sesión")
+            .padding(.top, 14)
             Spacer()
 
             HStack(spacing: 28) {

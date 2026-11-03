@@ -80,6 +80,18 @@ struct TimerState: Codable, Equatable, Sendable {
         self.pausedAt = nil
     }
 
+    /// Cambia de método sin perder la sesión: el bloque de concentración actual conserva lo
+    /// trabajado y se ajusta a la nueva duración; un descanso en curso termina como estaba.
+    mutating func switchMethod(to newMethod: FocusMethod, at now: Date) {
+        method = newMethod
+        guard phase == .focus else { return }
+        phaseEnd = newMethod.duration(of: .focus).map { phaseStart.addingTimeInterval($0) }
+        if let pausedAt, let end = phaseEnd, end < pausedAt {
+            phaseEnd = pausedAt
+        }
+        catchUp(to: now)
+    }
+
     /// Termina la fase actual ahora mismo ("Saltar", o "Descansar" en Flowtime).
     mutating func skip(at now: Date) {
         resume(at: now)

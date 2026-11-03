@@ -107,13 +107,15 @@ struct RoundButton: View {
     let systemImage: String
     var prominent = false
     var tint: Color = Theme.orange
+    /// Versión más baja para el modo escritorio en horizontal.
+    var compact = false
     let action: () -> Void
 
     var body: some View {
-        let size: CGFloat = prominent ? 84 : 60
+        let size: CGFloat = compact ? (prominent ? 64 : 50) : (prominent ? 84 : 60)
         let button = Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: prominent ? 30 : 20, weight: .medium))
+                .font(.system(size: size * 0.36, weight: .medium))
                 .frame(width: size, height: size)
                 .contentTransition(.symbolEffect(.replace))
         }

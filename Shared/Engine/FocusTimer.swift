@@ -36,6 +36,12 @@ final class FocusTimer {
 
     func skip() { mutate { $0.skip(at: .now) } }
 
+    /// Elige método: si hay sesión en marcha, se cambia sin reiniciarla.
+    func select(_ method: FocusMethod) {
+        MethodLibrary.shared.selectedID = method.id
+        mutate { $0.switchMethod(to: method, at: .now) }
+    }
+
     /// Termina la sesión y la guarda en el historial si hubo al menos un minuto de concentración.
     @discardableResult
     func stop() -> CompletedSession? {
