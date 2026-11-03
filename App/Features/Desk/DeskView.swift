@@ -3,10 +3,10 @@ import SwiftUI
 
 /// Modo escritorio con el iPhone en horizontal.
 ///
-/// En reposo solo se ve la cifra grande sobre negro. Tocar la pantalla muestra los controles
-/// (métodos, pausa, saltar, terminar, atenuar), que se ocultan solos a los pocos segundos.
-/// En pausa o sin sesión los controles se quedan visibles. Mientras carga la pantalla no se
-/// apaga, y de noche todo pasa a rojo tenue, como StandBy.
+/// En reposo solo hay una cifra grande sobre negro y una línea finísima de progreso. Un toque
+/// muestra una única barra inferior (método, controles y atenuar) que se oculta sola; en pausa
+/// o sin sesión se queda visible. Mientras carga la pantalla no se apaga, y de noche todo pasa
+/// a rojo tenue, como StandBy.
 struct DeskView: View {
     @Environment(FocusTimer.self) private var timer
     @Environment(MethodLibrary.self) private var library
@@ -16,10 +16,13 @@ struct DeskView: View {
     @AppStorage(Preferences.deskNightEnd) private var nightEnd = 7
     @AppStorage(Preferences.deskKeepAwake) private var keepAwake = true
     @State private var isCharging = false
-    @State private var lastInteraction = Date.now
+    /// Hasta cuándo se ven los controles mientras la sesión corre.
+    @State private var controlsUntil = Date.now.addingTimeInterval(DeskView.controlsTimeout)
     @State private var confirmingStop = false
 
     private static let controlsTimeout: TimeInterval = 6
+    /// Margen extra al abrir el menú de métodos, para elegir con calma.
+    private static let menuTimeout: TimeInterval = 15
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
@@ -27,38 +30,33 @@ struct DeskView: View {
             let state = timer.state
             let tint = night ? Theme.night : (state?.phase.tint ?? Theme.orange)
             let ink = night ? Theme.night : Color.white
-            let showControls = state == nil || state?.isPaused == true
-                || context.date.timeIntervalSince(lastInteraction) < Self.controlsTimeout
+            let showControls = state == nil || state?.isPaused == true || context.date < controlsUntil
 
             ZStack {
                 Color.black.ignoresSafeArea()
-                BreathingGlow(tint: tint, strength: night || dimmed ? 0.08 : (state?.phase.isBreak == true ? 0.30 : 0.18))
+                BreathingGlow(tint: tint, strength: night || dimmed ? 0.08 : (state?.phase.isBreak == true ? 0.28 : 0.16))
 
                 VStack(spacing: 0) {
-                    topBar(tint: tint, ink: ink)
-                        .opacity(showControls ? 1 : 0)
-                        .allowsHitTesting(showControls)
-
                     Spacer(minLength: 0)
-                    center(state: state, date: context.date, tint: tint, ink: ink, compact: showControls)
+                    face(state: state, date: context.date, tint: tint, ink: ink)
                     Spacer(minLength: 0)
 
                     ZStack(alignment: .bottom) {
                         if showControls {
-                            controls(state: state, tint: tint)
-                                .transition(.move(edge: .bottom).combined(with: .opacity))
+                            bottomBar(state: state, tint: tint, ink: ink)
+                                .transition(.opacity)
                         } else if let state, state.phaseEnd != nil {
                             ProgressLine(progress: state.progress(at: context.date), tint: tint)
-                                .padding(.horizontal, 40)
-                                .padding(.bottom, 8)
+                                .padding(.horizontal, Space.xxl)
+                                .padding(.bottom, Space.s)
                                 .transition(.opacity)
                         }
                     }
                     .frame(height: 72)
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 8)
-                .animation(.smooth(duration: 0.45), value: showControls)
+                .padding(.horizontal, Space.l)
+                .padding(.vertical, Space.s)
+                .animation(.smooth(duration: 0.4), value: showControls)
 
                 if dimmed {
                     Color.black.opacity(0.45)
@@ -68,11 +66,11 @@ struct DeskView: View {
             }
         }
         .contentShape(.rect)
-        .onTapGesture { lastInteraction = .now }
+        .onTapGesture { reveal() }
         .confirmationDialog("¿Terminar la sesión?", isPresented: $confirmingStop, titleVisibility: .visible) {
             Button("Terminar", role: .destructive) { timer.stop() }
         } message: {
-            Text("Se guardará en el historial si llevas más de un minuto concentrado.")
+            Text("Se guardará en tu progreso si llevas más de un minuto concentrado.")
         }
         .sensoryFeedback(.impact(flexibility: .soft, intensity: 0.6), trigger: timer.state?.isPaused)
         .sensoryFeedback(.selection, trigger: library.selectedID)
@@ -91,61 +89,25 @@ struct DeskView: View {
 
     // MARK: - Partes
 
-    /// Métodos a la izquierda; atenuar y carga a la derecha.
-    private func topBar(tint: Color, ink: Color) -> some View {
-        HStack(spacing: 12) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(library.all) { method in
-                        MethodChip(title: method.name, isSelected: method.id == library.selectedID, tint: tint) {
-                            interact { timer.select(method) }
-                        }
-                        .accessibilityHint("Cambia el método sin perder la sesión")
-                    }
-                }
-            }
-            .scrollClipDisabled()
-
-            if isCharging {
-                Image(systemName: "bolt.fill")
-                    .font(.caption)
-                    .foregroundStyle(ink.opacity(0.64))
-                    .accessibilityLabel("Cargando")
-            }
-
-            Button {
-                interact { dimmed.toggle() }
-            } label: {
-                Image(systemName: dimmed ? "sun.max.fill" : "moon.fill")
-                    .font(.system(size: 16, weight: .medium))
-                    .frame(width: 44, height: 44)
-            }
-            .buttonStyle(.glass)
-            .buttonBorderShape(.circle)
-            .accessibilityLabel(dimmed ? "Brillo normal" : "Atenuar pantalla")
-        }
-        .frame(height: 48)
-    }
-
-    @ViewBuilder
-    private func center(state: TimerState?, date: Date, tint: Color, ink: Color, compact: Bool) -> some View {
-        VStack(spacing: 4) {
+    /// La cifra, con la fase encima y la hora debajo.
+    private func face(state: TimerState?, date: Date, tint: Color, ink: Color) -> some View {
+        VStack(spacing: Space.xs) {
             if let state {
                 Eyebrow(text: state.isPaused ? "En pausa" : state.phase.title, color: tint)
                 Text(state.clockText(at: date))
-                    .font(Theme.clock(compact ? 110 : 150))
+                    .font(Theme.clock(136))
                     .foregroundStyle(ink.opacity(state.isPaused ? 0.55 : 1))
                     .contentTransition(.numericText(countsDown: true))
                 if state.phase.isBreak && !state.isPaused {
                     BreathingHint(tint: tint)
                 } else {
-                    Text("\(date.formatted(date: .omitted, time: .shortened)) · \(state.method.name)")
-                        .font(.footnote)
+                    Text(date, format: .dateTime.hour().minute())
+                        .font(.subheadline.monospacedDigit())
                         .foregroundStyle(ink.opacity(0.64))
                 }
             } else {
                 Text(date, format: .dateTime.hour().minute())
-                    .font(Theme.clock(compact ? 120 : 150))
+                    .font(Theme.clock(136))
                     .foregroundStyle(ink)
                 Text(date.formatted(.dateTime.weekday(.wide).day().month(.wide)))
                     .font(.title3)
@@ -156,54 +118,114 @@ struct DeskView: View {
         .minimumScaleFactor(0.5)
     }
 
-    @ViewBuilder
-    private func controls(state: TimerState?, tint: Color) -> some View {
-        if let state {
-            HStack(spacing: 28) {
-                RoundButton(label: "Terminar", systemImage: "xmark", compact: true) {
-                    interact { confirmingStop = true }
-                }
-                RoundButton(
-                    label: state.isPaused ? "Reanudar" : "Pausar",
-                    systemImage: state.isPaused ? "play.fill" : "pause.fill",
-                    prominent: true, tint: tint, compact: true
-                ) {
-                    interact { timer.togglePause() }
-                }
-                RoundButton(
-                    label: state.phase == .focus ? "Pasar al descanso" : "Volver a concentrarse",
-                    systemImage: state.phase == .focus ? "cup.and.saucer.fill" : "flame.fill",
-                    compact: true
-                ) {
-                    interact { timer.skip() }
-                }
+    /// Una sola barra: método a la izquierda, acción principal en el centro y atenuar a la derecha.
+    private func bottomBar(state: TimerState?, tint: Color, ink: Color) -> some View {
+        ZStack {
+            HStack {
+                methodMenu(ink: ink)
+                Spacer(minLength: Space.m)
+                dimButton
             }
-        } else {
-            Button {
-                interact {
+
+            if let state {
+                HStack(spacing: Space.l) {
+                    RoundButton(label: "Terminar", systemImage: "stop.fill", compact: true) {
+                        reveal()
+                        confirmingStop = true
+                    }
+                    RoundButton(
+                        label: state.isPaused ? "Reanudar" : "Pausar",
+                        systemImage: state.isPaused ? "play.fill" : "pause.fill",
+                        prominent: true, tint: tint, compact: true
+                    ) {
+                        reveal()
+                        timer.togglePause()
+                    }
+                    RoundButton(label: state.skipLabel, systemImage: state.skipSymbol, compact: true) {
+                        reveal()
+                        timer.skip()
+                    }
+                }
+            } else {
+                Button {
                     Task {
                         await NotificationAccess.requestIfNeeded()
                         timer.start(library.selected)
                     }
+                } label: {
+                    Text("Empezar")
+                        .font(.headline)
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, Space.xl)
+                        .frame(minHeight: 36)
                 }
-            } label: {
-                Label("Empezar \(library.selected.name)", systemImage: "play.fill")
-                    .font(.headline)
-                    .foregroundStyle(.black)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 10)
+                .buttonStyle(.glassProminent)
+                .tint(tint)
+                .controlSize(.large)
             }
-            .buttonStyle(.glassProminent)
-            .tint(tint)
         }
+    }
+
+    /// Cambiar de método sin salir del modo escritorio y sin perder la sesión.
+    private func methodMenu(ink: Color) -> some View {
+        Menu {
+            Picker("Método", selection: methodSelection) {
+                ForEach(library.all) { method in
+                    Text(method.name).tag(method.id)
+                }
+            }
+        } label: {
+            HStack(spacing: Space.xs + 2) {
+                Text(library.selected.name)
+                    .lineLimit(1)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption2.weight(.bold))
+                    .accessibilityHidden(true)
+            }
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(ink.opacity(0.88))
+            .frame(minHeight: 32)
+            .padding(.horizontal, Space.xs)
+        }
+        .menuStyle(.button)
+        .buttonStyle(.glass)
+        .simultaneousGesture(TapGesture().onEnded {
+            controlsUntil = .now.addingTimeInterval(Self.menuTimeout)
+        })
+        .accessibilityLabel("Método: \(library.selected.name)")
+        .accessibilityHint("Cambia de método sin perder la sesión")
+    }
+
+    private var dimButton: some View {
+        Button {
+            reveal()
+            dimmed.toggle()
+        } label: {
+            Image(systemName: dimmed ? "sun.max.fill" : "moon.fill")
+                .font(.system(size: 16, weight: .medium))
+                .frame(width: 44, height: 44)
+        }
+        .buttonStyle(.glass)
+        .buttonBorderShape(.circle)
+        .accessibilityLabel(dimmed ? "Brillo normal" : "Atenuar pantalla")
     }
 
     // MARK: - Ayudas
 
-    /// Toda acción reinicia la cuenta para ocultar los controles.
-    private func interact(_ action: () -> Void) {
-        lastInteraction = .now
-        action()
+    private var methodSelection: Binding<String> {
+        Binding(
+            get: { library.selectedID },
+            set: { id in
+                guard let method = library.all.first(where: { $0.id == id }) else { return }
+                reveal()
+                timer.select(method)
+            }
+        )
+    }
+
+    /// Muestra los controles y reinicia la cuenta para ocultarlos.
+    private func reveal() {
+        controlsUntil = .now.addingTimeInterval(Self.controlsTimeout)
     }
 
     private func updateCharging() {
@@ -239,5 +261,6 @@ private struct ProgressLine: View {
             }
         }
         .frame(height: 3)
+        .accessibilityHidden(true)
     }
 }

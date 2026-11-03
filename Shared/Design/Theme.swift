@@ -192,51 +192,19 @@ struct ProgressRing: View {
     }
 }
 
-/// Cápsula seleccionable para elegir método (pantalla principal y modo escritorio).
-struct MethodChip: View {
-    let title: String
-    var systemImage: String?
-    let isSelected: Bool
-    var tint: Color = Theme.orange
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: Space.xs + 2) {
-                if let systemImage {
-                    Image(systemName: systemImage).imageScale(.small)
-                }
-                Text(title)
-            }
-            .font(.subheadline.weight(.medium))
-            .foregroundStyle(isSelected ? Color.black : Color.white.opacity(0.88))
-            .padding(.horizontal, Space.m)
-            .frame(minHeight: 44)
-            .background(isSelected ? tint : Theme.surface, in: .capsule)
-            .contentShape(.capsule)
+extension TimerState {
+    /// Nombre de la acción "saltar" según la fase.
+    var skipLabel: String {
+        switch phase {
+        case .focus: method.isOpenEnded ? "Descansar" : "Saltar al descanso"
+        case .shortBreak, .longBreak: "Volver a concentrarse"
         }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
-}
 
-/// Botón redondo con su nombre debajo, como en la app Reloj.
-struct LabeledRoundButton: View {
-    let label: String
-    let systemImage: String
-    var prominent = false
-    var tint: Color = Theme.orange
-    var compact = false
-    let action: () -> Void
-
-    var body: some View {
-        VStack(spacing: Space.s) {
-            RoundButton(label: label, systemImage: systemImage, prominent: prominent, tint: tint, compact: compact, action: action)
-            Text(label)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(Theme.secondaryText)
-                .lineLimit(1)
-                .accessibilityHidden(true)
+    var skipSymbol: String {
+        switch phase {
+        case .focus: method.isOpenEnded ? "cup.and.saucer.fill" : "forward.end.fill"
+        case .shortBreak, .longBreak: "flame.fill"
         }
     }
 }

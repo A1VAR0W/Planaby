@@ -40,7 +40,7 @@ Recuerda refrescar la app en SideStore cada 7 días.
 
 | Pestaña | Contenido |
 |---|---|
-| **Enfoque** | Saludo y objetivo de hoy, método a un toque, temporizador con anillo y controles con nombre. En horizontal pasa a modo escritorio. |
+| **Enfoque** | La cifra, el método y un solo botón principal. Con la sesión en marcha se oculta la barra de pestañas (vuelve al pausar). En horizontal pasa a modo escritorio: solo la cifra y, al tocar, una barra inferior con método, controles y atenuar. |
 | **Progreso** | Hoy frente al objetivo, racha, media por sesión, últimos 7 días, métodos de la semana e historial con borrado confirmado. |
 | **Ajustes** | Métodos y plantillas, objetivo diario, notificaciones, modo escritorio (pantalla encendida, atenuar, franja nocturna), atajos y Siri. |
 

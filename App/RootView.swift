@@ -22,7 +22,9 @@ struct RootView: View {
             } else {
                 TabView(selection: $tab) {
                     Tab("Enfoque", systemImage: "timer", value: AppTab.focus) {
-                        FocusView(onShowStats: { tab = .stats })
+                        NavigationStack {
+                            FocusView()
+                        }
                     }
                     Tab("Progreso", systemImage: "chart.bar.fill", value: AppTab.stats) {
                         NavigationStack {
