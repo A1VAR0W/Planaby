@@ -112,6 +112,21 @@ struct TimerState: Codable, Equatable, Sendable {
         return result
     }
 
+    /// Fase que viene después de la actual.
+    var nextPhase: PhaseKind {
+        phase == .focus ? method.breakKind(afterCompletedCycles: completedCycles + 1) : .focus
+    }
+
+    func clockText(at date: Date) -> String {
+        let seconds = remaining(at: date) ?? elapsed(at: date)
+        return Self.format(seconds)
+    }
+
+    static func format(_ seconds: TimeInterval) -> String {
+        Duration.seconds(seconds.rounded(.up))
+            .formatted(.time(pattern: seconds >= 3600 ? .hourMinuteSecond : .minuteSecond))
+    }
+
     private mutating func completePhase(endingAt end: Date) {
         if phase == .focus {
             let worked = end.timeIntervalSince(phaseStart)
@@ -127,5 +142,22 @@ struct TimerState: Codable, Equatable, Sendable {
         phase = kind
         phaseStart = start
         phaseEnd = method.duration(of: kind, focusElapsed: focusElapsed).map { start.addingTimeInterval($0) }
+    }
+}
+
+/// Estado compartido en el App Group: lo escribe la app y lo leen widgets y controles.
+extension TimerState {
+    private static let storageKey = "timerState"
+
+    static func loadShared() -> TimerState? {
+        AppGroup.defaults.data(forKey: storageKey).flatMap { try? JSONDecoder().decode(TimerState.self, from: $0) }
+    }
+
+    static func saveShared(_ state: TimerState?) {
+        if let state, let data = try? JSONEncoder().encode(state) {
+            AppGroup.defaults.set(data, forKey: storageKey)
+        } else {
+            AppGroup.defaults.removeObject(forKey: storageKey)
+        }
     }
 }

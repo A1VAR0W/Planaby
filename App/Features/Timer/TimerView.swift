@@ -1,25 +1,36 @@
-import SwiftData
 import SwiftUI
 
 struct TimerView: View {
     @Environment(FocusTimer.self) private var timer
     @Environment(MethodLibrary.self) private var library
-    @Environment(\.modelContext) private var modelContext
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     @State private var showingMethods = false
     @State private var showingHistory = false
 
+    /// En horizontal el iPhone pasa a modo escritorio.
+    private var isDesk: Bool { verticalSizeClass == .compact }
+
     var body: some View {
         Group {
-            if let state = timer.state {
-                ActiveTimerView(state: state, onStop: stop)
+            if isDesk {
+                DeskView()
             } else {
-                idleView
+                Group {
+                    if let state = timer.state {
+                        ActiveTimerView(state: state) { timer.stop() }
+                    } else {
+                        idleView
+                    }
+                }
+                .padding(.horizontal, 24)
+                .padding(.bottom, 24)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(PhaseBackground(tint: timer.state?.phase.tint ?? Theme.focus))
             }
         }
-        .padding(.horizontal, 24)
-        .padding(.bottom, 24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(PhaseBackground(tint: timer.state?.phase.tint ?? Theme.focus))
+        .toolbar(isDesk ? .hidden : .automatic, for: .navigationBar)
+        .statusBarHidden(isDesk)
+        .persistentSystemOverlays(isDesk ? .hidden : .automatic)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Historial", systemImage: "chart.bar.xaxis") { showingHistory = true }
@@ -79,12 +90,6 @@ struct TimerView: View {
         }
     }
 
-    private func stop() {
-        if let session = timer.stop() {
-            modelContext.insert(FocusSessionRecord(session))
-        }
-    }
-
     private static func preview(of method: FocusMethod) -> String {
         guard let minutes = method.focusMinutes else { return "0:00" }
         return Duration.seconds(minutes * 60)
@@ -107,7 +112,7 @@ private struct ActiveTimerView: View {
                 ZStack {
                     ProgressRing(progress: state.progress(at: context.date), tint: state.phase.tint)
                     VStack(spacing: 8) {
-                        Text(clock(at: context.date))
+                        Text(state.clockText(at: context.date))
                             .font(Theme.clock(72))
                             .contentTransition(.numericText(countsDown: true))
                         Text(caption)
@@ -160,12 +165,6 @@ private struct ActiveTimerView: View {
 
     private var skipIcon: String {
         state.phase == .focus && state.method.isOpenEnded ? "cup.and.saucer" : "forward.end"
-    }
-
-    private func clock(at date: Date) -> String {
-        let seconds = state.remaining(at: date) ?? state.elapsed(at: date)
-        return Duration.seconds(seconds.rounded(.up))
-            .formatted(.time(pattern: seconds >= 3600 ? .hourMinuteSecond : .minuteSecond))
     }
 }
 

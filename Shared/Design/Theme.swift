@@ -4,6 +4,8 @@ enum Theme {
     static let focus = Color(red: 1.0, green: 0.42, blue: 0.29)
     static let shortBreak = Color(red: 0.36, green: 0.82, blue: 0.64)
     static let longBreak = Color(red: 0.47, green: 0.58, blue: 1.0)
+    /// Tinta del modo escritorio por la noche, como StandBy.
+    static let night = Color(red: 1.0, green: 0.23, blue: 0.19)
 
     static func clock(_ size: CGFloat) -> Font {
         .system(size: size, weight: .thin, design: .rounded).monospacedDigit()
@@ -18,6 +20,14 @@ extension PhaseKind {
         case .focus: Theme.focus
         case .shortBreak: Theme.shortBreak
         case .longBreak: Theme.longBreak
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .focus: "scope"
+        case .shortBreak: "cup.and.saucer.fill"
+        case .longBreak: "leaf.fill"
         }
     }
 }

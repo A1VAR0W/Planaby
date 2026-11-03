@@ -1,12 +1,18 @@
 import Foundation
 import Observation
+import WidgetKit
 
 @Observable
 @MainActor
 final class MethodLibrary {
+    static let shared = MethodLibrary()
+
     private(set) var custom: [FocusMethod]
     var selectedID: String {
-        didSet { AppGroup.defaults.set(selectedID, forKey: Keys.selected) }
+        didSet {
+            AppGroup.defaults.set(selectedID, forKey: Keys.selected)
+            WidgetCenter.shared.reloadAllTimelines()
+        }
     }
 
     var all: [FocusMethod] { FocusMethod.builtIns + custom }
@@ -17,11 +23,15 @@ final class MethodLibrary {
         static let selected = "selectedMethodID"
     }
 
-    init() {
-        let defaults = AppGroup.defaults
-        custom = defaults.data(forKey: Keys.custom)
-            .flatMap { try? JSONDecoder().decode([FocusMethod].self, from: $0) } ?? []
-        selectedID = defaults.string(forKey: Keys.selected) ?? FocusMethod.pomodoro.id
+    private init() {
+        custom = Self.loadCustom()
+        selectedID = AppGroup.defaults.string(forKey: Keys.selected) ?? FocusMethod.pomodoro.id
+    }
+
+    /// Método seleccionado leído directamente del App Group, para widgets y extensiones.
+    nonisolated static func storedSelection() -> FocusMethod {
+        let id = AppGroup.defaults.string(forKey: Keys.selected)
+        return (FocusMethod.builtIns + loadCustom()).first { $0.id == id } ?? .pomodoro
     }
 
     func save(_ method: FocusMethod) {
@@ -37,6 +47,11 @@ final class MethodLibrary {
         custom.removeAll { $0.id == method.id }
         if selectedID == method.id { selectedID = FocusMethod.pomodoro.id }
         persist()
+    }
+
+    private nonisolated static func loadCustom() -> [FocusMethod] {
+        AppGroup.defaults.data(forKey: Keys.custom)
+            .flatMap { try? JSONDecoder().decode([FocusMethod].self, from: $0) } ?? []
     }
 
     private func persist() {

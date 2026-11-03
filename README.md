@@ -24,7 +24,13 @@ Recuerda refrescar la app en SideStore cada 7 días.
 
 ## Estado
 
-- [x] Hito 1: temporizador (Pomodoro, 52/17, Ultradiano, 112/26, 50/10, Flowtime y plantillas propias), notificaciones e historial.
-- [ ] Hito 2: Live Activity, widget StandBy, Control Center/Siri y modo escritorio horizontal.
-- [ ] Hito 3: bloqueo con fricción mediante Atajos, estadísticas y tareas.
-- [ ] Hito 4: triage con IA de iMessage/SMS e IMAP, filtro de Concentración y Spotify.
+- [x] Hito 1: temporizador (Pomodoro, 52/17, Ultradiano, 112/26, 50/10, Flowtime y plantillas propias), notificaciones, historial y diseño minimalista.
+- [x] Hito 2: Live Activity y Dynamic Island, widget para inicio/pantalla bloqueada/StandBy, control del Centro de Control, Siri y modo escritorio horizontal.
+- [ ] Hito 3: calendario propio con planes Trabajo y Normal, planificación con IA (chat y plantillas, siempre con confirmación) y recordatorios.
+- [ ] Hito 4: bloqueo con fricción mediante Atajos, estadísticas y tareas.
+- [ ] Hito 5: triage con IA de iMessage/SMS e IMAP, filtro de Concentración y Spotify.
+
+## Atajos útiles
+
+- **Modo escritorio al cargar:** Atajos → Automatización → *Cargador* → *Está conectado* → acción **Abrir modo escritorio** (Planaby). Con el iPhone en horizontal, la pantalla no se apaga mientras carga.
+- **Botón de Acción / Centro de Control:** añade el control **Concentración** de Planaby.

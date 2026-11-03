@@ -6,15 +6,8 @@ import UserNotifications
 struct PlanabyApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.scenePhase) private var scenePhase
-    @State private var notifications: NotificationService
-    @State private var timer: FocusTimer
-    @State private var library = MethodLibrary()
-
-    init() {
-        let notifications = NotificationService()
-        _notifications = State(initialValue: notifications)
-        _timer = State(initialValue: FocusTimer(notifications: notifications))
-    }
+    @State private var timer = FocusTimer.shared
+    @State private var library = MethodLibrary.shared
 
     var body: some Scene {
         WindowGroup {
@@ -23,11 +16,13 @@ struct PlanabyApp: App {
             }
             .environment(timer)
             .environment(library)
-            .task { await notifications.requestAuthorization() }
+            .task {
+                _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
+            }
         }
-        .modelContainer(for: FocusSessionRecord.self)
+        .modelContainer(PlanabyStore.container)
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { timer.reconcile() }
+            if phase == .active { timer.sync() }
         }
     }
 }

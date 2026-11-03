@@ -8,10 +8,6 @@ final class NotificationService {
     private static let maxScheduled = 12
     private let transitionIDs = (0..<NotificationService.maxScheduled).map { "phase-\($0)" }
 
-    func requestAuthorization() async {
-        _ = try? await center.requestAuthorization(options: [.alert, .sound, .badge])
-    }
-
     func scheduleTransitions(for state: TimerState?) {
         center.removePendingNotificationRequests(withIdentifiers: transitionIDs)
         guard let state else { return }

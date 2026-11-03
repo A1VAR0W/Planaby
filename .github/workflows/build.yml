@@ -66,7 +66,10 @@ jobs:
 
       # SideStore re-firma el IPA, pero lee los entitlements (App Groups) de la firma existente.
       - name: Fake-sign with entitlements
-        run: ldid -SApp/Planaby.entitlements DerivedData/Build/Products/Release-iphoneos/Planaby.app/Planaby
+        run: |
+          APP=DerivedData/Build/Products/Release-iphoneos/Planaby.app
+          ldid -SWidgets/PlanabyWidgets.entitlements "$APP/PlugIns/PlanabyWidgets.appex/PlanabyWidgets"
+          ldid -SApp/Planaby.entitlements "$APP/Planaby"
 
       - name: Package IPA
         run: |
