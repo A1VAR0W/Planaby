@@ -20,6 +20,8 @@ struct PlanabyApp: App {
                 .environment(inbox)
                 .preferredColorScheme(.dark)
                 .tint(Theme.orange)
+                // Vuelta desde la app de Spotify al conectar App Remote.
+                .onOpenURL { SpotifyController.shared.handleOpenURL($0) }
         }
         .modelContainer(PlanabyStore.container)
         .onChange(of: scenePhase) { _, phase in
@@ -28,9 +30,11 @@ struct PlanabyApp: App {
                 ReminderScheduler.shared.reschedule()
                 // Outlook y otros calendarios suscritos se descargan de nuevo si hace rato.
                 ExternalCalendars.shared.syncIfNeeded()
+                Task { await SpotifyController.shared.connectRemote() }
                 // Correos nuevos por el filtro de mensajes (si hay cuenta).
                 MailInbox.shared.checkIfNeeded(context: PlanabyStore.container.mainContext)
             } else if phase == .background {
+                SpotifyController.shared.disconnectRemote()
                 // Al cerrar no se pierde nada: se guarda lo pendiente y la copia del día.
                 PlanabyStore.saveNow()
                 BackupService.automaticBackup(context: PlanabyStore.container.mainContext)

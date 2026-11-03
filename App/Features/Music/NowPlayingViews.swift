@@ -3,19 +3,26 @@ import SwiftUI
 /// Carátula de lo que suena en Spotify. De noche se tiñe de rojo tenue, como StandBy.
 struct ArtworkView: View {
     let url: URL?
+    var image: UIImage?
     var night = false
     var cornerRadius: CGFloat = 20
 
     var body: some View {
-        AsyncImage(url: url) { phase in
-            if let image = phase.image {
-                image.resizable().scaledToFill()
+        Group {
+            if let image {
+                Image(uiImage: image).resizable().scaledToFill()
             } else {
-                ZStack {
-                    Theme.surface
-                    Image(systemName: "music.note")
-                        .font(.system(size: 40, weight: .light))
-                        .foregroundStyle(Theme.secondaryText)
+                AsyncImage(url: url) { phase in
+                    if let image = phase.image {
+                        image.resizable().scaledToFill()
+                    } else {
+                        ZStack {
+                            Theme.surface
+                            Image(systemName: "music.note")
+                                .font(.system(size: 40, weight: .light))
+                                .foregroundStyle(Theme.secondaryText)
+                        }
+                    }
                 }
             }
         }
@@ -110,7 +117,7 @@ struct DeskNowPlaying: View {
 
     var body: some View {
         HStack(spacing: Space.xl) {
-            ArtworkView(url: spotify.track?.artworkURL, night: night, cornerRadius: 24)
+            ArtworkView(url: spotify.track?.artworkURL, image: spotify.artwork, night: night, cornerRadius: 24)
                 .frame(maxHeight: .infinity)
                 .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
 
@@ -148,7 +155,9 @@ struct DeskNowPlaying: View {
                         .font(.title3)
                         .foregroundStyle(ink.opacity(0.65))
                     if spotify.isConnected {
-                        PlaybackControls(tint: tint, ink: ink, large: true)
+                        Button("Poner música", systemImage: "play.fill") { spotify.wakeSpotify() }
+                            .buttonStyle(.glass)
+                            .tint(tint)
                     }
                 }
                 if let error = spotify.lastError {
@@ -161,7 +170,10 @@ struct DeskNowPlaying: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.vertical, Space.s)
-        .task { await spotify.watch() }
+        .task {
+            await spotify.connectRemote()
+            await spotify.watch()
+        }
     }
 }
 
@@ -174,7 +186,7 @@ struct MiniPlayer: View {
         HStack(spacing: Space.s) {
             Button(action: onOpen) {
                 HStack(spacing: Space.s) {
-                    ArtworkView(url: spotify.track?.artworkURL, cornerRadius: 8)
+                    ArtworkView(url: spotify.track?.artworkURL, image: spotify.artwork, cornerRadius: 8)
                         .frame(width: 32, height: 32)
                     VStack(alignment: .leading, spacing: 0) {
                         Text(spotify.track?.title ?? "Spotify")
@@ -206,7 +218,10 @@ struct MiniPlayer: View {
         .padding(.trailing, Space.xs)
         .frame(minHeight: 44)
         .glassEffect(.regular.interactive(), in: .capsule)
-        .task { await spotify.watch() }
+        .task {
+            await spotify.connectRemote()
+            await spotify.watch()
+        }
     }
 }
 
@@ -220,7 +235,7 @@ struct NowPlayingView: View {
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             VStack(spacing: Space.l) {
-                ArtworkView(url: spotify.track?.artworkURL, cornerRadius: 24)
+                ArtworkView(url: spotify.track?.artworkURL, image: spotify.artwork, cornerRadius: 24)
                     .padding(.horizontal, Space.m)
                     .shadow(color: .black.opacity(0.5), radius: 24, y: 10)
                     .animation(.smooth, value: spotify.track?.artworkURL)

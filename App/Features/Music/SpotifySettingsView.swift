@@ -15,6 +15,14 @@ struct SpotifySettingsView: View {
             if spotify.isConnected {
                 Section {
                     LabeledContent("Cuenta", value: spotify.accountName ?? "Conectada")
+                    LabeledContent("App de Spotify", value: spotify.isRemoteConnected ? "Conectada" : "Sin conectar")
+                    if spotify.needsReconnect {
+                        Label("Desconecta y vuelve a conectar para controlar la app de Spotify con tu cuenta gratuita.", systemImage: "arrow.triangle.2.circlepath")
+                            .foregroundStyle(Theme.orange)
+                    }
+                    if !spotify.isRemoteConnected {
+                        Button("Conectar con la app de Spotify") { spotify.wakeSpotify() }
+                    }
                     if let track = spotify.track {
                         LabeledContent("Suena", value: "\(track.title) · \(track.artists)")
                     }
@@ -24,7 +32,7 @@ struct SpotifySettingsView: View {
                     }
                     Button("Desconectar", role: .destructive) { spotify.disconnect() }
                 } footer: {
-                    Text("En Enfoque verás lo que suena con su carátula, y en el modo escritorio el botón ♪ lo pone a pantalla completa. Reproducir, pausar y saltar desde Planaby necesita Spotify Premium; ver lo que suena funciona con cualquier cuenta.")
+                    Text("En Enfoque verás lo que suena con su carátula, y en el modo escritorio el botón ♪ lo pone a pantalla completa. Planaby controla la app de Spotify del iPhone (también con cuenta gratuita); si Spotify estaba cerrado, se abre un instante para despertarlo y vuelve a Planaby.")
                 }
                 .task { await spotify.refresh() }
             } else {
@@ -32,7 +40,7 @@ struct SpotifySettingsView: View {
                     VStack(alignment: .leading, spacing: Space.s) {
                         Step(number: 1, text: "Abre developer.spotify.com/dashboard con tu cuenta de Spotify y pulsa «Create app».")
                         Step(number: 2, text: "Nombre: Planaby. En Redirect URIs añade exactamente: \(SpotifyController.redirectURI)")
-                        Step(number: 3, text: "Marca «Web API» y «iOS», acepta y guarda.")
+                        Step(number: 3, text: "Marca «Web API» y «iOS». En iOS, Bundle ID: com.alvaro.planaby. Acepta y guarda.")
                         Step(number: 4, text: "En Settings copia el «Client ID» y pégalo aquí debajo.")
                     }
                     .padding(.vertical, Space.xs)

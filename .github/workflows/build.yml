@@ -74,6 +74,10 @@ jobs:
         run: |
           APP=DerivedData/Build/Products/Release-iphoneos/Planaby.app
           ldid -SWidgets/PlanabyWidgets.entitlements "$APP/PlugIns/PlanabyWidgets.appex/PlanabyWidgets"
+          # Frameworks incrustados (p. ej. el SDK de Spotify si es dinámico).
+          for framework in "$APP"/Frameworks/*.framework; do
+            [ -d "$framework" ] && ldid -S "$framework/$(basename "$framework" .framework)"
+          done
           ldid -SApp/Planaby.entitlements "$APP/Planaby"
 
       - name: Package IPA
