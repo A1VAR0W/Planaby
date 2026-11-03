@@ -67,3 +67,24 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.alvaro.planaby.widgets
+
+  # Tests del planificador: lógica pura, sin app anfitriona.
+  PlanabyTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - Tests
+      - Shared/Planning/WorkloadPlanner.swift
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.alvaro.planaby.tests
+
+schemes:
+  PlanabyTests:
+    build:
+      targets:
+        PlanabyTests: [test]
+    test:
+      targets:
+        - PlanabyTests

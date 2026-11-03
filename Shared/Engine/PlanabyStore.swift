@@ -4,7 +4,7 @@ import SwiftData
 enum PlanabyStore {
     static let container: ModelContainer = {
         do {
-            return try ModelContainer(for: FocusSessionRecord.self)
+            return try ModelContainer(for: FocusSessionRecord.self, CalendarEvent.self, PlanTask.self)
         } catch {
             fatalError("No se pudo abrir la base de datos: \(error)")
         }

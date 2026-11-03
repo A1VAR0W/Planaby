@@ -65,6 +65,16 @@ extension PhaseKind {
     }
 }
 
+extension PlanMode {
+    /// Trabajo en naranja vivo; Normal en arena, más tranquilo.
+    var tint: Color {
+        switch self {
+        case .work: Theme.orange
+        case .personal: Theme.sand
+        }
+    }
+}
+
 /// Ritmo de respiración lenta: 4 s inhalando y 6 s exhalando.
 enum Breath {
     static let inhale: TimeInterval = 4

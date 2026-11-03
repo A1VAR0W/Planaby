@@ -35,6 +35,18 @@ struct PlanabyShortcuts: AppShortcutsProvider {
             systemImageName: "stop.fill"
         )
         AppShortcut(
+            intent: AddToPlanIntent(),
+            phrases: ["Planifica con \(.applicationName)", "Añade a mi plan de \(.applicationName)"],
+            shortTitle: "Planificar",
+            systemImageName: "sparkles"
+        )
+        AppShortcut(
+            intent: SetPlanModeIntent(),
+            phrases: ["Cambia de modo en \(.applicationName)", "Modo \(\.$mode) en \(.applicationName)"],
+            shortTitle: "Cambiar de modo",
+            systemImageName: "briefcase.fill"
+        )
+        AppShortcut(
             intent: OpenDeskIntent(),
             phrases: ["Modo escritorio en \(.applicationName)"],
             shortTitle: "Modo escritorio",

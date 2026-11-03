@@ -1,12 +1,13 @@
 import SwiftUI
 
-/// Pestañas principales. El hito 3 añadirá `.plan` (calendario y planificación) entre Enfoque y Progreso.
+/// Pestañas principales.
 enum AppTab: Hashable {
-    case focus, stats, settings
+    case focus, plan, stats, settings
 }
 
 struct RootView: View {
     @Environment(FocusTimer.self) private var timer
+    @Environment(PlanInbox.self) private var inbox
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @State private var tab: AppTab = .focus
 
@@ -26,6 +27,11 @@ struct RootView: View {
                             FocusView()
                         }
                     }
+                    Tab("Plan", systemImage: "calendar", value: AppTab.plan) {
+                        NavigationStack {
+                            PlanView()
+                        }
+                    }
                     Tab("Progreso", systemImage: "chart.bar.fill", value: AppTab.stats) {
                         NavigationStack {
                             StatsView(onStartFocus: { tab = .focus })
@@ -41,6 +47,14 @@ struct RootView: View {
             }
         }
         .sensoryFeedback(.impact(flexibility: .soft, intensity: 0.7), trigger: timer.state?.phase)
+        // Una sesión que empieza desde un bloque, un aviso o Siri se sigue en Enfoque.
+        .onChange(of: timer.state?.sessionStart) { old, new in
+            if new != nil, new != old { tab = .focus }
+        }
+        // Lo dictado a Siri ("Planifica con Planaby") se abre en el chat del plan.
+        .onChange(of: inbox.pending, initial: true) { _, pending in
+            if pending != nil { tab = .plan }
+        }
         .task {
             // Las fases avanzan solas aunque no se toque nada.
             while !Task.isCancelled {

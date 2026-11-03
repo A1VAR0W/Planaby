@@ -110,3 +110,26 @@ jobs:
             Planaby.ipa
             metadata.json
             distribution/icon.png
+
+  # Va en paralelo y no bloquea la publicación del IPA.
+  test:
+    runs-on: ${{ inputs.runner || 'macos-15-intel' }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Planner unit tests
+        run: |
+          set -o pipefail
+          UDID=$(xcrun simctl list devices available -j | jq -r '[.devices | to_entries[] | select(.key | test("iOS")) | .value[] | select(.name | startswith("iPhone"))] | last | .udid')
+          echo "Simulador: $UDID"
+          xcodebuild test -project Planaby.xcodeproj -scheme PlanabyTests -destination "id=$UDID" -quiet CODE_SIGNING_ALLOWED=NO

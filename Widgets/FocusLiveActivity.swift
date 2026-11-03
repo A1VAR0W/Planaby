@@ -13,26 +13,30 @@ struct FocusLiveActivity: Widget {
             let state = context.state
             let stale = context.isStale
             return DynamicIsland {
-                // Arriba: anillo a la izquierda y fase a la derecha, a ambos lados de la cámara.
+                // Arriba, a los lados de la cámara, solo piezas estrechas: anillo y tiempo.
                 DynamicIslandExpandedRegion(.leading) {
                     PhaseRing(state: state, isStale: stale)
-                        .frame(width: 40, height: 40)
+                        .frame(width: 34, height: 34)
+                        .padding(.leading, 4)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    PhaseLabels(state: state, isStale: stale, alignment: .trailing)
+                    ActivityClock(state: state, isStale: stale)
+                        .font(.system(size: 28, weight: .light, design: .rounded).monospacedDigit())
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.trailing)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .frame(maxWidth: 104, minHeight: 34, alignment: .trailing)
+                        .padding(.trailing, 4)
                 }
-                // Abajo: el tiempo con espacio de sobra y los controles.
+                // Abajo, a todo el ancho: fase y método en una línea y los controles.
                 DynamicIslandExpandedRegion(.bottom) {
-                    HStack(alignment: .center, spacing: 10) {
-                        ActivityClock(state: state, isStale: stale)
-                            .font(Theme.clock(44))
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.6)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        ActivityControls(state: state, isStale: stale, style: .circles)
+                    VStack(spacing: 10) {
+                        PhaseLine(state: state, isStale: stale)
+                        ActivityControls(state: state, isStale: stale, style: .bar)
                     }
-                    .padding(.top, 2)
+                    .padding(.horizontal, 4)
+                    .padding(.top, 4)
                 }
             } compactLeading: {
                 PhaseRing(state: state, isStale: stale, showsSymbol: false)
@@ -48,7 +52,6 @@ struct FocusLiveActivity: Widget {
                     .frame(width: 20, height: 20)
             }
             .keylineTint(state.phase.tint)
-            .contentMargins(.horizontal, 16, for: .expanded)
         }
     }
 }
@@ -88,6 +91,25 @@ private struct PhaseLabels: View {
             Text(isStale ? "Ahora: \(state.nextPhase.title)" : state.methodName)
                 .font(.caption)
                 .foregroundStyle(Theme.secondaryText)
+        }
+        .lineLimit(1)
+    }
+}
+
+/// Fase y método en una sola línea, para la isla ampliada.
+private struct PhaseLine: View {
+    let state: FocusActivityAttributes.ContentState
+    let isStale: Bool
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Eyebrow(text: isStale ? "Completado" : (state.pausedAt == nil ? state.phase.title : "En pausa"), color: state.phase.tint)
+                .layoutPriority(1)
+            Text("·").foregroundStyle(Theme.secondaryText)
+            Text(isStale ? "Ahora: \(state.nextPhase.title)" : state.methodName)
+                .font(.caption)
+                .foregroundStyle(Theme.secondaryText)
+            Spacer(minLength: 0)
         }
         .lineLimit(1)
     }
@@ -140,7 +162,8 @@ private struct ActivityClock: View {
 }
 
 private struct ActivityControls: View {
-    enum Style { case circles, pills }
+    /// `.bar`: tres botones de igual ancho, solo icono (isla). `.pills`: con texto (pantalla bloqueada).
+    enum Style { case bar, pills }
 
     let state: FocusActivityAttributes.ContentState
     let isStale: Bool
@@ -152,14 +175,18 @@ private struct ActivityControls: View {
                 Button(intent: RefreshFocusIntent()) {
                     Label("Continuar", systemImage: "arrow.right")
                         .font(.subheadline.weight(.semibold))
-                        .frame(maxWidth: style == .pills ? .infinity : nil)
-                        .padding(.horizontal, style == .circles ? 6 : 0)
+                        .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-                .buttonBorderShape(.capsule)
                 .foregroundStyle(.black)
             } else {
                 let paused = state.pausedAt != nil
+                Button(intent: StopFocusIntent()) {
+                    icon("stop.fill")
+                }
+                .buttonStyle(.bordered)
+                .accessibilityLabel("Terminar")
+
                 Button(intent: TogglePauseIntent()) {
                     if style == .pills {
                         Label(paused ? "Seguir" : "Pausa", systemImage: paused ? "play.fill" : "pause.fill")
@@ -170,31 +197,24 @@ private struct ActivityControls: View {
                     }
                 }
                 .buttonStyle(.borderedProminent)
-                .buttonBorderShape(style == .pills ? .capsule : .circle)
                 .foregroundStyle(.black)
                 .accessibilityLabel(paused ? "Reanudar" : "Pausar")
 
                 Button(intent: SkipPhaseIntent()) {
-                    icon(state.phase == .focus ? "cup.and.saucer.fill" : "flame.fill")
+                    icon(state.phase == .focus ? "forward.end.fill" : "flame.fill")
                 }
                 .buttonStyle(.bordered)
-                .buttonBorderShape(.circle)
-                .accessibilityLabel("Siguiente fase")
-
-                Button(intent: StopFocusIntent()) {
-                    icon("xmark")
-                }
-                .buttonStyle(.bordered)
-                .buttonBorderShape(.circle)
-                .accessibilityLabel("Terminar")
+                .accessibilityLabel(state.phase == .focus ? "Saltar al descanso" : "Volver a concentrarse")
             }
         }
+        .buttonBorderShape(.capsule)
+        .controlSize(.regular)
         .tint(state.phase.tint)
     }
 
     private func icon(_ name: String) -> some View {
         Image(systemName: name)
             .font(.system(size: 15, weight: .semibold))
-            .frame(width: 22, height: 22)
+            .frame(maxWidth: .infinity, minHeight: 22)
     }
 }

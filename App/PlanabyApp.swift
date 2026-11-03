@@ -8,18 +8,25 @@ struct PlanabyApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @State private var timer = FocusTimer.shared
     @State private var library = MethodLibrary.shared
+    @State private var modes = ModeController.shared
+    @State private var inbox = PlanInbox.shared
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environment(timer)
                 .environment(library)
+                .environment(modes)
+                .environment(inbox)
                 .preferredColorScheme(.dark)
                 .tint(Theme.orange)
         }
         .modelContainer(PlanabyStore.container)
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { timer.sync() }
+            if phase == .active {
+                timer.sync()
+                ReminderScheduler.shared.reschedule()
+            }
         }
     }
 }
@@ -30,7 +37,30 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        MainActor.assumeIsolated {
+            ReminderScheduler.shared.registerCategories()
+        }
         return true
+    }
+
+    /// Acciones de los recordatorios: empezar a concentrarse o posponer.
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse
+    ) async {
+        let action = response.actionIdentifier
+        let title = response.notification.request.content.title
+        let body = response.notification.request.content.body
+        await MainActor.run {
+            switch action {
+            case ReminderScheduler.startAction:
+                FocusTimer.shared.start(MethodLibrary.shared.selected)
+            case ReminderScheduler.snoozeAction:
+                ReminderScheduler.shared.snooze(title: title, body: body)
+            default:
+                break
+            }
+        }
     }
 
     /// Muestra los avisos de cambio de fase también con la app abierta.

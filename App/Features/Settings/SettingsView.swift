@@ -6,6 +6,7 @@ import UserNotifications
 struct SettingsView: View {
     @Environment(FocusTimer.self) private var timer
     @Environment(MethodLibrary.self) private var library
+    @Environment(ModeController.self) private var modes
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
 
@@ -24,6 +25,7 @@ struct SettingsView: View {
     var body: some View {
         Form {
             focusSection
+            planSection
             notificationsSection
             deskSection
             shortcutsSection
@@ -66,6 +68,33 @@ struct SettingsView: View {
             Text("Concentración")
         } footer: {
             Text("El objetivo marca el anillo de Enfoque y la línea de referencia en Progreso.")
+        }
+    }
+
+    private var planSection: some View {
+        Section {
+            Picker(selection: Binding(get: { modes.mode }, set: { modes.set($0) })) {
+                ForEach(PlanMode.allCases) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            } label: {
+                Label("Modo", systemImage: modes.mode.symbol)
+            }
+            ForEach(PlanMode.allCases) { mode in
+                NavigationLink {
+                    ModeScheduleView(mode: mode)
+                } label: {
+                    LabeledContent {
+                        Text(Self.scheduleSummary(modes.availability(for: mode)))
+                    } label: {
+                        Label("Horario de \(mode.title)", systemImage: "clock")
+                    }
+                }
+            }
+        } header: {
+            Text("Plan")
+        } footer: {
+            Text("En modo Normal se silencian los recordatorios de Trabajo. Para cambiar de modo con una Concentración del iPhone: Ajustes de iOS › Concentración › (p. ej. Trabajo) › Filtros › Planaby.")
         }
     }
 
@@ -168,14 +197,12 @@ struct SettingsView: View {
         } header: {
             Text("Atajos y Siri")
         } footer: {
-            Text("Di «Concentración en Planaby» para empezar sin tocar el iPhone.")
+            Text("Di «Concentración en Planaby» para empezar, o «Planifica con Planaby» para dictar algo a tu plan.")
         }
     }
 
     private var roadmapSection: some View {
         Section {
-            RoadmapRow(title: "Calendario con planes Trabajo y Normal", systemImage: "calendar")
-            RoadmapRow(title: "Planificación con IA por chat o plantillas", systemImage: "sparkles")
             RoadmapRow(title: "Bloqueo de apps con fricción", systemImage: "hand.raised")
             RoadmapRow(title: "Filtro inteligente de mensajes", systemImage: "tray.full")
             RoadmapRow(title: "Control de Spotify", systemImage: "music.note")
@@ -199,6 +226,11 @@ struct SettingsView: View {
 
     private func refreshNotificationStatus() async {
         notificationStatus = await NotificationAccess.status()
+    }
+
+    private static func scheduleSummary(_ availability: Availability) -> String {
+        let start = availability.startMinute, end = availability.endMinute
+        return String(format: "%d:%02d–%d:%02d", start / 60, start % 60, end / 60, end % 60)
     }
 
     private static func hourLabel(_ hour: Int) -> String {
