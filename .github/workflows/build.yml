@@ -9,11 +9,28 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
-    runs-on: macos-26
+    runs-on: macos-latest
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Restore DerivedData cache
+        uses: actions/cache/restore@v6
+        with:
+          path: DerivedData
+          key: deriveddata-${{ github.run_id }}
+          restore-keys: |
+            deriveddata-
 
       - name: Install tools
         run: brew install xcodegen ldid
@@ -30,25 +47,32 @@ jobs:
             -project Planaby.xcodeproj \
             -scheme Planaby \
             -configuration Release \
-            -sdk iphoneos \
             -destination 'generic/platform=iOS' \
-            -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO
+            -derivedDataPath DerivedData \
+            -quiet \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            SWIFT_ENABLE_COMPILE_CACHE=YES \
+            CLANG_ENABLE_COMPILE_CACHE=YES \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Save DerivedData cache
+        if: always()
+        uses: actions/cache/save@v6
+        with:
+          path: DerivedData
+          key: deriveddata-${{ github.run_id }}
 
       # SideStore re-firma el IPA, pero lee los entitlements (App Groups) de la firma existente.
       - name: Fake-sign with entitlements
-        run: |
-          APP=build/Build/Products/Release-iphoneos/Planaby.app
-          ldid -SApp/Planaby.entitlements "$APP/Planaby"
+        run: ldid -SApp/Planaby.entitlements DerivedData/Build/Products/Release-iphoneos/Planaby.app/Planaby
 
       - name: Package IPA
         run: |
           mkdir -p Payload
-          cp -R build/Build/Products/Release-iphoneos/Planaby.app Payload/
+          cp -R DerivedData/Build/Products/Release-iphoneos/Planaby.app Payload/
           zip -qry Planaby.ipa Payload
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: Planaby-ipa
           path: Planaby.ipa
