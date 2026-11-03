@@ -11,7 +11,8 @@ import UIKit
 /// Dos caminos: App Remote (el SDK oficial, que habla con la app de Spotify del iPhone y funciona
 /// también con cuentas gratuitas) y, si no está disponible, la API web (ver lo que suena con
 /// cualquier cuenta; controlar, solo con Premium). El acceso es con PKCE, sin secreto en la app;
-/// el token de renovación va al Llavero.
+/// el token de renovación va al Llavero. También se puede conectar solo con la app de Spotify,
+/// sin API web: Spotify da un token de una hora y, al caducar, se vuelve a abrir un instante.
 @Observable
 @MainActor
 final class SpotifyController {
@@ -40,6 +41,8 @@ final class SpotifyController {
     private(set) var artwork: UIImage?
     /// Conectado con la app de Spotify del iPhone.
     private(set) var isRemoteConnected = false
+    /// Con sesión de la API web (si no, solo con la app de Spotify).
+    private(set) var isWebLinked: Bool
 
     @ObservationIgnored private var accessToken: String?
     @ObservationIgnored private var accessExpiry = Date.distantPast
@@ -53,6 +56,8 @@ final class SpotifyController {
         static let account = "spotifyAccountName"
         /// Versión de los permisos pedidos (2 = con app-remote-control).
         static let scopes = "spotifyScopeVersion"
+        /// Conectado solo con la app de Spotify, sin API web.
+        static let appOnly = "spotifyAppOnly"
     }
 
     static let redirectScheme = "planaby-spotify"
@@ -62,13 +67,14 @@ final class SpotifyController {
     private static let scopeVersion = 2
 
     private init() {
-        isConnected = Self.refreshToken() != nil
+        isWebLinked = Self.refreshToken() != nil
+        isConnected = isWebLinked || UserDefaults.standard.bool(forKey: Keys.appOnly)
         accountName = UserDefaults.standard.string(forKey: Keys.account)
     }
 
     /// Se conectó antes de que Planaby usara App Remote: conviene volver a conectar.
     var needsReconnect: Bool {
-        isConnected && UserDefaults.standard.integer(forKey: Keys.scopes) < Self.scopeVersion
+        isWebLinked && UserDefaults.standard.integer(forKey: Keys.scopes) < Self.scopeVersion
     }
 
     var clientID: String {
@@ -116,6 +122,8 @@ final class SpotifyController {
         ])
         self.verifier = nil
         isConnected = true
+        isWebLinked = true
+        UserDefaults.standard.removeObject(forKey: Keys.appOnly)
         lastError = nil
         UserDefaults.standard.set(Self.scopeVersion, forKey: Keys.scopes)
         if let me: Profile = try? await get("/me") {
@@ -134,18 +142,23 @@ final class SpotifyController {
         accessToken = nil
         accessExpiry = .distantPast
         isConnected = false
+        isWebLinked = false
         accountName = nil
         track = nil
         isPlaying = false
         UserDefaults.standard.removeObject(forKey: Keys.account)
+        UserDefaults.standard.removeObject(forKey: Keys.appOnly)
         UserDefaults.standard.removeObject(forKey: Keys.scopes)
     }
 
     private func validToken() async throws -> String {
         if let accessToken, accessExpiry > .now.addingTimeInterval(30) { return accessToken }
         guard let refresh = Self.refreshToken() else {
-            isConnected = false
-            throw SpotifyError.message("Conecta Spotify en Ajustes › Música.")
+            if isWebLinked {
+                isWebLinked = false
+                isConnected = UserDefaults.standard.bool(forKey: Keys.appOnly)
+            }
+            throw SpotifyError.message(isConnected ? "Toca reproducir para abrir Spotify un instante y reconectar." : "Conecta Spotify en Ajustes › Música.")
         }
         try await requestToken(["grant_type": "refresh_token", "refresh_token": refresh, "client_id": clientID])
         guard let accessToken else { throw SpotifyError.message("Spotify no ha dado acceso.") }
@@ -172,7 +185,7 @@ final class SpotifyController {
 
     /// Pregunta qué suena. Las vistas lo llaman cada pocos segundos mientras se ven.
     func refresh() async {
-        guard isConnected, !isRemoteConnected else { return }
+        guard isWebLinked, !isRemoteConnected else { return }
         do {
             let state: PlayerState? = try await get("/me/player")
             apply(state)
@@ -253,11 +266,14 @@ final class SpotifyController {
     /// Pone una lista, un álbum o una canción (spotify:playlist:…).
     func play(uri: String) async {
         if let api = await remotePlayer() { api.play(uri, callback: nil); return }
+        guard isWebLinked else { wakeSpotify(playing: uri); return }
         let body = uri.contains(":track:") ? ["uris": [uri]] : ["context_uri": uri]
         await command("PUT", "/me/player/play", body: try? JSONSerialization.data(withJSONObject: body))
     }
 
     private func command(_ method: String, _ path: String, body: Data? = nil) async {
+        // Solo con la app y sin conexión (p. ej. caducó el token): se despierta Spotify.
+        guard isWebLinked else { wakeSpotify(); return }
         do {
             let status = try await send(method, path, body: body)
             if status == 404 {
@@ -336,6 +352,10 @@ final class SpotifyController {
         guard url.scheme == Self.redirectScheme, let remote = remote(),
               let parameters = remote.authorizationParameters(from: url) else { return }
         if let token = parameters[SPTAppRemoteAccessTokenKey] {
+            if !isWebLinked {
+                UserDefaults.standard.set(true, forKey: Keys.appOnly)
+                isConnected = true
+            }
             if accessToken == nil || accessExpiry < .now {
                 accessToken = token
                 accessExpiry = .now.addingTimeInterval(50 * 60)

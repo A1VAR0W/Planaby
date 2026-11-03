@@ -14,7 +14,7 @@ struct SpotifySettingsView: View {
         Form {
             if spotify.isConnected {
                 Section {
-                    LabeledContent("Cuenta", value: spotify.accountName ?? "Conectada")
+                    LabeledContent("Cuenta", value: spotify.accountName ?? (spotify.isWebLinked ? "Conectada" : "Solo con la app de Spotify"))
                     LabeledContent("App de Spotify", value: spotify.isRemoteConnected ? "Conectada" : "Sin conectar")
                     if spotify.needsReconnect {
                         Label("Desconecta y vuelve a conectar para controlar la app de Spotify con tu cuenta gratuita.", systemImage: "arrow.triangle.2.circlepath")
@@ -32,7 +32,7 @@ struct SpotifySettingsView: View {
                     }
                     Button("Desconectar", role: .destructive) { spotify.disconnect() }
                 } footer: {
-                    Text("En Enfoque verás lo que suena con su carátula, y en el modo escritorio el botón ♪ lo pone a pantalla completa. Planaby controla la app de Spotify del iPhone (también con cuenta gratuita); si Spotify estaba cerrado, se abre un instante para despertarlo y vuelve a Planaby.")
+                    Text("En Enfoque verás lo que suena con su carátula, y en el modo escritorio el botón ♪ lo pone a pantalla completa. Planaby controla la app de Spotify del iPhone (también con cuenta gratuita); si Spotify estaba cerrado, se abre un instante para despertarlo y vuelve a Planaby." + (spotify.isWebLinked ? "" : " Sin la API web, el acceso que da Spotify dura una hora: al caducar, el primer toque en reproducir abre Spotify un instante para renovarlo."))
                 }
                 .task { await spotify.refresh() }
             } else {
@@ -40,7 +40,7 @@ struct SpotifySettingsView: View {
                     VStack(alignment: .leading, spacing: Space.s) {
                         Step(number: 1, text: "Abre developer.spotify.com/dashboard con tu cuenta de Spotify y pulsa «Create app».")
                         Step(number: 2, text: "Nombre: Planaby. En Redirect URIs añade exactamente: \(SpotifyController.redirectURI)")
-                        Step(number: 3, text: "Marca «Web API» y «iOS». En iOS, Bundle ID: com.alvaro.planaby. Acepta y guarda.")
+                        Step(number: 3, text: "Marca «iOS» con el Bundle ID com.alvaro.planaby. «Web API» es opcional (mira abajo). Acepta y guarda.")
                         Step(number: 4, text: "En Settings copia el «Client ID» y pégalo aquí debajo.")
                     }
                     .padding(.vertical, Space.xs)
@@ -72,6 +72,10 @@ struct SpotifySettingsView: View {
                         }
                     }
                     .disabled(connecting || clientID.trimmingCharacters(in: .whitespaces).count < 20)
+                    Button("Conectar solo con la app de Spotify") { spotify.wakeSpotify() }
+                        .disabled(connecting || clientID.trimmingCharacters(in: .whitespaces).count < 20)
+                } footer: {
+                    Text("«Conectar con Spotify» necesita «Web API»: inicias sesión una vez y Planaby reconecta solo, y ve lo que suena aunque Spotify esté cerrado o en otro dispositivo. «Solo con la app de Spotify» no la usa: Spotify se abre, te da acceso durante una hora y vuelve; al caducar, se abre otra vez un instante cuando toques reproducir.")
                 }
             }
         }
