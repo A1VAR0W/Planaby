@@ -17,40 +17,47 @@ struct PlanView: View {
     @State private var showingChat = false
     @State private var showingReorganize = false
     @State private var openTask: PlanTask?
+    private let external = ExternalCalendars.shared
     @State private var deletingEvent: CalendarEvent?
     @State private var deletingTask: PlanTask?
 
     var body: some View {
         let visible = modes.mode.visibleModes
-        let dayEntries = entries(on: selectedDay, visible: visible)
+        let _ = external.revision
+        let dayRows = rows(on: selectedDay, visible: visible)
         let pendingTasks = tasks.filter { visible.contains($0.mode) }
 
         List {
             Section {
                 WeekStrip(selectedDay: $selectedDay) { day in
-                    !entries(on: day, visible: visible).isEmpty
+                    !rows(on: day, visible: visible).isEmpty
                 }
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Color.clear)
             }
 
             Section {
-                if dayEntries.isEmpty {
+                if dayRows.isEmpty {
                     EmptyDay()
                 } else {
-                    ForEach(dayEntries) { entry in
-                        AgendaRow(entry: entry) {
-                            Task {
-                                await NotificationAccess.requestIfNeeded()
-                                timer.start(library.selected, task: entry.event.task?.title ?? entry.event.title)
+                    ForEach(dayRows) { row in
+                        switch row {
+                        case .external(let event):
+                            ExternalAgendaRow(event: event)
+                        case .local(let entry):
+                            AgendaRow(entry: entry) {
+                                Task {
+                                    await NotificationAccess.requestIfNeeded()
+                                    timer.start(library.selected, task: entry.event.task?.title ?? entry.event.title)
+                                }
                             }
-                        }
-                        .contentShape(.rect)
-                        .onTapGesture { form = .edit(entry.event) }
-                        .swipeActions {
-                            Button("Borrar", systemImage: "trash", role: .destructive) { deletingEvent = entry.event }
-                            Button("Editar", systemImage: "pencil") { form = .edit(entry.event) }
-                                .tint(Theme.amber)
+                            .contentShape(.rect)
+                            .onTapGesture { form = .edit(entry.event) }
+                            .swipeActions {
+                                Button("Borrar", systemImage: "trash", role: .destructive) { deletingEvent = entry.event }
+                                Button("Editar", systemImage: "pencil") { form = .edit(entry.event) }
+                                    .tint(Theme.amber)
+                            }
                         }
                     }
                 }
@@ -165,6 +172,17 @@ struct PlanView: View {
         .onChange(of: inbox.pending, initial: true) { _, pending in
             if pending != nil { showingChat = true }
         }
+        .onAppear { external.refreshStatus() }
+    }
+
+    /// Lo del día: eventos de Planaby y de los calendarios externos, por hora (todo el día primero).
+    private func rows(on day: Date, visible: Set<PlanMode>) -> [DayRow] {
+        guard let end = Calendar.current.date(byAdding: .day, value: 1, to: day) else { return [] }
+        let outside = external.events(in: DateInterval(start: day, end: end))
+            .filter { visible.contains($0.mode) }
+            .map(DayRow.external)
+        return (entries(on: day, visible: visible).map(DayRow.local) + outside)
+            .sorted { ($0.isAllDay ? 0 : 1, $0.start) < ($1.isAllDay ? 0 : 1, $1.start) }
     }
 
     private func entries(on day: Date, visible: Set<PlanMode>) -> [AgendaEntry] {
@@ -189,6 +207,31 @@ enum PlanForm: Identifiable {
         case .edit(let event): "edit-\(event.persistentModelID.hashValue)"
         case .newTask: "task"
         }
+    }
+}
+
+/// Fila de la agenda: de Planaby o de otro calendario.
+enum DayRow: Identifiable {
+    case local(AgendaEntry)
+    case external(ExternalEvent)
+
+    var id: String {
+        switch self {
+        case .local(let entry): entry.id
+        case .external(let event): "ext-\(event.id)"
+        }
+    }
+
+    var start: Date {
+        switch self {
+        case .local(let entry): entry.interval.start
+        case .external(let event): event.start
+        }
+    }
+
+    var isAllDay: Bool {
+        if case .external(let event) = self { return event.isAllDay }
+        return false
     }
 }
 
@@ -412,6 +455,53 @@ private struct AgendaRow: View {
         if entry.event.recurrence != .none { parts.append(entry.event.recurrence.title.lowercased()) }
         if let minutes = entry.event.reminderMinutes { parts.append(minutes == 0 ? "aviso a la hora" : "aviso \(minutes) min antes") }
         return parts.joined(separator: " · ")
+    }
+}
+
+/// Evento de Outlook, Teams u otro calendario: solo lectura, con el color de su calendario.
+struct ExternalAgendaRow: View {
+    let event: ExternalEvent
+
+    var body: some View {
+        HStack(spacing: Space.m) {
+            VStack(alignment: .trailing, spacing: 2) {
+                if event.isAllDay {
+                    Text("Todo el día")
+                        .font(.caption.weight(.medium))
+                } else {
+                    Text(event.start, format: .dateTime.hour().minute())
+                        .font(.subheadline.monospacedDigit().weight(.medium))
+                    Text(event.end, format: .dateTime.hour().minute())
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(Theme.secondaryText)
+                }
+            }
+            .frame(minWidth: 48, alignment: .trailing)
+
+            Capsule()
+                .fill(event.color)
+                .frame(width: 4)
+                .padding(.vertical, 2)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(event.title)
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(event.isBusy ? Color.white : Theme.secondaryText)
+                    .lineLimit(2)
+                Label {
+                    Text([event.sourceTitle, event.calendarTitle, event.isBusy ? nil : "libre"]
+                        .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
+                } icon: {
+                    Image(systemName: "calendar.badge.clock")
+                }
+                .font(.caption)
+                .foregroundStyle(Theme.secondaryText)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, Space.xs)
+        .accessibilityElement(children: .combine)
     }
 }
 

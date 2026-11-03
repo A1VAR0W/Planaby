@@ -89,6 +89,15 @@ struct SettingsView: View {
                     Label("Tu ritmo", systemImage: "waveform.path.ecg")
                 }
             }
+            NavigationLink {
+                ExternalCalendarsView()
+            } label: {
+                LabeledContent {
+                    Text(ExternalCalendars.shared.isActive ? "\(ExternalCalendars.shared.selection.count) en uso" : "Ninguno")
+                } label: {
+                    Label("Calendarios externos", systemImage: "calendar.badge.clock")
+                }
+            }
             ForEach(PlanMode.allCases) { mode in
                 NavigationLink {
                     ModeScheduleView(mode: mode)
@@ -239,7 +248,9 @@ struct SettingsView: View {
 
     private static func scheduleSummary(_ availability: Availability) -> String {
         let start = availability.startMinute, end = availability.endMinute
-        return String(format: "%d:%02d–%d:%02d", start / 60, start % 60, end / 60, end % 60)
+        let text = String(format: "%d:%02d–%d:%02d", start / 60, start % 60, end / 60, end % 60)
+        let special = availability.dayHours?.count ?? 0
+        return special == 0 ? text : text + " · \(special) con otro horario"
     }
 
     private static func hourLabel(_ hour: Int) -> String {

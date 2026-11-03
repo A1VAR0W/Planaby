@@ -43,13 +43,15 @@ struct ModeScheduleView: View {
                 DatePicker("Desde", selection: minuteBinding(\.startMinute), displayedComponents: .hourAndMinute)
                 DatePicker("Hasta", selection: minuteBinding(\.endMinute), displayedComponents: .hourAndMinute)
             } header: {
-                Text("Días y horas")
+                Text("Días y horario habitual")
             } footer: {
                 if availability.endMinute <= availability.startMinute {
                     Text("La hora de fin tiene que ser posterior a la de inicio.")
                         .foregroundStyle(Theme.orange)
                 }
             }
+
+            specialDaysSection
 
             Section {
                 Stepper(value: $availability.maxBlockMinutes, in: 15...240, step: 15) {
@@ -77,10 +79,92 @@ struct ModeScheduleView: View {
                 availability.minBlockMinutes = availability.maxBlockMinutes
                 return
             }
-            if availability.endMinute > availability.startMinute {
+            if availability.isValid {
                 modes.setAvailability(availability, for: mode)
             }
         }
+    }
+
+    // MARK: - Días con otro horario
+
+    private var specialDays: [(id: Int, name: String)] {
+        Self.weekdays.filter { availability.dayHours?[$0.id] != nil }
+    }
+
+    private var specialDaysSection: some View {
+        let candidates = Self.weekdays.filter { availability.weekdays.contains($0.id) && availability.dayHours?[$0.id] == nil }
+        return Section {
+            ForEach(specialDays, id: \.id) { day in
+                VStack(alignment: .leading, spacing: Space.s) {
+                    HStack {
+                        Text(Self.fullName(day.id)).font(.body.weight(.semibold))
+                        if !availability.weekdays.contains(day.id) {
+                            Text("· día no activo")
+                                .font(.caption)
+                                .foregroundStyle(Theme.secondaryText)
+                        }
+                        Spacer()
+                        Button("Quitar", systemImage: "minus.circle.fill") {
+                            withAnimation(.smooth) { setHours(nil, for: day.id) }
+                        }
+                        .labelStyle(.iconOnly)
+                        .foregroundStyle(Theme.secondaryText)
+                        .frame(width: 44, height: 44)
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Quitar el horario del \(Self.fullName(day.id))")
+                    }
+                    DatePicker("Desde", selection: dayBinding(day.id, \.startMinute), displayedComponents: .hourAndMinute)
+                    DatePicker("Hasta", selection: dayBinding(day.id, \.endMinute), displayedComponents: .hourAndMinute)
+                    if let hours = availability.dayHours?[day.id], hours.endMinute <= hours.startMinute {
+                        Text("La hora de fin tiene que ser posterior a la de inicio.")
+                            .font(.footnote)
+                            .foregroundStyle(Theme.orange)
+                    }
+                }
+            }
+            if !candidates.isEmpty {
+                Menu {
+                    ForEach(candidates, id: \.id) { day in
+                        Button(Self.fullName(day.id)) {
+                            withAnimation(.smooth) {
+                                setHours(.init(startMinute: availability.startMinute, endMinute: availability.endMinute), for: day.id)
+                            }
+                        }
+                    }
+                } label: {
+                    Label("Añadir día con otro horario", systemImage: "plus")
+                }
+            }
+        } header: {
+            Text("Días con otro horario")
+        } footer: {
+            Text("Por ejemplo, los viernes de 8:00 a 15:00. Ese día Planaby solo pondrá bloques dentro de ese horario.")
+        }
+    }
+
+    private static func fullName(_ weekday: Int) -> String {
+        Calendar.current.standaloneWeekdaySymbols[weekday - 1].capitalized
+    }
+
+    private func setHours(_ hours: Availability.DayHours?, for weekday: Int) {
+        var all = availability.dayHours ?? [:]
+        all[weekday] = hours
+        availability.dayHours = all.isEmpty ? nil : all
+    }
+
+    private func dayBinding(_ weekday: Int, _ keyPath: WritableKeyPath<Availability.DayHours, Int>) -> Binding<Date> {
+        Binding(
+            get: {
+                let minutes = availability.hours(onWeekday: weekday)[keyPath: keyPath]
+                return Calendar.current.date(byAdding: .minute, value: minutes, to: Calendar.current.startOfDay(for: .now)) ?? .now
+            },
+            set: { date in
+                let parts = Calendar.current.dateComponents([.hour, .minute], from: date)
+                var hours = availability.hours(onWeekday: weekday)
+                hours[keyPath: keyPath] = (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
+                setHours(hours, for: weekday)
+            }
+        )
     }
 
     private func minuteBinding(_ keyPath: WritableKeyPath<Availability, Int>) -> Binding<Date> {

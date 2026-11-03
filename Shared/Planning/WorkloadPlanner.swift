@@ -11,6 +11,23 @@ struct Availability: Codable, Equatable, Sendable {
     var maxBlockMinutes: Int
     var breakMinutes: Int
     var dailyCapMinutes: Int
+    /// Días con otro horario (p. ej. los viernes hasta las 15:00). Clave: día de la semana.
+    var dayHours: [Int: DayHours]? = nil
+
+    struct DayHours: Codable, Equatable, Sendable {
+        var startMinute: Int
+        var endMinute: Int
+    }
+
+    /// Horario de un día de la semana: el suyo propio o el habitual.
+    func hours(onWeekday weekday: Int) -> DayHours {
+        dayHours?[weekday] ?? DayHours(startMinute: startMinute, endMinute: endMinute)
+    }
+
+    /// Todos los horarios tienen el fin después del inicio.
+    var isValid: Bool {
+        endMinute > startMinute && (dayHours ?? [:]).values.allSatisfy { $0.endMinute > $0.startMinute }
+    }
 
     static let work = Availability(
         weekdays: [2, 3, 4, 5, 6], startMinute: 9 * 60, endMinute: 18 * 60,
@@ -93,7 +110,9 @@ struct WorkloadPlanner {
             // Primera pasada: carga repartida; segunda: lo que falte, lo antes posible.
             for spread in [true, false] where remaining > 0 {
                 for (index, day) in days.enumerated() where remaining > 0 {
-                    guard rules.weekdays.contains(calendar.component(.weekday, from: day)) else { continue }
+                    let weekday = calendar.component(.weekday, from: day)
+                    guard rules.weekdays.contains(weekday) else { continue }
+                    let hours = rules.hours(onWeekday: weekday)
                     let capKey = "\(item.capGroup)|\(day.timeIntervalSinceReferenceDate)"
                     let capLeft = rules.dailyCapMinutes - usedPerDay[capKey, default: 0]
                     let wanted = spread
@@ -101,8 +120,8 @@ struct WorkloadPlanner {
                         : remaining
                     var quota = min(wanted, capLeft, remaining)
                     guard quota > 0,
-                          let windowStart = calendar.date(byAdding: .minute, value: rules.startMinute, to: day),
-                          let windowEnd = calendar.date(byAdding: .minute, value: rules.endMinute, to: day) else { continue }
+                          let windowStart = calendar.date(byAdding: .minute, value: hours.startMinute, to: day),
+                          let windowEnd = calendar.date(byAdding: .minute, value: hours.endMinute, to: day) else { continue }
                     let start = max(windowStart, earliest)
                     let end = min(windowEnd, item.deadline)
                     guard start < end else { continue }

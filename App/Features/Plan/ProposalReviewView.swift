@@ -34,7 +34,13 @@ struct ProposalReviewView: View {
 
             ForEach(days, id: \.key) { day in
                 let current = existingEntries(on: day.key)
+                let outside = externalEvents(on: day.key)
+                let outsideLoad: TimeInterval = outside.filter { $0.isBusy && !$0.isAllDay }.reduce(0) { $0 + $1.interval.duration }
                 Section {
+                    ForEach(outside) { event in
+                        ExternalAgendaRow(event: event)
+                            .opacity(0.6)
+                    }
                     ForEach(current) { entry in
                         ExistingRow(entry: entry)
                     }
@@ -45,7 +51,7 @@ struct ProposalReviewView: View {
                     HStack {
                         Text(day.key.formatted(.dateTime.weekday(.wide).day().month(.wide)))
                         Spacer()
-                        Text(FocusStats.format(load(existing: current, new: day.value)))
+                        Text(FocusStats.format(load(existing: current, new: day.value) + outsideLoad))
                             .monospacedDigit()
                     }
                 }
@@ -88,6 +94,12 @@ struct ProposalReviewView: View {
             .filter { !removed.contains($0.persistentModelID) }
             .flatMap { event in event.occurrences(in: range).map { AgendaEntry(event: event, interval: $0) } }
             .sorted { $0.interval.start < $1.interval.start }
+    }
+
+    /// Reuniones de Outlook, Teams y otros calendarios (de los dos planes: también ocupan).
+    private func externalEvents(on day: Date) -> [ExternalEvent] {
+        guard let end = Calendar.current.date(byAdding: .day, value: 1, to: day) else { return [] }
+        return ExternalCalendars.shared.events(in: DateInterval(start: day, end: end)).sorted { $0.start < $1.start }
     }
 
     private func load(existing: [AgendaEntry], new indices: [Int]) -> TimeInterval {

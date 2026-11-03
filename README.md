@@ -61,5 +61,7 @@ Recuerda refrescar la app en SideStore cada 7 días.
 - **Material:** capturas, fotos, PDF y textos en la tarea o en el chat. Se leen en el iPhone (Vision y PDFKit) y «Estimar con IA» propone tiempo, dificultad y pasos.
 - **Reorganizar:** ordena las tareas pendientes arrastrando y, si ha surgido algo, escríbelo («Me han pedido el presupuesto para mañana, unas 3 horas»). Los bloques que aún no han empezado se recolocan con ese orden. Si una tarea nueva no cabe, la revisión ofrece «Hacer hueco moviendo otros bloques».
 - **Hecha:** marcar una tarea como hecha libera sus bloques futuros.
+- **Horarios por día:** en Ajustes › Horario de Trabajo/Normal, «Días con otro horario» (p. ej. los viernes de 8:00 a 15:00).
+- **Outlook y Teams:** añade tu cuenta de Microsoft al Calendario de iOS (o activa «Sincronizar calendarios» en la app Outlook) y elige en Ajustes › Calendarios externos qué calendarios usar y de qué plan son. Sus eventos se ven en la agenda y la revisión, y el planificador no pone bloques encima. Solo lectura; los eventos «libres» y las invitaciones rechazadas no cuentan.
 - **Recordatorios:** hasta 40 avisos de los próximos 14 días, que se reprograman al abrir la app, al editar y al cambiar de modo. Los de bloques y hábitos traen «Empezar a concentrarme» y «Posponer 10 min».
 - En LiveContainer no funcionan el filtro de Concentración ni Siri; instala desde SideStore.

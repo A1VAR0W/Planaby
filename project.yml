@@ -29,6 +29,7 @@ targets:
         UILaunchScreen: {}
         ITSAppUsesNonExemptEncryption: false
         NSSupportsLiveActivities: true
+        NSCalendarsFullAccessUsageDescription: Planaby lee tus calendarios (por ejemplo Outlook o Teams) para no colocar bloques encima de tus reuniones.
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft

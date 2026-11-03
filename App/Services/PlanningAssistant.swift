@@ -319,6 +319,9 @@ final class PlanningAssistant {
                 perDay[calendar.startOfDay(for: occurrence.start), default: 0] += occurrence.duration
             }
         }
+        for event in ExternalCalendars.shared.busyIntervals(in: range) {
+            perDay[calendar.startOfDay(for: event.start), default: 0] += event.duration
+        }
         guard !perDay.isEmpty else { return "nada" }
         return perDay.sorted { $0.key < $1.key }
             .map { "\(formatter.string(from: $0.key).prefix(10)) \(FocusStats.format($0.value))" }

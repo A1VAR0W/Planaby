@@ -114,6 +114,17 @@ struct WorkloadPlannerTests {
         #expect(result.shortfalls.isEmpty)
     }
 
+    @Test func dayWithOwnHoursUsesThem() {
+        // Los viernes (6 de noviembre) solo hasta las 15:00.
+        var rules = Availability.work
+        rules.dayHours = [6: .init(startMinute: 8 * 60, endMinute: 15 * 60)]
+        let task = item(minutes: 600, deadline: date(6, 23), availability: rules)
+        let result = planner.plan([task], busy: [], from: date(6, 7))
+
+        #expect(result.blocks.allSatisfy { $0.start >= date(6, 8) && $0.end <= date(6, 15) })
+        #expect(result.shortfalls[task.id] == 600 - 360)
+    }
+
     @Test func subtractSplitsIntervals() {
         let free = WorkloadPlanner.subtract(
             [DateInterval(start: date(2, 10), end: date(2, 11))],

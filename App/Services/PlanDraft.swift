@@ -182,8 +182,10 @@ enum PlanBuilder {
             .filter { !removedIDs.contains($0.persistentModelID) }
 
         // No se puede estar en dos sitios: los huecos se calculan con los dos planes.
+        // Las reuniones de Outlook, Teams y otros calendarios de iOS también ocupan.
         let busy = existing.flatMap { $0.occurrences(in: range) }
             + events.map { DateInterval(start: $0.start, end: $0.end) }
+            + ExternalCalendars.shared.busyIntervals(in: range)
 
         let work = tasks.enumerated().map { index, task in
             WorkItem(
