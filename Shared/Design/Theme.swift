@@ -12,11 +12,39 @@ enum Theme {
     static let shortBreak = amber
     static let longBreak = sand
 
+    /// Superficie de las tarjetas de contenido. El cristal queda para los controles, como pide iOS 26.
+    static let surface = Color.white.opacity(0.07)
+    static let hairline = Color.white.opacity(0.10)
+    /// Texto secundario sobre negro con contraste AA (≈ 7:1).
+    static let secondaryText = Color.white.opacity(0.64)
+
+    static let cardRadius: CGFloat = 24
+
     static func clock(_ size: CGFloat) -> Font {
         .system(size: size, weight: .thin, design: .rounded).monospacedDigit()
     }
 
     static let eyebrow = Font.caption.weight(.semibold)
+}
+
+/// Escala de espaciado de 4 pt.
+enum Space {
+    static let xs: CGFloat = 4
+    static let s: CGFloat = 8
+    static let m: CGFloat = 16
+    static let l: CGFloat = 24
+    static let xl: CGFloat = 32
+    static let xxl: CGFloat = 48
+}
+
+extension View {
+    /// Tarjeta de contenido sobre fondo negro.
+    func card(padding: CGFloat = Space.m) -> some View {
+        self
+            .padding(padding)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.surface, in: .rect(cornerRadius: Theme.cardRadius))
+    }
 }
 
 extension PhaseKind {
@@ -58,19 +86,30 @@ enum Breath {
 struct BreathingGlow: View {
     let tint: Color
     var strength: Double = 0.22
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30)) { context in
-            let level = Breath.level(at: context.date)
-            RadialGradient(
-                colors: [tint.opacity(strength * (0.55 + 0.45 * level)), .clear],
-                center: .center,
-                startRadius: 0,
-                endRadius: 260 + 140 * level
-            )
+        Group {
+            if reduceMotion {
+                gradient(level: 0.5)
+            } else {
+                TimelineView(.animation(minimumInterval: 1 / 30)) { context in
+                    gradient(level: Breath.level(at: context.date))
+                }
+            }
         }
         .allowsHitTesting(false)
         .ignoresSafeArea()
+        .accessibilityHidden(true)
+    }
+
+    private func gradient(level: Double) -> some View {
+        RadialGradient(
+            colors: [tint.opacity(strength * (0.55 + 0.45 * level)), .clear],
+            center: .center,
+            startRadius: 0,
+            endRadius: 260 + 140 * level
+        )
     }
 }
 
@@ -137,16 +176,67 @@ struct ProgressRing: View {
     let progress: Double
     let tint: Color
     var lineWidth: CGFloat = 6
+    var glows = true
 
     var body: some View {
         ZStack {
-            Circle().stroke(Color.white.opacity(0.06), lineWidth: lineWidth)
+            Circle().stroke(Color.white.opacity(0.08), lineWidth: lineWidth)
             Circle()
                 .trim(from: 0, to: progress)
                 .stroke(tint, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
-                .shadow(color: tint.opacity(0.55), radius: 10)
+                .shadow(color: tint.opacity(glows ? 0.55 : 0), radius: 10)
                 .animation(.linear(duration: 1), value: progress)
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+/// Cápsula seleccionable para elegir método (pantalla principal y modo escritorio).
+struct MethodChip: View {
+    let title: String
+    var systemImage: String?
+    let isSelected: Bool
+    var tint: Color = Theme.orange
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: Space.xs + 2) {
+                if let systemImage {
+                    Image(systemName: systemImage).imageScale(.small)
+                }
+                Text(title)
+            }
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(isSelected ? Color.black : Color.white.opacity(0.88))
+            .padding(.horizontal, Space.m)
+            .frame(minHeight: 44)
+            .background(isSelected ? tint : Theme.surface, in: .capsule)
+            .contentShape(.capsule)
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+/// Botón redondo con su nombre debajo, como en la app Reloj.
+struct LabeledRoundButton: View {
+    let label: String
+    let systemImage: String
+    var prominent = false
+    var tint: Color = Theme.orange
+    var compact = false
+    let action: () -> Void
+
+    var body: some View {
+        VStack(spacing: Space.s) {
+            RoundButton(label: label, systemImage: systemImage, prominent: prominent, tint: tint, compact: compact, action: action)
+            Text(label)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(Theme.secondaryText)
+                .lineLimit(1)
+                .accessibilityHidden(true)
         }
     }
 }

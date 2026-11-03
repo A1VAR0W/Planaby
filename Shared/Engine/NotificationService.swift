@@ -10,7 +10,7 @@ final class NotificationService {
 
     func scheduleTransitions(for state: TimerState?) {
         center.removePendingNotificationRequests(withIdentifiers: transitionIDs)
-        guard let state else { return }
+        guard let state, Preferences.phaseAlertsEnabled else { return }
 
         for (index, transition) in state.upcomingTransitions(limit: Self.maxScheduled).enumerated() {
             let content = UNMutableNotificationContent()

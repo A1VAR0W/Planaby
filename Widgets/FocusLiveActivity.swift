@@ -87,7 +87,7 @@ private struct PhaseLabels: View {
             Eyebrow(text: isStale ? "Completado" : (state.pausedAt == nil ? state.phase.title : "En pausa"), color: state.phase.tint)
             Text(isStale ? "Ahora: \(state.nextPhase.title)" : state.methodName)
                 .font(.caption)
-                .foregroundStyle(.white.opacity(0.6))
+                .foregroundStyle(Theme.secondaryText)
         }
         .lineLimit(1)
     }

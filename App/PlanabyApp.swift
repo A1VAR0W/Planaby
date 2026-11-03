@@ -11,16 +11,11 @@ struct PlanabyApp: App {
 
     var body: some Scene {
         WindowGroup {
-            NavigationStack {
-                TimerView()
-            }
-            .environment(timer)
-            .environment(library)
-            .preferredColorScheme(.dark)
-            .tint(Theme.orange)
-            .task {
-                _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
-            }
+            RootView()
+                .environment(timer)
+                .environment(library)
+                .preferredColorScheme(.dark)
+                .tint(Theme.orange)
         }
         .modelContainer(PlanabyStore.container)
         .onChange(of: scenePhase) { _, phase in

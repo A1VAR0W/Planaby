@@ -89,7 +89,7 @@ struct FocusWidgetView: View {
                 Spacer(minLength: 0)
                 WidgetClock(state: state, date: entry.date)
                     .font(Theme.clock(clockSize))
-                    .foregroundStyle(.white.opacity(state.isPaused ? 0.5 : 1))
+                    .foregroundStyle(.white.opacity(state.isPaused ? 0.6 : 1))
                     .minimumScaleFactor(0.5)
                     .lineLimit(1)
                 if let end = state.phaseEnd, !state.isPaused {
@@ -117,7 +117,7 @@ struct FocusWidgetView: View {
                         Spacer(minLength: 0)
                         Text(state.method.name)
                             .font(.caption2)
-                            .foregroundStyle(.white.opacity(0.45))
+                            .foregroundStyle(Theme.secondaryText)
                     }
                     .buttonBorderShape(.circle)
                     .tint(state.phase.tint)
@@ -132,7 +132,7 @@ struct FocusWidgetView: View {
                     .minimumScaleFactor(0.5)
                 Text(entry.method.name)
                     .font(.caption)
-                    .foregroundStyle(.white.opacity(0.45))
+                    .foregroundStyle(Theme.secondaryText)
                 Spacer(minLength: 0)
                 Button(intent: StartFocusIntent()) {
                     Label("Empezar", systemImage: "play.fill")

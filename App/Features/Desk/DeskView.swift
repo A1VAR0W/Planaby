@@ -10,7 +10,11 @@ import SwiftUI
 struct DeskView: View {
     @Environment(FocusTimer.self) private var timer
     @Environment(MethodLibrary.self) private var library
-    @AppStorage("deskDimmed") private var dimmed = false
+    @AppStorage(Preferences.deskDimmed) private var dimmed = false
+    @AppStorage(Preferences.deskNightMode) private var nightMode = true
+    @AppStorage(Preferences.deskNightStart) private var nightStart = 22
+    @AppStorage(Preferences.deskNightEnd) private var nightEnd = 7
+    @AppStorage(Preferences.deskKeepAwake) private var keepAwake = true
     @State private var isCharging = false
     @State private var lastInteraction = Date.now
     @State private var confirmingStop = false
@@ -19,7 +23,7 @@ struct DeskView: View {
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
-            let night = Self.isNight(context.date)
+            let night = isNight(context.date)
             let state = timer.state
             let tint = night ? Theme.night : (state?.phase.tint ?? Theme.orange)
             let ink = night ? Theme.night : Color.white
@@ -93,9 +97,10 @@ struct DeskView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(library.all) { method in
-                        MethodChip(method: method, isSelected: method.id == library.selectedID, tint: tint) {
+                        MethodChip(title: method.name, isSelected: method.id == library.selectedID, tint: tint) {
                             interact { timer.select(method) }
                         }
+                        .accessibilityHint("Cambia el método sin perder la sesión")
                     }
                 }
             }
@@ -104,7 +109,7 @@ struct DeskView: View {
             if isCharging {
                 Image(systemName: "bolt.fill")
                     .font(.caption)
-                    .foregroundStyle(ink.opacity(0.4))
+                    .foregroundStyle(ink.opacity(0.64))
                     .accessibilityLabel("Cargando")
             }
 
@@ -136,7 +141,7 @@ struct DeskView: View {
                 } else {
                     Text("\(date.formatted(date: .omitted, time: .shortened)) · \(state.method.name)")
                         .font(.footnote)
-                        .foregroundStyle(ink.opacity(0.4))
+                        .foregroundStyle(ink.opacity(0.64))
                 }
             } else {
                 Text(date, format: .dateTime.hour().minute())
@@ -144,7 +149,7 @@ struct DeskView: View {
                     .foregroundStyle(ink)
                 Text(date.formatted(.dateTime.weekday(.wide).day().month(.wide)))
                     .font(.title3)
-                    .foregroundStyle(ink.opacity(0.4))
+                    .foregroundStyle(ink.opacity(0.64))
             }
         }
         .lineLimit(1)
@@ -175,7 +180,12 @@ struct DeskView: View {
             }
         } else {
             Button {
-                interact { timer.start(library.selected) }
+                interact {
+                    Task {
+                        await NotificationAccess.requestIfNeeded()
+                        timer.start(library.selected)
+                    }
+                }
             } label: {
                 Label("Empezar \(library.selected.name)", systemImage: "play.fill")
                     .font(.headline)
@@ -199,34 +209,16 @@ struct DeskView: View {
     private func updateCharging() {
         let batteryState = UIDevice.current.batteryState
         isCharging = batteryState == .charging || batteryState == .full
-        UIApplication.shared.isIdleTimerDisabled = isCharging
+        UIApplication.shared.isIdleTimerDisabled = keepAwake && isCharging
     }
 
-    private static func isNight(_ date: Date) -> Bool {
+    /// Franja nocturna de Ajustes; admite que cruce la medianoche (22 → 7).
+    private func isNight(_ date: Date) -> Bool {
+        guard nightMode, nightStart != nightEnd else { return false }
         let hour = Calendar.current.component(.hour, from: date)
-        return hour >= 22 || hour < 7
-    }
-}
-
-private struct MethodChip: View {
-    let method: FocusMethod
-    let isSelected: Bool
-    let tint: Color
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Text(method.name)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(isSelected ? Color.black : Color.white.opacity(0.85))
-                .padding(.horizontal, 16)
-                .frame(height: 40)
-                .background(isSelected ? tint : Color.white.opacity(0.08), in: .capsule)
-                .contentShape(.capsule)
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .accessibilityHint("Cambia el método sin perder la sesión")
+        return nightStart < nightEnd
+            ? (nightStart..<nightEnd).contains(hour)
+            : hour >= nightStart || hour < nightEnd
     }
 }
 

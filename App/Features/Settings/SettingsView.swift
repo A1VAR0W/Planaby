@@ -1,0 +1,248 @@
+import AppIntents
+import SwiftUI
+import UserNotifications
+
+/// Pestaña Ajustes. Cada hito añadirá aquí su sección (planes y modos, bloqueo, mensajes, Spotify).
+struct SettingsView: View {
+    @Environment(FocusTimer.self) private var timer
+    @Environment(MethodLibrary.self) private var library
+    @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
+
+    @AppStorage(Preferences.dailyGoalMinutes, store: AppGroup.defaults) private var goalMinutes = Preferences.defaultDailyGoal
+    @AppStorage(Preferences.phaseAlerts, store: AppGroup.defaults) private var phaseAlerts = true
+    @AppStorage(Preferences.deskKeepAwake) private var keepAwake = true
+    @AppStorage(Preferences.deskDimmed) private var dimmed = false
+    @AppStorage(Preferences.deskNightMode) private var nightMode = true
+    @AppStorage(Preferences.deskNightStart) private var nightStart = 22
+    @AppStorage(Preferences.deskNightEnd) private var nightEnd = 7
+
+    @State private var notificationStatus: UNAuthorizationStatus?
+
+    private static let updatesURL = URL(string: "https://chat-ink.tail552c89.ts.net/planaby/")!
+
+    var body: some View {
+        Form {
+            focusSection
+            notificationsSection
+            deskSection
+            shortcutsSection
+            roadmapSection
+            aboutSection
+        }
+        .navigationTitle("Ajustes")
+        .task { await refreshNotificationStatus() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await refreshNotificationStatus() } }
+        }
+        .onChange(of: phaseAlerts) {
+            // Reprograma (o quita) los avisos de la sesión en marcha.
+            timer.sync()
+        }
+    }
+
+    // MARK: - Secciones
+
+    private var focusSection: some View {
+        Section {
+            NavigationLink {
+                MethodPickerView(dismissesOnSelect: false)
+            } label: {
+                LabeledContent {
+                    Text(library.selected.name)
+                } label: {
+                    Label("Método", systemImage: "timer")
+                }
+            }
+            Stepper(value: $goalMinutes, in: 15...600, step: 15) {
+                LabeledContent {
+                    Text(FocusStats.format(TimeInterval(goalMinutes * 60)))
+                        .monospacedDigit()
+                } label: {
+                    Label("Objetivo diario", systemImage: "target")
+                }
+            }
+        } header: {
+            Text("Concentración")
+        } footer: {
+            Text("El objetivo marca el anillo de Enfoque y la línea de referencia en Progreso.")
+        }
+    }
+
+    private var notificationsSection: some View {
+        Section {
+            switch notificationStatus {
+            case .denied:
+                Button {
+                    if let url = URL(string: UIApplication.openNotificationSettingsURLString) { openURL(url) }
+                } label: {
+                    Label("Activar en Ajustes de iOS", systemImage: "bell.slash")
+                }
+            case .notDetermined:
+                Button {
+                    Task {
+                        await NotificationAccess.request()
+                        await refreshNotificationStatus()
+                    }
+                } label: {
+                    Label("Permitir notificaciones", systemImage: "bell")
+                }
+            case nil:
+                Label("Comprobando permiso…", systemImage: "bell")
+                    .foregroundStyle(Theme.secondaryText)
+            default:
+                LabeledContent {
+                    Text("Permitidas")
+                } label: {
+                    Label("Permiso", systemImage: "bell.fill")
+                }
+            }
+            Toggle(isOn: $phaseAlerts) {
+                Label("Avisar al cambiar de fase", systemImage: "bell.badge")
+            }
+            .disabled(notificationStatus == .denied)
+        } header: {
+            Text("Notificaciones")
+        } footer: {
+            Text(notificationStatus == .denied
+                 ? "Las notificaciones están desactivadas para Planaby en iOS."
+                 : "Te avisa cuando termina un bloque o un descanso, aunque la app esté cerrada.")
+        }
+    }
+
+    private var deskSection: some View {
+        Section {
+            Toggle(isOn: $keepAwake) {
+                Label("Pantalla encendida al cargar", systemImage: "bolt.fill")
+            }
+            Toggle(isOn: $dimmed) {
+                Label("Atenuar", systemImage: "sun.min")
+            }
+            Toggle(isOn: $nightMode) {
+                Label("Tono rojo por la noche", systemImage: "moon.stars")
+            }
+            if nightMode {
+                Picker("Desde", selection: $nightStart) {
+                    ForEach(0..<24, id: \.self) { Text(Self.hourLabel($0)).tag($0) }
+                }
+                Picker("Hasta", selection: $nightEnd) {
+                    ForEach(0..<24, id: \.self) { Text(Self.hourLabel($0)).tag($0) }
+                }
+            }
+        } header: {
+            Text("Modo escritorio")
+        } footer: {
+            Text("Gira el iPhone en horizontal en la pestaña Enfoque. Con el iPhone cargando, la pantalla no se apaga.")
+        }
+    }
+
+    private var shortcutsSection: some View {
+        Section {
+            ShortcutsLink()
+                .shortcutsLinkStyle(.automaticOutline)
+                .frame(maxWidth: .infinity)
+                .listRowBackground(Color.clear)
+
+            DisclosureGroup {
+                VStack(alignment: .leading, spacing: Space.s) {
+                    Step(number: 1, text: "Atajos › Automatización › Nueva › Cargador.")
+                    Step(number: 2, text: "Elige «Se conecta» y «Ejecutar inmediatamente».")
+                    Step(number: 3, text: "Añade la acción de Planaby «Abrir modo escritorio».")
+                }
+                .padding(.vertical, Space.xs)
+                Button("Abrir Atajos") {
+                    if let url = URL(string: "shortcuts://") { openURL(url) }
+                }
+            } label: {
+                Label("Abrir al conectar el cargador", systemImage: "powerplug")
+            }
+
+            DisclosureGroup {
+                Text("Centro de Control › Añadir un control › Planaby › «Concentración». También puedes asignarlo al botón de Acción en Ajustes de iOS.")
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.secondaryText)
+                    .padding(.vertical, Space.xs)
+            } label: {
+                Label("Centro de Control y botón de Acción", systemImage: "switch.2")
+            }
+        } header: {
+            Text("Atajos y Siri")
+        } footer: {
+            Text("Di «Concentración en Planaby» para empezar sin tocar el iPhone.")
+        }
+    }
+
+    private var roadmapSection: some View {
+        Section {
+            RoadmapRow(title: "Calendario con planes Trabajo y Normal", systemImage: "calendar")
+            RoadmapRow(title: "Planificación con IA por chat o plantillas", systemImage: "sparkles")
+            RoadmapRow(title: "Bloqueo de apps con fricción", systemImage: "hand.raised")
+            RoadmapRow(title: "Filtro inteligente de mensajes", systemImage: "tray.full")
+            RoadmapRow(title: "Control de Spotify", systemImage: "music.note")
+        } header: {
+            Text("Próximamente")
+        } footer: {
+            Text("Llegarán como actualizaciones desde la fuente de SideStore.")
+        }
+    }
+
+    private var aboutSection: some View {
+        Section("Acerca de") {
+            LabeledContent("Versión", value: Self.version)
+            Link(destination: Self.updatesURL) {
+                Label("Página de actualizaciones", systemImage: "arrow.down.circle")
+            }
+        }
+    }
+
+    // MARK: - Ayudas
+
+    private func refreshNotificationStatus() async {
+        notificationStatus = await NotificationAccess.status()
+    }
+
+    private static func hourLabel(_ hour: Int) -> String {
+        let date = Calendar.current.date(bySettingHour: hour, minute: 0, second: 0, of: .now) ?? .now
+        return date.formatted(date: .omitted, time: .shortened)
+    }
+
+    private static var version: String {
+        let info = Bundle.main.infoDictionary
+        let short = info?["CFBundleShortVersionString"] as? String ?? "—"
+        let build = info?["CFBundleVersion"] as? String ?? "—"
+        return "\(short) (\(build))"
+    }
+}
+
+private struct Step: View {
+    let number: Int
+    let text: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: Space.s) {
+            Text("\(number)")
+                .font(.caption.weight(.bold).monospacedDigit())
+                .foregroundStyle(.black)
+                .frame(width: 20, height: 20)
+                .background(Theme.orange, in: .circle)
+            Text(text)
+                .font(.subheadline)
+                .foregroundStyle(Theme.secondaryText)
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// Fila informativa (no interactiva) de una función que llegará en otro hito.
+private struct RoadmapRow: View {
+    let title: String
+    let systemImage: String
+
+    var body: some View {
+        Label {
+            Text(title).foregroundStyle(Theme.secondaryText)
+        } icon: {
+            Image(systemName: systemImage).foregroundStyle(Theme.orange.opacity(0.7))
+        }
+    }
+}

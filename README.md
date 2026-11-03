@@ -26,11 +26,22 @@ Recuerda refrescar la app en SideStore cada 7 días.
 
 - [x] Hito 1: temporizador (Pomodoro, 52/17, Ultradiano, 112/26, 50/10, Flowtime y plantillas propias), notificaciones, historial y diseño minimalista.
 - [x] Hito 2: Live Activity y Dynamic Island, widget para inicio/pantalla bloqueada/StandBy, control del Centro de Control, Siri y modo escritorio horizontal.
+- [x] Rediseño: pestañas Enfoque, Progreso (objetivo diario, racha, gráfica de 7 días, métodos, historial) y Ajustes (métodos, objetivo, notificaciones, modo escritorio, atajos).
 - [ ] Hito 3: calendario propio con planes Trabajo y Normal, planificación con IA (chat y plantillas, siempre con confirmación) y recordatorios.
-- [ ] Hito 4: bloqueo con fricción mediante Atajos, estadísticas y tareas.
+- [ ] Hito 4: bloqueo con fricción mediante Atajos, estadísticas avanzadas y tareas.
 - [ ] Hito 5: triage con IA de iMessage/SMS e IMAP, filtro de Concentración y Spotify.
 
 ## Atajos útiles
 
 - **Modo escritorio al cargar:** Atajos → Automatización → *Cargador* → *Está conectado* → acción **Abrir modo escritorio** (Planaby). Con el iPhone en horizontal, la pantalla no se apaga mientras carga.
 - **Botón de Acción / Centro de Control:** añade el control **Concentración** de Planaby.
+
+## Interfaz
+
+| Pestaña | Contenido |
+|---|---|
+| **Enfoque** | Saludo y objetivo de hoy, método a un toque, temporizador con anillo y controles con nombre. En horizontal pasa a modo escritorio. |
+| **Progreso** | Hoy frente al objetivo, racha, media por sesión, últimos 7 días, métodos de la semana e historial con borrado confirmado. |
+| **Ajustes** | Métodos y plantillas, objetivo diario, notificaciones, modo escritorio (pantalla encendida, atenuar, franja nocturna), atajos y Siri. |
+
+El hito 3 añadirá la pestaña **Plan** (calendario y planificación) entre Enfoque y Progreso; los siguientes hitos añaden su sección en Ajustes.
