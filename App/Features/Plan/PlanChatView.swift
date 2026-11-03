@@ -77,8 +77,12 @@ struct PlanChatView: View {
                         intro
                     }
                     ForEach(assistant.messages) { message in
-                        MessageBubble(message: message) { reviewing = message.id }
-                            .id(message.id)
+                        MessageBubble(message: message) {
+                            reviewing = message.id
+                        } onChooseMode: { mode in
+                            assistant.chooseMode(mode, for: message.id, context: context)
+                        }
+                        .id(message.id)
                     }
                     if assistant.isThinking {
                         HStack(spacing: Space.s) {
@@ -214,6 +218,7 @@ struct PlanChatView: View {
 private struct MessageBubble: View {
     let message: PlanningAssistant.Message
     let onReview: () -> Void
+    let onChooseMode: (PlanMode) -> Void
 
     var body: some View {
         let isUser = message.role == .user
@@ -231,6 +236,10 @@ private struct MessageBubble: View {
                 .padding(.vertical, Space.s + 2)
                 .background(isUser ? Theme.orange : Theme.surface, in: .rect(cornerRadius: 20))
                 .textSelection(.enabled)
+
+            if message.pending != nil {
+                ModeChoice(onChoose: onChooseMode)
+            }
 
             if let draft = message.draft {
                 VStack(alignment: .leading, spacing: Space.s) {

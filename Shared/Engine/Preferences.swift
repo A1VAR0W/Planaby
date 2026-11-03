@@ -14,6 +14,9 @@ enum Preferences {
     static let deskKeepAwake = "deskKeepAwake"
     static let deskShowsTasks = "deskShowsTasks"
 
+    // Solo la app: pestaña Plan
+    static let planShowsMonth = "planShowsMonth"
+
     static let defaultDailyGoal = 120
 
     static var phaseAlertsEnabled: Bool {

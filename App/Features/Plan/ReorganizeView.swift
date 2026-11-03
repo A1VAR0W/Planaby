@@ -15,6 +15,8 @@ struct ReorganizeView: View {
     @State private var isThinking = false
     @State private var problem: String?
     @State private var draft: PlanDraft?
+    /// Lo que ha surgido, a la espera de saber si va a Trabajo o a Normal.
+    @State private var pending: Interpretation?
     @State private var editMode = EditMode.active
 
     private var ordered: [PlanTask] {
@@ -62,6 +64,22 @@ struct ReorganizeView: View {
                 Text("Orden de prioridad")
             } footer: {
                 Text("Arrastra para ordenar: lo de arriba se coloca antes. Lo exigente sigue yendo a tus mejores horas.")
+            }
+
+            if let pending {
+                Section {
+                    VStack(alignment: .leading, spacing: Space.m) {
+                        Text(pending.modeQuestion)
+                            .font(.body.weight(.semibold))
+                        ModeChoice { mode in
+                            var result = pending
+                            result.assign(mode)
+                            self.pending = nil
+                            finish(with: result)
+                        }
+                    }
+                    .padding(.vertical, Space.xs)
+                }
             }
 
             if let problem {
@@ -114,24 +132,21 @@ struct ReorganizeView: View {
 
     private func propose() async {
         problem = nil
+        pending = nil
         let text = news.trimmingCharacters(in: .whitespacesAndNewlines)
-        var events: [PlanDraft.Item] = []
-        var newTasks: [PlanDraft.Workload] = []
-        var priority: [PersistentIdentifier] = []
+        var result = Interpretation()
 
         if !text.isEmpty, PlanningAssistant.unavailableReason == nil {
             isThinking = true
             defer { isThinking = false }
             do {
-                let result = try await PlanningAssistant.interpret(text, context: context)
-                events = result.events
-                newTasks = result.tasks
-                priority = result.prioritize
+                result = try await PlanningAssistant.interpret(text, context: context)
                 if result.isEmpty {
                     problem = ([result.question] + result.problems).first { !$0.isEmpty }
                         ?? "No he entendido qué ha surgido. Reorganizo solo con el orden de la lista."
                 } else if !result.problems.isEmpty {
-                    problem = result.problems.joined(separator: "\n")
+                    problem = result.problems.joined(separator: "
+")
                 }
             } catch {
                 problem = PlanningAssistant.message(for: error)
@@ -139,7 +154,15 @@ struct ReorganizeView: View {
             }
         }
 
-        let combined = priority + order.filter { !priority.contains($0) }
-        draft = PlanBuilder.reorganize(order: combined, newEvents: events, newTasks: newTasks, context: context)
+        if result.needsMode {
+            pending = result
+            return
+        }
+        finish(with: result)
+    }
+
+    private func finish(with result: Interpretation) {
+        let combined = result.prioritize + order.filter { !result.prioritize.contains($0) }
+        draft = PlanBuilder.reorganize(order: combined, newEvents: result.events, newTasks: result.tasks, context: context)
     }
 }

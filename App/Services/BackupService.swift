@@ -48,7 +48,7 @@ enum BackupService {
         "customMethods", "selectedMethodID", "focusProfile",
     ]
     private static let localKeys = [
-        "deskDimmed", "deskNightMode", "deskNightStart", "deskNightEnd", "deskKeepAwake", "deskShowsTasks",
+        "deskDimmed", "deskNightMode", "deskNightStart", "deskNightEnd", "deskKeepAwake", "deskShowsTasks", "planShowsMonth",
         "externalCalendars", "calendarSubscriptions", CalendarMirror.enabledKey,
     ]
     private static let maxFileSize = 10 * 1024 * 1024

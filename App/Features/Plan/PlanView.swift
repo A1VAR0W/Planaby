@@ -30,8 +30,8 @@ struct PlanView: View {
 
         List {
             Section {
-                WeekStrip(selectedDay: $selectedDay) { day in
-                    !rows(on: day, visible: visible).isEmpty
+                CalendarHeader(selectedDay: $selectedDay) { day in
+                    markers(on: day, visible: visible)
                 }
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Color.clear)
@@ -117,18 +117,35 @@ struct PlanView: View {
             }
         }
         .safeAreaInset(edge: .bottom) {
-            HStack(spacing: Space.s) {
+            // Un solo botón de IA: escribir (a la izquierda) o hablar (el micrófono, a la derecha).
+            HStack(spacing: 0) {
                 Button { showingChat = true } label: {
                     Label("Planificar con IA", systemImage: "sparkles")
                         .font(.headline)
-                        .foregroundStyle(.black)
-                        .padding(.horizontal, Space.s)
-                        .frame(minHeight: 36)
+                        .padding(.leading, Space.l)
+                        .padding(.trailing, Space.m)
+                        .frame(minHeight: 48)
+                        .contentShape(.rect)
                 }
-                .buttonStyle(.glassProminent)
-                .tint(Theme.orange)
-                VoiceButton { voice = VoiceTaskFlow() }
+                .buttonStyle(.plain)
+
+                Rectangle()
+                    .fill(Color.black.opacity(0.25))
+                    .frame(width: 1, height: 24)
+                    .accessibilityHidden(true)
+
+                Button { voice = VoiceTaskFlow() } label: {
+                    Image(systemName: "mic.fill")
+                        .font(.headline)
+                        .frame(width: 52, height: 48)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Añadir por voz")
+                .accessibilityHint("Dicta una tarea o una cita")
             }
+            .foregroundStyle(.black)
+            .glassEffect(.regular.tint(Theme.orange).interactive(), in: .capsule)
             .padding(.bottom, Space.s)
         }
         .voiceTaskSheet($voice)
@@ -192,6 +209,21 @@ struct PlanView: View {
             .map(DayRow.external)
         return (entries(on: day, visible: visible).map(DayRow.local) + outside)
             .sorted { ($0.isAllDay ? 0 : 1, $0.start) < ($1.isAllDay ? 0 : 1, $1.start) }
+    }
+
+    /// Colores de los puntos de un día (como mucho tres, uno por plan o calendario).
+    private func markers(on day: Date, visible: Set<PlanMode>) -> [Color] {
+        var colors: [Color] = []
+        for row in rows(on: day, visible: visible) {
+            let color: Color
+            switch row {
+            case .local(let entry): color = entry.event.mode.tint
+            case .external(let event): color = event.color
+            }
+            if !colors.contains(color) { colors.append(color) }
+            if colors.count == 3 { break }
+        }
+        return colors
     }
 
     private func entries(on day: Date, visible: Set<PlanMode>) -> [AgendaEntry] {
@@ -305,10 +337,13 @@ private struct EmptyDay: View {
     }
 }
 
-/// Semana de lunes a domingo con flechas para cambiar de semana.
-private struct WeekStrip: View {
+/// Semana o mes entero (como el Calendario del iPhone): se cambia tocando el nombre del mes.
+/// Las flechas y el deslizamiento lateral pasan de semana o de mes.
+private struct CalendarHeader: View {
     @Binding var selectedDay: Date
-    let hasEntries: (Date) -> Bool
+    let markers: (Date) -> [Color]
+    @AppStorage(Preferences.planShowsMonth) private var showsMonth = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var calendar: Calendar {
         var calendar = Calendar.current
@@ -317,51 +352,126 @@ private struct WeekStrip: View {
     }
 
     var body: some View {
-        let week = days(around: selectedDay)
         VStack(spacing: Space.s) {
             HStack {
-                Text(selectedDay.formatted(.dateTime.month(.wide).year()).capitalized)
-                    .font(.headline)
+                Button {
+                    withAnimation(reduceMotion ? nil : .smooth(duration: 0.3)) { showsMonth.toggle() }
+                } label: {
+                    HStack(spacing: Space.xs) {
+                        Text(selectedDay.formatted(.dateTime.month(.wide).year()).capitalized)
+                            .font(.headline)
+                            .foregroundStyle(.white)
+                        Image(systemName: "chevron.down")
+                            .font(.caption.weight(.bold))
+                            .rotationEffect(.degrees(showsMonth ? 180 : 0))
+                    }
+                    .frame(minHeight: 44)
+                    .contentShape(.rect)
+                }
+                .accessibilityLabel(selectedDay.formatted(.dateTime.month(.wide).year()))
+                .accessibilityHint(showsMonth ? "Ver solo la semana" : "Ver el mes entero")
                 Spacer()
-                Button { shift(by: -7) } label: {
+                Button { shift(by: -1) } label: {
                     Image(systemName: "chevron.left").frame(width: 44, height: 44)
                 }
-                .accessibilityLabel("Semana anterior")
-                Button { shift(by: 7) } label: {
+                .accessibilityLabel(showsMonth ? "Mes anterior" : "Semana anterior")
+                Button { shift(by: 1) } label: {
                     Image(systemName: "chevron.right").frame(width: 44, height: 44)
                 }
-                .accessibilityLabel("Semana siguiente")
+                .accessibilityLabel(showsMonth ? "Mes siguiente" : "Semana siguiente")
             }
             .buttonStyle(.plain)
             .foregroundStyle(Theme.orange)
 
-            HStack(spacing: 0) {
-                ForEach(week, id: \.self) { day in
-                    DayCell(
-                        day: day,
-                        isSelected: calendar.isDate(day, inSameDayAs: selectedDay),
-                        isToday: calendar.isDateInToday(day),
-                        hasEntries: hasEntries(day)
-                    ) {
-                        withAnimation(.smooth(duration: 0.25)) { selectedDay = day }
+            if showsMonth {
+                weekdayLabels
+                VStack(spacing: Space.xs) {
+                    ForEach(monthWeeks(of: selectedDay), id: \.self) { week in
+                        row(week, showsWeekday: false)
                     }
-                    .frame(maxWidth: .infinity)
                 }
+                .transition(.opacity)
+            } else {
+                row(week(of: selectedDay), showsWeekday: true)
             }
         }
         .padding(.horizontal, Space.m)
         .padding(.vertical, Space.s)
+        .contentShape(.rect)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 30)
+                .onEnded { value in
+                    let dx = value.translation.width
+                    guard abs(dx) > abs(value.translation.height) * 1.5, abs(dx) > 50 else { return }
+                    shift(by: dx < 0 ? 1 : -1)
+                }
+        )
         .sensoryFeedback(.selection, trigger: selectedDay)
     }
 
-    private func days(around day: Date) -> [Date] {
+    private var weekdayLabels: some View {
+        HStack(spacing: 0) {
+            ForEach(week(of: selectedDay), id: \.self) { day in
+                Text(day.formatted(.dateTime.weekday(.narrow)).uppercased())
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(Theme.secondaryText)
+                    .frame(maxWidth: .infinity)
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func row(_ days: [Date], showsWeekday: Bool) -> some View {
+        HStack(spacing: 0) {
+            ForEach(days, id: \.self) { day in
+                DayCell(
+                    day: day,
+                    isSelected: calendar.isDate(day, inSameDayAs: selectedDay),
+                    isToday: calendar.isDateInToday(day),
+                    isOutside: showsMonth && !calendar.isDate(day, equalTo: selectedDay, toGranularity: .month),
+                    showsWeekday: showsWeekday,
+                    markers: markers(day)
+                ) {
+                    withAnimation(.smooth(duration: 0.25)) { selectedDay = day }
+                }
+                .frame(maxWidth: .infinity)
+            }
+        }
+    }
+
+    private func week(of day: Date) -> [Date] {
         guard let start = calendar.dateInterval(of: .weekOfYear, for: day)?.start else { return [] }
         return (0..<7).compactMap { calendar.date(byAdding: .day, value: $0, to: start) }
     }
 
-    private func shift(by days: Int) {
-        guard let day = calendar.date(byAdding: .day, value: days, to: selectedDay) else { return }
-        withAnimation(.smooth(duration: 0.25)) { selectedDay = day }
+    /// Semanas (de lunes a domingo) que tocan el mes: de 4 a 6 filas.
+    private func monthWeeks(of day: Date) -> [[Date]] {
+        guard let month = calendar.dateInterval(of: .month, for: day),
+              var cursor = calendar.dateInterval(of: .weekOfYear, for: month.start)?.start else { return [] }
+        var weeks: [[Date]] = []
+        while cursor < month.end {
+            weeks.append(week(of: cursor))
+            guard let next = calendar.date(byAdding: .day, value: 7, to: cursor) else { break }
+            cursor = next
+        }
+        return weeks
+    }
+
+    private func shift(by step: Int) {
+        var target: Date?
+        if showsMonth {
+            // Al cambiar de mes se elige el día 1 (u hoy, si es el mes actual).
+            let moved = calendar.date(byAdding: .month, value: step, to: selectedDay) ?? selectedDay
+            if calendar.isDate(moved, equalTo: .now, toGranularity: .month) {
+                target = calendar.startOfDay(for: .now)
+            } else {
+                target = calendar.dateInterval(of: .month, for: moved)?.start
+            }
+        } else {
+            target = calendar.date(byAdding: .day, value: 7 * step, to: selectedDay)
+        }
+        guard let target else { return }
+        withAnimation(.smooth(duration: 0.25)) { selectedDay = target }
     }
 }
 
@@ -369,31 +479,46 @@ private struct DayCell: View {
     let day: Date
     let isSelected: Bool
     let isToday: Bool
-    let hasEntries: Bool
+    let isOutside: Bool
+    let showsWeekday: Bool
+    let markers: [Color]
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: Space.xs) {
-                Text(day.formatted(.dateTime.weekday(.narrow)))
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(Theme.secondaryText)
+            VStack(spacing: 3) {
+                if showsWeekday {
+                    Text(day.formatted(.dateTime.weekday(.narrow)))
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(Theme.secondaryText)
+                }
                 Text(day.formatted(.dateTime.day()))
                     .font(.system(.body, design: .rounded).weight(isSelected || isToday ? .semibold : .regular).monospacedDigit())
-                    .foregroundStyle(isSelected ? Color.black : (isToday ? Theme.orange : Color.white))
-                    .frame(width: 40, height: 40)
+                    .foregroundStyle(numberColor)
+                    .frame(width: 38, height: 38)
                     .background(isSelected ? Theme.orange : Color.clear, in: .circle)
-                Circle()
-                    .fill(hasEntries ? Theme.orange.opacity(isSelected ? 0 : 0.8) : Color.clear)
-                    .frame(width: 5, height: 5)
+                HStack(spacing: 3) {
+                    ForEach(markers.indices, id: \.self) { index in
+                        Circle()
+                            .fill(markers[index].opacity(isOutside ? 0.4 : 0.9))
+                            .frame(width: 5, height: 5)
+                    }
+                }
+                .frame(height: 5)
             }
             .frame(minWidth: 44, minHeight: 44)
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(day.formatted(.dateTime.weekday(.wide).day().month(.wide)))
-        .accessibilityValue(hasEntries ? "Con planes" : "Libre")
+        .accessibilityValue(markers.isEmpty ? "Libre" : "Con planes")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private var numberColor: Color {
+        if isSelected { return .black }
+        if isToday { return Theme.orange }
+        return isOutside ? Theme.secondaryText.opacity(0.6) : .white
     }
 }
 

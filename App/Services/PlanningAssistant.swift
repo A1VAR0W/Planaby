@@ -27,7 +27,7 @@ struct ParsedEvent {
     var start: String
     @Guide(description: "Duración en minutos; 60 si no se indica", .range(5...720))
     var durationMinutes: Int
-    @Guide(description: "work si es de trabajo o estudios; personal si es ocio, casa, salud o familia", .anyOf(["work", "personal"]))
+    @Guide(description: "work si es claramente de trabajo o estudios; personal si es claramente ocio, casa, salud, familia o recados; unknown si no se puede saber", .anyOf(["work", "personal", "unknown"]))
     var mode: String
     @Guide(description: "Minutos de antelación del aviso; 15 si no se indica", .range(0...1440))
     var reminderMinutes: Int
@@ -43,7 +43,7 @@ struct ParsedTask {
     var estimatedMinutes: Int
     @Guide(description: "Dificultad: 1 mecánica, 3 normal, 5 muy exigente y de concentración profunda", .range(1...5))
     var difficulty: Int
-    @Guide(description: "work si es de trabajo o estudios; personal si es ocio, casa, salud o familia", .anyOf(["work", "personal"]))
+    @Guide(description: "work si es claramente de trabajo o estudios; personal si es claramente ocio, casa, salud, familia o recados; unknown si no se puede saber", .anyOf(["work", "personal", "unknown"]))
     var mode: String
     @Guide(description: "Prioridad: 0 baja, 1 media, 2 alta o urgente", .range(0...2))
     var priority: Int
@@ -69,8 +69,46 @@ struct Interpretation {
     var prioritize: [PersistentIdentifier] = []
     var question = ""
     var problems: [String] = []
+    /// Lo que no se sabe si va al plan de Trabajo o al Normal: se pregunta antes de proponer.
+    var undecidedEvents: Set<UUID> = []
+    var undecidedTasks: Set<UUID> = []
 
     var isEmpty: Bool { events.isEmpty && tasks.isEmpty && !reorganize && prioritize.isEmpty }
+    var needsMode: Bool { !undecidedEvents.isEmpty || !undecidedTasks.isEmpty }
+
+    /// «¿«Llamar a Juan» va en tu plan de Trabajo o en el Normal?»
+    var modeQuestion: String {
+        var list: [String] = events.filter { undecidedEvents.contains($0.id) }.map { "«\($0.title)»" }
+        list += tasks.filter { undecidedTasks.contains($0.id) }.map { "«\($0.title)»" }
+        guard let last = list.last else { return "¿Va en tu plan de Trabajo o en el Normal?" }
+        if list.count == 1 {
+            return "¿\(last) va en tu plan de Trabajo o en el Normal?"
+        }
+        let others = list.dropLast().joined(separator: ", ")
+        return "¿\(others) y \(last) van en tu plan de Trabajo o en el Normal?"
+    }
+
+    /// Pone en `mode` todo lo que estaba sin decidir.
+    mutating func assign(_ mode: PlanMode) {
+        for index in events.indices where undecidedEvents.contains(events[index].id) {
+            events[index].mode = mode
+        }
+        for index in tasks.indices where undecidedTasks.contains(tasks[index].id) {
+            tasks[index].mode = mode
+        }
+        undecidedEvents = []
+        undecidedTasks = []
+    }
+
+    /// La propuesta que sale de lo entendido (colocar lo nuevo o reorganizar).
+    @MainActor
+    func makeDraft(context: ModelContext) -> PlanDraft {
+        var draft = reorganize || !prioritize.isEmpty
+            ? PlanBuilder.reorganize(order: prioritize, newEvents: events, newTasks: tasks, context: context)
+            : PlanBuilder.draft(events: events, tasks: tasks, context: context)
+        draft.warnings = problems + draft.warnings
+        return draft
+    }
 }
 
 // MARK: - Asistente
@@ -89,6 +127,8 @@ final class PlanningAssistant {
         let text: String
         var attachmentNames: [String] = []
         var draft: PlanDraft?
+        /// Lo entendido, a la espera de saber si va a Trabajo o a Normal.
+        var pending: Interpretation?
     }
 
     /// Lo que se guarda de cada mensaje (las propuestas sin aceptar no se guardan).
@@ -186,17 +226,30 @@ final class PlanningAssistant {
         reply("Hecho: tu calendario está actualizado.")
     }
 
+    /// Respuesta a «¿Trabajo o Normal?».
+    func chooseMode(_ mode: PlanMode, for messageID: Message.ID, context: ModelContext) {
+        guard let index = messages.firstIndex(where: { $0.id == messageID }),
+              var result = messages[index].pending else { return }
+        messages[index].pending = nil
+        result.assign(mode)
+        messages.append(Message(role: .user, text: mode.title))
+        saveHistory()
+        respond(to: result, context: context)
+    }
+
     private func respond(to result: Interpretation, context: ModelContext) {
+        if result.needsMode {
+            messages.append(Message(role: .assistant, text: result.modeQuestion, pending: result))
+            saveHistory()
+            return
+        }
         guard !result.isEmpty else {
             let text = ([result.question] + result.problems).filter { !$0.isEmpty }.joined(separator: "\n")
             reply(text.isEmpty ? "No he encontrado nada que planificar. Prueba con algo como «Reunión con Marta el jueves a las 10», «Estudiar para el examen del día 20» o «Prioriza el informe»." : text)
             return
         }
 
-        var draft = result.reorganize || !result.prioritize.isEmpty
-            ? PlanBuilder.reorganize(order: result.prioritize, newEvents: result.events, newTasks: result.tasks, context: context)
-            : PlanBuilder.draft(events: result.events, tasks: result.tasks, context: context)
-        draft.warnings = result.problems + draft.warnings
+        let draft = result.makeDraft(context: context)
         let text = [draft.summary, result.question].filter { !$0.isEmpty }.joined(separator: "\n")
         messages.append(Message(role: .assistant, text: text, draft: draft))
         saveHistory()
@@ -231,12 +284,14 @@ final class PlanningAssistant {
                 result.problems.append("No entendí la fecha de «\(event.title)».")
                 continue
             }
-            result.events.append(PlanDraft.Item(
+            let item = PlanDraft.Item(
                 title: event.title, start: start,
                 end: start.addingTimeInterval(TimeInterval(event.durationMinutes * 60)),
                 mode: PlanMode(rawValue: event.mode) ?? fallbackMode, kind: .event,
                 reminderMinutes: event.reminderMinutes
-            ))
+            )
+            if PlanMode(rawValue: event.mode) == nil { result.undecidedEvents.insert(item.id) }
+            result.events.append(item)
         }
 
         for task in parsed.tasks {
@@ -244,11 +299,13 @@ final class PlanningAssistant {
                 result.problems.append("No entendí la fecha límite de «\(task.title)».")
                 continue
             }
-            result.tasks.append(PlanDraft.Workload(
+            let workload = PlanDraft.Workload(
                 id: UUID(), title: task.title, mode: PlanMode(rawValue: task.mode) ?? fallbackMode,
                 deadline: deadline, estimatedMinutes: task.estimatedMinutes, priority: task.priority,
                 difficulty: task.difficulty
-            ))
+            )
+            if PlanMode(rawValue: task.mode) == nil { result.undecidedTasks.insert(workload.id) }
+            result.tasks.append(workload)
         }
 
         // Los títulos que da el modelo se buscan entre las tareas pendientes.
@@ -313,6 +370,7 @@ final class PlanningAssistant {
             - Si le ha surgido algo con hora (una reunión), es un evento; si además pide hacer hueco, reorganize es true.
             - Calcula fechas absolutas a partir de la fecha actual que se indica en cada mensaje ("mañana", "el jueves", "en dos semanas").
             - Si a una cita le falta el día o la hora, pregunta en question y no la incluyas.
+            - Si el usuario dice dónde va (trabajo, personal, normal, casa), usa eso. Si no lo dice y el contenido no deja claro si es de trabajo o personal (por ejemplo «llamar a Juan» o «revisar el documento»), pon mode a unknown y Planaby se lo preguntará. No decidas por el modo actual.
             - Usa el material adjunto para estimar duración y dificultad.
             - Si el usuario solo saluda o pregunta otra cosa, deja todo vacío y contesta en question.
             Escribe siempre en español.

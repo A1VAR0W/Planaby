@@ -8,6 +8,8 @@ import SwiftUI
 final class VoiceTaskFlow {
     enum Phase: Equatable {
         case listening, thinking, ready, saved
+        /// No se sabe si va a Trabajo o a Normal: se pregunta.
+        case askingMode(String)
         case failed(String)
     }
 
@@ -17,6 +19,8 @@ final class VoiceTaskFlow {
     var draft: PlanDraft?
     /// Aviso de cómo se ha entendido (sin IA, o una pregunta de la IA).
     private(set) var note: String?
+    /// Lo entendido mientras se espera la respuesta a «¿Trabajo o Normal?».
+    @ObservationIgnored private var pending: Interpretation?
     @ObservationIgnored private var cancelled = false
 
     func start(context: ModelContext) async {
@@ -24,6 +28,7 @@ final class VoiceTaskFlow {
         phase = .listening
         draft = nil
         note = nil
+        pending = nil
         heard = ""
         do {
             let text = try await speech.listen()
@@ -57,6 +62,15 @@ final class VoiceTaskFlow {
         Task { await NotificationAccess.requestIfNeeded() }
     }
 
+    /// Respuesta a «¿Trabajo o Normal?».
+    func choose(_ mode: PlanMode, context: ModelContext) {
+        guard var result = pending else { return }
+        pending = nil
+        result.assign(mode)
+        draft = result.makeDraft(context: context)
+        phase = .ready
+    }
+
     /// Lo marca como guardado cuando se acepta desde la revisión completa.
     func markSaved() { phase = .saved }
 
@@ -64,12 +78,8 @@ final class VoiceTaskFlow {
         if PlanningAssistant.unavailableReason == nil {
             let result = try await PlanningAssistant.interpret(text, context: context)
             if !result.isEmpty {
-                var draft = result.reorganize || !result.prioritize.isEmpty
-                    ? PlanBuilder.reorganize(order: result.prioritize, newEvents: result.events, newTasks: result.tasks, context: context)
-                    : PlanBuilder.draft(events: result.events, tasks: result.tasks, context: context)
-                draft.warnings = result.problems + draft.warnings
                 note = result.question.isEmpty ? nil : result.question
-                return draft
+                return ask(result, context: context)
             }
             if !result.question.isEmpty {
                 phase = .failed(result.question)
@@ -87,7 +97,16 @@ final class VoiceTaskFlow {
             estimatedMinutes: 30, priority: 1, difficulty: 2
         )
         note = "La apunto para mañana, unos 30 min. Puedes cambiarlo en su ficha."
-        return PlanBuilder.draft(events: [], tasks: [task], context: context)
+        // Sin IA no se sabe en qué plan va: se pregunta.
+        return ask(Interpretation(tasks: [task], undecidedTasks: [task.id]), context: context)
+    }
+
+    /// Si falta saber el plan, pregunta y devuelve nil; si no, la propuesta.
+    private func ask(_ result: Interpretation, context: ModelContext) -> PlanDraft? {
+        guard result.needsMode else { return result.makeDraft(context: context) }
+        pending = result
+        phase = .askingMode(result.modeQuestion)
+        return nil
     }
 }
 
@@ -122,6 +141,19 @@ struct VoiceTaskPanel: View {
                 .padding(.vertical, Space.l)
             case .ready:
                 if let draft = flow.draft { proposal(draft) }
+            case .askingMode(let question):
+                VStack(spacing: Space.l) {
+                    Text("«\(flow.heard)»")
+                        .font(.subheadline)
+                        .foregroundStyle(ink.opacity(0.6))
+                        .multilineTextAlignment(.center)
+                    Text(question)
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(ink)
+                        .multilineTextAlignment(.center)
+                    ModeChoice(tint: tint) { flow.choose($0, context: context) }
+                }
+                .padding(.vertical, Space.m)
             case .saved:
                 Label("Añadido a tu plan", systemImage: "checkmark.circle.fill")
                     .font(.title3.weight(.semibold))
