@@ -19,7 +19,7 @@ Recuerda refrescar la app en SideStore cada 7 días.
 | App ID | Uso |
 |---|---|
 | `com.alvaro.planaby` | App |
-| `com.alvaro.planaby.widgets` | Widgets, Live Activity y Centro de Control (hito 2) |
+| `com.alvaro.planaby.widgets` | Widgets (Concentración y Plan), Live Activity y Centro de Control |
 | — | Libre |
 
 ## Estado
@@ -31,6 +31,7 @@ Recuerda refrescar la app en SideStore cada 7 días.
 - [x] Secretaria personal: test de ritmo, adjuntos con estimación por IA, reorganizar por prioridad y tareas con checks en modo escritorio.
 - [x] Hito 4: bloqueo con fricción mediante Atajos, estadísticas avanzadas, tareas y vista de mes.
 - [x] Hito 5: filtro de mensajes con IA (iMessage/SMS con Atajos y correo por IMAP), avisos según la Concentración y música por fase (Spotify con enlaces). Spotify como mando con App Remote y la API web (carátula, controles y listas, también con cuenta gratuita).
+- [x] Versión 1.0: widget «Plan» (lo que tienes ahora y lo siguiente, en inicio y pantalla bloqueada), Spotify como llave de paso, reproductor automático y dictado mejorado.
 
 ## Atajos útiles
 

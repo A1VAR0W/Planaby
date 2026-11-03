@@ -53,6 +53,9 @@ final class SpotifyController {
     @ObservationIgnored private var appRemote: SPTAppRemote?
     @ObservationIgnored private var sessionManager: SPTSessionManager?
     @ObservationIgnored private var awaitingSession = false
+    /// Renovación del acceso en curso: las demás peticiones la esperan en vez de pedir otra
+    /// (el token de renovación cambia en cada uso y dos a la vez se anularían).
+    @ObservationIgnored private var renewal: Task<Void, Error>?
     /// Intento de conexión en curso (para no pisarlo con otro).
     @ObservationIgnored private var connectStarted: Date?
     @ObservationIgnored private let bridge = RemoteBridge()
@@ -169,16 +172,24 @@ final class SpotifyController {
 
     private func validToken() async throws -> String {
         if let accessToken, accessExpiry > .now.addingTimeInterval(30) { return accessToken }
-        guard let refresh = Self.refreshToken() else {
-            if hasSession {
-                hasSession = false
-                isWebLinked = false
-                isConnected = UserDefaults.standard.bool(forKey: Keys.appOnly)
+        if let renewal {
+            try await renewal.value
+        } else {
+            guard let refresh = Self.refreshToken() else {
+                if hasSession {
+                    hasSession = false
+                    isWebLinked = false
+                    isConnected = UserDefaults.standard.bool(forKey: Keys.appOnly)
+                }
+                throw SpotifyError.message(isConnected ? "Toca reproducir para abrir Spotify un instante y reconectar." : "Conecta Spotify en Ajustes › Música.")
             }
-            throw SpotifyError.message(isConnected ? "Toca reproducir para abrir Spotify un instante y reconectar." : "Conecta Spotify en Ajustes › Música.")
+            let form = ["grant_type": "refresh_token", "refresh_token": refresh, "client_id": clientID]
+            let task = Task { try await self.requestToken(form) }
+            renewal = task
+            defer { renewal = nil }
+            try await task.value
         }
-        try await requestToken(["grant_type": "refresh_token", "refresh_token": refresh, "client_id": clientID])
-        guard let accessToken else { throw SpotifyError.message("Spotify no ha dado acceso.") }
+        guard let accessToken, accessExpiry > .now else { throw SpotifyError.message("Spotify no ha dado acceso.") }
         return accessToken
     }
 
@@ -188,8 +199,12 @@ final class SpotifyController {
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.httpBody = Data(form.map { "\($0.key)=\(Self.formEncode($0.value))" }.joined(separator: "&").utf8)
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard (response as? HTTPURLResponse)?.statusCode == 200,
-              let token = try? JSONDecoder().decode(TokenResponse.self, from: data) else {
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard status == 200, let token = try? JSONDecoder().decode(TokenResponse.self, from: data) else {
+            // Solo un acceso rechazado cierra la sesión; un fallo pasajero de Spotify no.
+            guard status == 400 || status == 401 else {
+                throw SpotifyError.message("Spotify no responde ahora mismo. Prueba en un momento.")
+            }
             if form["grant_type"] == "refresh_token" { disconnect() }
             throw SpotifyError.message("Spotify no ha aceptado el acceso. Revisa el Client ID y la Redirect URI.")
         }

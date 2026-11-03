@@ -1,6 +1,7 @@
 import Foundation
 import SwiftData
 import UserNotifications
+import WidgetKit
 
 /// Recordatorios de eventos y bloques. iOS admite 64 avisos pendientes por app: 12 son de las
 /// fases del temporizador y aquí se usan hasta 40, en una ventana de los próximos días que se
@@ -37,6 +38,7 @@ final class ReminderScheduler {
         let visible = ModeController.shared.mode.visibleModes
         let range = DateInterval(start: now, duration: Self.window)
         let events = (try? PlanabyStore.container.mainContext.fetch(FetchDescriptor<CalendarEvent>())) ?? []
+        saveAgenda(events, visible: visible, now: now)
 
         let upcoming = events
             .filter { $0.reminderMinutes != nil && visible.contains($0.mode) }
@@ -63,6 +65,25 @@ final class ReminderScheduler {
             let trigger = UNTimeIntervalNotificationTrigger(timeInterval: max(1, item.fire.timeIntervalSince(now)), repeats: false)
             center.add(UNNotificationRequest(identifier: ids[index], content: content, trigger: trigger))
         }
+    }
+
+    /// Lo próximo de los siete días siguientes para el widget «Plan».
+    private func saveAgenda(_ events: [CalendarEvent], visible: Set<PlanMode>, now: Date) {
+        let week = DateInterval(start: now, duration: 7 * 24 * 3600)
+        let items = events
+            .filter { visible.contains($0.mode) }
+            .flatMap { event in
+                event.occurrences(in: week).map { occurrence in
+                    AgendaItem(
+                        title: event.title, start: occurrence.start, end: occurrence.end,
+                        modeRaw: event.modeRaw, kindRaw: event.kindRaw, isAllDay: event.isAllDay
+                    )
+                }
+            }
+            .filter { $0.end > now }
+            .sorted { $0.start < $1.start }
+        AgendaSnapshot.save(Array(items.prefix(24)), mode: ModeController.shared.mode)
+        WidgetCenter.shared.reloadTimelines(ofKind: "AgendaWidget")
     }
 
     /// Repite un aviso dentro de 10 minutos.
