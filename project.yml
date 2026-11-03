@@ -1,6 +1,8 @@
 name: Planaby
 options:
   bundleIdPrefix: com.alvaro
+  # La app está en español: fechas, días y meses también.
+  developmentLanguage: es
   deploymentTarget:
     iOS: "26.0"
 settings:
@@ -26,6 +28,9 @@ targets:
         CFBundleDisplayName: Planaby
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleDevelopmentRegion: es
+        CFBundleLocalizations:
+          - es
         UILaunchScreen: {}
         ITSAppUsesNonExemptEncryption: false
         NSSupportsLiveActivities: true
@@ -58,6 +63,9 @@ targets:
         CFBundleDisplayName: Planaby
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleDevelopmentRegion: es
+        CFBundleLocalizations:
+          - es
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     entitlements:
