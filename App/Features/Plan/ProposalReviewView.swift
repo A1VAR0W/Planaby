@@ -23,6 +23,13 @@ struct ProposalReviewView: View {
                         .font(.subheadline)
                         .foregroundStyle(Theme.orange)
                 }
+                if draft.canMakeRoom {
+                    Button {
+                        withAnimation(.smooth) { draft = PlanBuilder.makeRoom(for: draft, context: context) }
+                    } label: {
+                        Label("Hacer hueco moviendo otros bloques", systemImage: "arrow.left.and.right")
+                    }
+                }
             }
 
             ForEach(days, id: \.key) { day in
@@ -75,7 +82,10 @@ struct ProposalReviewView: View {
     private func existingEntries(on day: Date) -> [AgendaEntry] {
         guard let end = Calendar.current.date(byAdding: .day, value: 1, to: day) else { return [] }
         let range = DateInterval(start: day, end: end)
+        // Los bloques que se recolocan ya aparecen como nuevos.
+        let removed = Set(draft.removals)
         return existing
+            .filter { !removed.contains($0.persistentModelID) }
             .flatMap { event in event.occurrences(in: range).map { AgendaEntry(event: event, interval: $0) } }
             .sorted { $0.interval.start < $1.interval.start }
     }

@@ -125,7 +125,8 @@ struct EventForm: View {
     }
 }
 
-/// Plantilla de tarea con fecha límite: Planaby la reparte en bloques y enseña la propuesta.
+/// Plantilla de tarea con fecha límite: se le pueden adjuntar capturas y archivos para que la IA
+/// estime tiempo y dificultad; Planaby la reparte en bloques y enseña la propuesta.
 struct TaskForm: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
@@ -135,7 +136,15 @@ struct TaskForm: View {
     @State private var deadline = TaskForm.defaultDeadline()
     @State private var estimatedMinutes = 120
     @State private var priority = 1
+    @State private var difficulty = 3
+    @State private var notes = ""
+    @State private var attachments: [ImportedAttachment] = []
+    @State private var estimate: ComplexityEstimate?
+    @State private var isEstimating = false
+    @State private var estimateError: String?
     @State private var draft: PlanDraft?
+
+    private var cleanTitle: String { title.trimmingCharacters(in: .whitespaces) }
 
     var body: some View {
         Form {
@@ -145,10 +154,51 @@ struct TaskForm: View {
             }
 
             Section {
+                ForEach(attachments) { file in
+                    AttachmentLabel(name: file.name, kind: file.kind, text: file.text)
+                }
+                .onDelete { offsets in
+                    for index in offsets { AttachmentStore.delete(attachments[index].fileName) }
+                    attachments.remove(atOffsets: offsets)
+                }
+                AttachmentAdder { attachments.append($0) }
+            } header: {
+                Text("Material")
+            } footer: {
+                Text("Enunciados, capturas, apuntes… Se leen en el iPhone para estimar mejor la tarea.")
+            }
+
+            Section {
+                Button {
+                    Task { await runEstimate() }
+                } label: {
+                    HStack {
+                        Label("Estimar con IA", systemImage: "sparkles")
+                        Spacer()
+                        if isEstimating { ProgressView() }
+                    }
+                }
+                .disabled(cleanTitle.isEmpty || isEstimating || PlanningAssistant.unavailableReason != nil)
+                if let estimate {
+                    EstimateSummary(estimate: estimate)
+                }
+                if let estimateError {
+                    Text(estimateError)
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.orange)
+                }
+            } footer: {
+                if let reason = PlanningAssistant.unavailableReason {
+                    Text(reason)
+                }
+            }
+
+            Section {
                 DatePicker("Fecha límite", selection: $deadline, in: Date.now...)
-                Stepper(value: $estimatedMinutes, in: 30...6000, step: 30) {
+                Stepper(value: $estimatedMinutes, in: 15...12000, step: estimatedMinutes < 60 ? 15 : 30) {
                     LabeledContent("Tiempo estimado", value: FocusStats.format(TimeInterval(estimatedMinutes * 60)))
                 }
+                DifficultyField(difficulty: $difficulty)
                 Picker("Prioridad", selection: $priority) {
                     Text("Baja").tag(0)
                     Text("Media").tag(1)
@@ -156,30 +206,61 @@ struct TaskForm: View {
                 }
                 .pickerStyle(.segmented)
             } footer: {
-                Text("Planaby lo repartirá en bloques dentro de tu horario de \(mode.title) y te enseñará la propuesta antes de guardar nada.")
+                Text("Planaby lo repartirá en bloques dentro de tu horario de \(mode.title), con lo más exigente en tus mejores horas, y te enseñará la propuesta antes de guardar nada.")
+            }
+
+            Section("Notas y pasos") {
+                TextField("Opcional", text: $notes, axis: .vertical)
+                    .lineLimit(2...8)
             }
         }
         .navigationTitle("Nueva tarea")
         .navigationBarTitleDisplayMode(.inline)
+        .interactiveDismissDisabled(!attachments.isEmpty)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Cancelar", systemImage: "xmark") { dismiss() }
+                Button("Cancelar", systemImage: "xmark") {
+                    attachments.forEach { AttachmentStore.delete($0.fileName) }
+                    dismiss()
+                }
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button("Ver propuesta") {
                     let task = PlanDraft.Workload(
-                        id: UUID(), title: title.trimmingCharacters(in: .whitespaces), mode: mode,
-                        deadline: deadline, estimatedMinutes: estimatedMinutes, priority: priority
+                        id: UUID(), title: cleanTitle, mode: mode, deadline: deadline,
+                        estimatedMinutes: estimatedMinutes, priority: priority, difficulty: difficulty,
+                        notes: notes, attachments: attachments
                     )
                     draft = PlanBuilder.draft(events: [], tasks: [task], context: context)
                 }
-                .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty)
+                .disabled(cleanTitle.isEmpty)
             }
         }
         .navigationDestination(isPresented: Binding(get: { draft != nil }, set: { if !$0 { draft = nil } })) {
             if let binding = Binding($draft) {
                 ProposalReviewView(draft: binding) { dismiss() }
             }
+        }
+    }
+
+    private func runEstimate() async {
+        isEstimating = true
+        estimateError = nil
+        defer { isEstimating = false }
+        do {
+            let result = try await PlanningAssistant.estimate(
+                title: cleanTitle, notes: notes, deadline: deadline, attachmentTexts: attachments.map(\.text)
+            )
+            withAnimation(.smooth) {
+                estimate = result
+                estimatedMinutes = max(15, Int((Double(result.estimatedMinutes) / 15).rounded()) * 15)
+                difficulty = result.difficulty
+                if notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !result.steps.isEmpty {
+                    notes = result.stepsText
+                }
+            }
+        } catch {
+            estimateError = PlanningAssistant.message(for: error)
         }
     }
 

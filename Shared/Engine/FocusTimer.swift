@@ -20,9 +20,9 @@ final class FocusTimer {
         reconcile()
     }
 
-    func start(_ method: FocusMethod) {
+    func start(_ method: FocusMethod, task: String? = nil) {
         if state != nil { stop() }
-        commit(TimerState(method: method, at: .now))
+        commit(TimerState(method: method, at: .now, taskTitle: task))
     }
 
     func pause() { mutate { $0.pause(at: .now) } }

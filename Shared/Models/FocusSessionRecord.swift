@@ -8,6 +8,8 @@ final class FocusSessionRecord {
     var methodName: String
     var focusedSeconds: Double
     var completedCycles: Int
+    /// Tarea en la que se trabajó, si la sesión empezó desde un bloque o un aviso.
+    var taskTitle: String? = nil
 
     init(_ session: CompletedSession) {
         start = session.start
@@ -15,5 +17,6 @@ final class FocusSessionRecord {
         methodName = session.methodName
         focusedSeconds = session.focusedSeconds
         completedCycles = session.completedCycles
+        taskTitle = session.taskTitle
     }
 }

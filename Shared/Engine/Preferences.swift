@@ -12,6 +12,7 @@ enum Preferences {
     static let deskNightStart = "deskNightStart"
     static let deskNightEnd = "deskNightEnd"
     static let deskKeepAwake = "deskKeepAwake"
+    static let deskShowsTasks = "deskShowsTasks"
 
     static let defaultDailyGoal = 120
 

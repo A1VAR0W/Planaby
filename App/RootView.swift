@@ -10,6 +10,7 @@ struct RootView: View {
     @Environment(PlanInbox.self) private var inbox
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @State private var tab: AppTab = .focus
+    @State private var showsRhythmTest = PersonalProfile.shared.shouldOfferTest
 
     /// En horizontal, desde Enfoque, el iPhone pasa a modo escritorio a pantalla completa.
     private var isDesk: Bool { verticalSizeClass == .compact && tab == .focus }
@@ -45,6 +46,10 @@ struct RootView: View {
                 }
                 .tabBarMinimizeBehavior(.onScrollDown)
             }
+        }
+        // La primera vez se ofrece el test de ritmo para personalizar el plan.
+        .fullScreenCover(isPresented: $showsRhythmTest) {
+            FocusProfileTestView(isFirstRun: true)
         }
         .sensoryFeedback(.impact(flexibility: .soft, intensity: 0.7), trigger: timer.state?.phase)
         // Una sesión que empieza desde un bloque, un aviso o Siri se sigue en Enfoque.

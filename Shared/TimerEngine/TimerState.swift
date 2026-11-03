@@ -13,6 +13,7 @@ struct CompletedSession: Sendable {
     let methodName: String
     let focusedSeconds: TimeInterval
     let completedCycles: Int
+    let taskTitle: String?
 }
 
 /// Estado del temporizador basado en fechas, no en ticks: sigue siendo correcto
@@ -28,8 +29,10 @@ struct TimerState: Codable, Equatable, Sendable {
     var pausedAt: Date?
     var sessionStart: Date
     var focusedSeconds: TimeInterval
+    /// Tarea del plan en la que se está trabajando, si la hay.
+    var taskTitle: String?
 
-    init(method: FocusMethod, at now: Date) {
+    init(method: FocusMethod, at now: Date, taskTitle: String? = nil) {
         self.method = method
         phase = .focus
         completedCycles = 0
@@ -38,6 +41,7 @@ struct TimerState: Codable, Equatable, Sendable {
         pausedAt = nil
         sessionStart = now
         focusedSeconds = 0
+        self.taskTitle = taskTitle
     }
 
     var isPaused: Bool { pausedAt != nil }
@@ -63,7 +67,7 @@ struct TimerState: Codable, Equatable, Sendable {
     func summary(endingAt now: Date) -> CompletedSession {
         CompletedSession(
             start: sessionStart, end: now, methodName: method.name,
-            focusedSeconds: totalFocused(at: now), completedCycles: completedCycles
+            focusedSeconds: totalFocused(at: now), completedCycles: completedCycles, taskTitle: taskTitle
         )
     }
 

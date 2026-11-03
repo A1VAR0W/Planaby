@@ -153,17 +153,34 @@ final class PlanTask {
     var priority: Int
     var isDone: Bool
     var created: Date
+    /// 1 mecánica … 5 muy exigente.
+    var difficulty: Int = 3
+    /// Notas y pasos (los que propone la IA al estimar).
+    var notes: String = ""
+    var completedAt: Date?
     @Relationship(deleteRule: .cascade, inverse: \CalendarEvent.task)
     var blocks: [CalendarEvent] = []
+    @Relationship(deleteRule: .cascade, inverse: \TaskAttachment.task)
+    var attachments: [TaskAttachment] = []
 
-    init(title: String, mode: PlanMode, deadline: Date, estimatedMinutes: Int, priority: Int) {
+    init(
+        title: String, mode: PlanMode, deadline: Date, estimatedMinutes: Int, priority: Int,
+        difficulty: Int = 3, notes: String = ""
+    ) {
         self.title = title
         modeRaw = mode.rawValue
         self.deadline = deadline
         self.estimatedMinutes = estimatedMinutes
         self.priority = priority
+        self.difficulty = difficulty
+        self.notes = notes
         isDone = false
         created = .now
+    }
+
+    func setDone(_ done: Bool) {
+        isDone = done
+        completedAt = done ? .now : nil
     }
 
     var mode: PlanMode {
@@ -179,4 +196,39 @@ final class PlanTask {
     var completedMinutes: Int {
         blocks.filter { $0.end <= .now }.reduce(0) { $0 + Int($1.duration / 60) }
     }
+}
+
+enum AttachmentKind: String, Codable, Sendable {
+    case image, pdf, text, other
+
+    var symbol: String {
+        switch self {
+        case .image: "photo"
+        case .pdf: "doc.richtext"
+        case .text: "doc.text"
+        case .other: "doc"
+        }
+    }
+}
+
+/// Captura o archivo de una tarea. El fichero vive en la carpeta de adjuntos de la app;
+/// aquí se guarda su nombre y el texto extraído (OCR o PDF) para estimar la complejidad.
+@Model
+final class TaskAttachment {
+    var name: String
+    var kindRaw: String
+    var fileName: String
+    var extractedText: String
+    var created: Date
+    var task: PlanTask?
+
+    init(name: String, kind: AttachmentKind, fileName: String, extractedText: String) {
+        self.name = name
+        kindRaw = kind.rawValue
+        self.fileName = fileName
+        self.extractedText = extractedText
+        created = .now
+    }
+
+    var kind: AttachmentKind { AttachmentKind(rawValue: kindRaw) ?? .other }
 }

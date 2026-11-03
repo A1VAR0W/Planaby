@@ -98,6 +98,17 @@ private struct ActiveSessionView: View {
         VStack(spacing: 0) {
             Spacer()
 
+            if let task = state.taskTitle {
+                Label(task, systemImage: "square.stack.3d.up.fill")
+                    .font(.headline)
+                    .foregroundStyle(.white.opacity(0.85))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, Space.l)
+                    .padding(.bottom, Space.l)
+                    .accessibilityLabel("Tarea: \(task)")
+            }
+
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 ZStack {
                     ProgressRing(progress: state.progress(at: context.date), tint: state.phase.tint, lineWidth: 4)

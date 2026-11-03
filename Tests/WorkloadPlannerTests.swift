@@ -82,6 +82,38 @@ struct WorkloadPlannerTests {
         #expect(perDay.values.allSatisfy { $0 <= 120 })
     }
 
+    @Test func demandingWorkGoesToPeakHours() {
+        var planner = self.planner
+        planner.energyByHour = (0..<24).map { (15..<18).contains($0) ? 1.0 : 0.3 }
+        var task = item(minutes: 120, deadline: date(2, 18))
+        task.difficulty = 5
+        let result = planner.plan([task], busy: [], from: date(2, 9))
+        #expect(result.shortfalls.isEmpty)
+        for block in result.blocks {
+            #expect(calendar.component(.hour, from: block.start) >= 15)
+        }
+    }
+
+    @Test func lightWorkLeavesPeakHoursFree() {
+        var planner = self.planner
+        planner.energyByHour = (0..<24).map { (9..<12).contains($0) ? 1.0 : 0.3 }
+        var task = item(minutes: 60, deadline: date(2, 18))
+        task.difficulty = 1
+        let result = planner.plan([task], busy: [], from: date(2, 9))
+        #expect(result.blocks.count == 1)
+        #expect(calendar.component(.hour, from: result.blocks[0].start) >= 12)
+    }
+
+    @Test func chosenOrderWinsOverDeadline() {
+        var soonerDeadline = item(minutes: 90, deadline: date(2, 18))
+        soonerDeadline.rank = 1
+        var prioritized = item(minutes: 90, deadline: date(4, 18))
+        prioritized.rank = 0
+        let result = planner.plan([soonerDeadline, prioritized], busy: [], from: date(2, 9))
+        #expect(result.blocks.first?.itemID == prioritized.id)
+        #expect(result.shortfalls.isEmpty)
+    }
+
     @Test func subtractSplitsIntervals() {
         let free = WorkloadPlanner.subtract(
             [DateInterval(start: date(2, 10), end: date(2, 11))],

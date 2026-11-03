@@ -54,7 +54,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         await MainActor.run {
             switch action {
             case ReminderScheduler.startAction:
-                FocusTimer.shared.start(MethodLibrary.shared.selected)
+                // El título del aviso es el del bloque: así la sesión queda ligada a su tarea.
+                FocusTimer.shared.start(MethodLibrary.shared.selected, task: title)
             case ReminderScheduler.snoozeAction:
                 ReminderScheduler.shared.snooze(title: title, body: body)
             default:

@@ -10,6 +10,10 @@ struct PlanChatView: View {
     @State private var assistant = PlanningAssistant()
     @State private var input = ""
     @State private var reviewing: PlanningAssistant.Message.ID?
+    @State private var attachments: [ImportedAttachment] = []
+    @State private var showsPhotos = false
+    @State private var showsFiles = false
+    @State private var importing = 0
     @FocusState private var inputFocused: Bool
 
     private static let suggestions = [
@@ -97,7 +101,7 @@ struct PlanChatView: View {
                 .accessibilityHidden(true)
             Text("Cuéntame qué tienes por delante")
                 .font(.title3.weight(.semibold))
-            Text("Citas con hora o trabajos con fecha límite. Repartiré la carga en tu horario y no guardaré nada sin que lo confirmes.")
+            Text("Citas con hora, trabajos con fecha límite o cosas que han surgido. Puedes adjuntar capturas o archivos para que estime mejor. Repartiré la carga en tus mejores horas y no guardaré nada sin que lo confirmes.")
                 .font(.subheadline)
                 .foregroundStyle(Theme.secondaryText)
             VStack(alignment: .leading, spacing: Space.s) {
@@ -121,26 +125,57 @@ struct PlanChatView: View {
     }
 
     private var composer: some View {
-        let canSend = !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !assistant.isThinking
-        return HStack(alignment: .bottom, spacing: Space.s) {
-            TextField("Escribe qué quieres planificar", text: $input, axis: .vertical)
-                .lineLimit(1...4)
-                .focused($inputFocused)
-                .padding(.horizontal, Space.m)
-                .padding(.vertical, Space.s + 2)
-                .frame(minHeight: 44)
-                .background(Theme.surface, in: .rect(cornerRadius: 22))
-            Button(action: send) {
-                Image(systemName: "arrow.up")
-                    .font(.body.weight(.bold))
-                    .frame(width: 44, height: 44)
+        let hasContent = !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty
+        let canSend = hasContent && !assistant.isThinking && importing == 0
+        return VStack(alignment: .leading, spacing: Space.s) {
+            if !attachments.isEmpty || importing > 0 {
+                ScrollView(.horizontal) {
+                    HStack(spacing: Space.s) {
+                        ForEach(attachments) { file in
+                            AttachmentChip(name: file.name, kind: file.kind) {
+                                AttachmentStore.delete(file.fileName)
+                                attachments.removeAll { $0.id == file.id }
+                            }
+                        }
+                        if importing > 0 {
+                            ProgressView().padding(.horizontal, Space.s)
+                        }
+                    }
+                }
+                .scrollIndicators(.hidden)
             }
-            .buttonStyle(.glassProminent)
-            .buttonBorderShape(.circle)
-            .tint(Theme.orange)
-            .foregroundStyle(.black)
-            .disabled(!canSend)
-            .accessibilityLabel("Enviar")
+            HStack(alignment: .bottom, spacing: Space.s) {
+                Menu {
+                    Button("Capturas o fotos", systemImage: "photo.on.rectangle") { showsPhotos = true }
+                    Button("Archivo", systemImage: "doc.badge.plus") { showsFiles = true }
+                } label: {
+                    Image(systemName: "paperclip")
+                        .font(.body.weight(.semibold))
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
+                .accessibilityLabel("Adjuntar")
+                .attachmentImporters(photos: $showsPhotos, files: $showsFiles, importing: $importing) { attachments.append($0) }
+                TextField("Escribe qué quieres planificar", text: $input, axis: .vertical)
+                    .lineLimit(1...4)
+                    .focused($inputFocused)
+                    .padding(.horizontal, Space.m)
+                    .padding(.vertical, Space.s + 2)
+                    .frame(minHeight: 44)
+                    .background(Theme.surface, in: .rect(cornerRadius: 22))
+                Button(action: send) {
+                    Image(systemName: "arrow.up")
+                        .font(.body.weight(.bold))
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(.glassProminent)
+                .buttonBorderShape(.circle)
+                .tint(Theme.orange)
+                .foregroundStyle(.black)
+                .disabled(!canSend)
+                .accessibilityLabel("Enviar")
+            }
         }
         .padding(.horizontal, Space.m)
         .padding(.vertical, Space.s)
@@ -149,8 +184,10 @@ struct PlanChatView: View {
 
     private func send() {
         let text = input
+        let files = attachments
         input = ""
-        Task { await assistant.send(text, context: context) }
+        attachments = []
+        Task { await assistant.send(text, attachments: files, context: context) }
     }
 
     private func draftBinding(for id: PlanningAssistant.Message.ID) -> Binding<PlanDraft> {
@@ -171,6 +208,12 @@ private struct MessageBubble: View {
     var body: some View {
         let isUser = message.role == .user
         VStack(alignment: isUser ? .trailing : .leading, spacing: Space.s) {
+            if !message.attachmentNames.isEmpty {
+                Label(message.attachmentNames.joined(separator: ", "), systemImage: "paperclip")
+                    .font(.caption)
+                    .foregroundStyle(Theme.secondaryText)
+                    .lineLimit(2)
+            }
             Text(message.text)
                 .font(.body)
                 .foregroundStyle(isUser ? Color.black : Color.white)
@@ -199,5 +242,33 @@ private struct MessageBubble: View {
         }
         .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
         .padding(isUser ? .leading : .trailing, Space.xxl)
+    }
+}
+
+/// Adjunto pendiente de enviar, con botón para quitarlo.
+private struct AttachmentChip: View {
+    let name: String
+    let kind: AttachmentKind
+    let onRemove: () -> Void
+
+    var body: some View {
+        HStack(spacing: Space.xs) {
+            Image(systemName: kind.symbol)
+                .foregroundStyle(Theme.orange)
+                .accessibilityHidden(true)
+            Text(name)
+                .font(.caption)
+                .lineLimit(1)
+                .frame(maxWidth: 140)
+            Button(action: onRemove) {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(Theme.secondaryText)
+                    .frame(width: 32, height: 32)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Quitar \(name)")
+        }
+        .padding(.leading, Space.s + 2)
+        .background(Theme.surface, in: .capsule)
     }
 }

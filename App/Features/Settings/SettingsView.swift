@@ -80,6 +80,15 @@ struct SettingsView: View {
             } label: {
                 Label("Modo", systemImage: modes.mode.symbol)
             }
+            NavigationLink {
+                PersonalProfileView()
+            } label: {
+                LabeledContent {
+                    Text(PersonalProfile.shared.profile.isCompleted ? PersonalProfile.shared.bestHoursText : "Sin hacer")
+                } label: {
+                    Label("Tu ritmo", systemImage: "waveform.path.ecg")
+                }
+            }
             ForEach(PlanMode.allCases) { mode in
                 NavigationLink {
                     ModeScheduleView(mode: mode)

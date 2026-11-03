@@ -4,9 +4,9 @@ import SwiftUI
 /// Modo escritorio con el iPhone en horizontal.
 ///
 /// En reposo solo hay una cifra grande sobre negro y una línea finísima de progreso. Un toque
-/// muestra una única barra inferior (método, controles y atenuar) que se oculta sola; en pausa
+/// muestra una única barra inferior (método, controles, tareas y atenuar) que se oculta sola; en pausa
 /// o sin sesión se queda visible. Mientras carga la pantalla no se apaga, y de noche todo pasa
-/// a rojo tenue, como StandBy.
+/// a rojo tenue, como StandBy. La lista de tareas, si se activa, queda a la derecha con checks.
 struct DeskView: View {
     @Environment(FocusTimer.self) private var timer
     @Environment(MethodLibrary.self) private var library
@@ -15,6 +15,7 @@ struct DeskView: View {
     @AppStorage(Preferences.deskNightStart) private var nightStart = 22
     @AppStorage(Preferences.deskNightEnd) private var nightEnd = 7
     @AppStorage(Preferences.deskKeepAwake) private var keepAwake = true
+    @AppStorage(Preferences.deskShowsTasks) private var showsTasks = false
     @State private var isCharging = false
     /// Hasta cuándo se ven los controles mientras la sesión corre.
     @State private var controlsUntil = Date.now.addingTimeInterval(DeskView.controlsTimeout)
@@ -37,9 +38,21 @@ struct DeskView: View {
                 BreathingGlow(tint: tint, strength: night || dimmed ? 0.08 : (state?.phase.isBreak == true ? 0.28 : 0.16))
 
                 VStack(spacing: 0) {
-                    Spacer(minLength: 0)
-                    face(state: state, date: context.date, tint: tint, ink: ink)
-                    Spacer(minLength: 0)
+                    HStack(spacing: Space.l) {
+                        VStack(spacing: 0) {
+                            Spacer(minLength: 0)
+                            face(state: state, date: context.date, tint: tint, ink: ink)
+                            Spacer(minLength: 0)
+                        }
+                        .frame(maxWidth: .infinity)
+
+                        if showsTasks {
+                            DeskTaskList(tint: tint, ink: ink, onInteract: reveal)
+                                .frame(width: 300)
+                                .padding(.top, Space.s)
+                                .transition(.move(edge: .trailing).combined(with: .opacity))
+                        }
+                    }
 
                     ZStack(alignment: .bottom) {
                         if showControls {
@@ -57,6 +70,7 @@ struct DeskView: View {
                 .padding(.horizontal, Space.l)
                 .padding(.vertical, Space.s)
                 .animation(.smooth(duration: 0.4), value: showControls)
+                .animation(.smooth(duration: 0.4), value: showsTasks)
 
                 if dimmed {
                     Color.black.opacity(0.45)
@@ -121,9 +135,10 @@ struct DeskView: View {
     /// Una sola barra: método a la izquierda, acción principal en el centro y atenuar a la derecha.
     private func bottomBar(state: TimerState?, tint: Color, ink: Color) -> some View {
         ZStack {
-            HStack {
+            HStack(spacing: Space.s) {
                 methodMenu(ink: ink)
                 Spacer(minLength: Space.m)
+                tasksButton
                 dimButton
             }
 
@@ -194,6 +209,20 @@ struct DeskView: View {
         })
         .accessibilityLabel("Método: \(library.selected.name)")
         .accessibilityHint("Cambia de método sin perder la sesión")
+    }
+
+    private var tasksButton: some View {
+        Button {
+            reveal()
+            showsTasks.toggle()
+        } label: {
+            Image(systemName: showsTasks ? "checklist.checked" : "checklist")
+                .font(.system(size: 16, weight: .medium))
+                .frame(width: 44, height: 44)
+        }
+        .buttonStyle(.glass)
+        .buttonBorderShape(.circle)
+        .accessibilityLabel(showsTasks ? "Ocultar tareas" : "Mostrar tareas")
     }
 
     private var dimButton: some View {

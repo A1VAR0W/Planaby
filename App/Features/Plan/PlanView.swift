@@ -15,6 +15,8 @@ struct PlanView: View {
     @State private var selectedDay = Calendar.current.startOfDay(for: .now)
     @State private var form: PlanForm?
     @State private var showingChat = false
+    @State private var showingReorganize = false
+    @State private var openTask: PlanTask?
     @State private var deletingEvent: CalendarEvent?
     @State private var deletingTask: PlanTask?
 
@@ -40,7 +42,7 @@ struct PlanView: View {
                         AgendaRow(entry: entry) {
                             Task {
                                 await NotificationAccess.requestIfNeeded()
-                                timer.start(library.selected)
+                                timer.start(library.selected, task: entry.event.task?.title ?? entry.event.title)
                             }
                         }
                         .contentShape(.rect)
@@ -60,10 +62,12 @@ struct PlanView: View {
                 Section("Tareas") {
                     ForEach(pendingTasks) { task in
                         TaskRow(task: task)
+                            .contentShape(.rect)
+                            .onTapGesture { openTask = task }
+                            .accessibilityAddTraits(.isButton)
                             .swipeActions(edge: .leading) {
                                 Button("Hecha", systemImage: "checkmark") {
-                                    task.isDone = true
-                                    try? context.save()
+                                    TaskActions.complete(task, context: context)
                                 }
                                 .tint(Theme.orange)
                             }
@@ -88,6 +92,10 @@ struct PlanView: View {
                         withAnimation(.smooth) { selectedDay = Calendar.current.startOfDay(for: .now) }
                     }
                 }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Reorganizar", systemImage: "arrow.up.arrow.down") { showingReorganize = true }
+                    .disabled(tasks.isEmpty)
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
@@ -126,6 +134,12 @@ struct PlanView: View {
         .sheet(isPresented: $showingChat) {
             NavigationStack { PlanChatView() }
         }
+        .sheet(isPresented: $showingReorganize) {
+            NavigationStack { ReorganizeView() }
+        }
+        .navigationDestination(item: $openTask) { task in
+            TaskDetailView(task: task)
+        }
         .confirmationDialog(
             "¿Borrar «\(deletingEvent?.title ?? "")»?",
             isPresented: Binding(get: { deletingEvent != nil }, set: { if !$0 { deletingEvent = nil } }),
@@ -145,9 +159,7 @@ struct PlanView: View {
             presenting: deletingTask
         ) { task in
             Button("Borrar tarea y sus bloques", role: .destructive) {
-                context.delete(task)
-                try? context.save()
-                ReminderScheduler.shared.reschedule()
+                TaskActions.delete(task, context: context)
             }
         }
         .onChange(of: inbox.pending, initial: true) { _, pending in
