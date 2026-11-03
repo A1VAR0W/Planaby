@@ -5,17 +5,22 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      runner:
+        description: 'Runner de macOS (macos-15-intel si no hay Mac ARM disponibles)'
+        required: false
+        default: macos-latest
 
 permissions:
   contents: write
 
 concurrency:
-  group: build-${{ github.ref }}
+  group: build-${{ github.ref }}-${{ inputs.runner || 'macos-latest' }}
   cancel-in-progress: true
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: ${{ inputs.runner || 'macos-latest' }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
