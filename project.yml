@@ -22,6 +22,8 @@ targets:
       path: App/Info.plist
       properties:
         CFBundleDisplayName: Planaby
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
         ITSAppUsesNonExemptEncryption: false
         UISupportedInterfaceOrientations:
