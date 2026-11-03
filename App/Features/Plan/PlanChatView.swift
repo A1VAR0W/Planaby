@@ -10,6 +10,7 @@ struct PlanChatView: View {
     @State private var assistant = PlanningAssistant()
     @State private var input = ""
     @State private var reviewing: PlanningAssistant.Message.ID?
+    @State private var confirmingClear = false
     @State private var attachments: [ImportedAttachment] = []
     @State private var showsPhotos = false
     @State private var showsFiles = false
@@ -44,6 +45,15 @@ struct PlanChatView: View {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cerrar", systemImage: "xmark") { dismiss() }
             }
+            ToolbarItem(placement: .primaryAction) {
+                Button("Borrar conversación", systemImage: "trash") { confirmingClear = true }
+                    .disabled(assistant.messages.isEmpty || assistant.isThinking)
+            }
+        }
+        .confirmationDialog("¿Borrar la conversación?", isPresented: $confirmingClear, titleVisibility: .visible) {
+            Button("Borrar", role: .destructive) { assistant.clearHistory() }
+        } message: {
+            Text("Lo que ya está en tu plan no cambia.")
         }
         .navigationDestination(item: $reviewing) { id in
             ProposalReviewView(draft: draftBinding(for: id)) {

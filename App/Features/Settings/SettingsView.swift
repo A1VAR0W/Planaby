@@ -26,6 +26,7 @@ struct SettingsView: View {
         Form {
             focusSection
             planSection
+            dataSection
             notificationsSection
             deskSection
             shortcutsSection
@@ -68,6 +69,37 @@ struct SettingsView: View {
             Text("Concentración")
         } footer: {
             Text("El objetivo marca el anillo de Enfoque y la línea de referencia en Progreso.")
+        }
+    }
+
+    private var dataSection: some View {
+        let mirror = CalendarMirror.shared
+        return Section {
+            Toggle(isOn: Binding(
+                get: { mirror.isEnabled },
+                set: { $0 ? mirror.enable() : mirror.disable() }
+            )) {
+                Label("Plan Normal en el Calendario de iOS", systemImage: "calendar")
+            }
+            NavigationLink {
+                BackupsView()
+            } label: {
+                LabeledContent {
+                    Text(BackupService.lastAutomaticBackup?.formatted(.relative(presentation: .named)) ?? "Ninguna")
+                } label: {
+                    Label("Copias de seguridad", systemImage: "externaldrive.badge.checkmark")
+                }
+            }
+        } header: {
+            Text("Tus datos")
+        } footer: {
+            if let error = mirror.lastError {
+                Text(error).foregroundStyle(Theme.orange)
+            } else if let note = PlanabyStore.recoveryNote {
+                Text(note).foregroundStyle(Theme.orange)
+            } else {
+                Text("Copia solo el plan Normal (eventos, hábitos y bloques) en un calendario «Planaby» del iPhone; el de Trabajo nunca sale de Planaby. Al desactivarlo se quita ese calendario. Planaby guarda todo al cerrarse y hace una copia de seguridad cada día.")
+            }
         }
     }
 

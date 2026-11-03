@@ -34,6 +34,8 @@ targets:
         UILaunchScreen: {}
         ITSAppUsesNonExemptEncryption: false
         NSSupportsLiveActivities: true
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
         NSMicrophoneUsageDescription: Planaby usa el micrófono para que añadas tareas y citas dictándolas.
         NSSpeechRecognitionUsageDescription: Planaby convierte lo que dictas en texto para crear tareas y citas.
         NSCalendarsFullAccessUsageDescription: Planaby lee los calendarios que elijas para no colocar bloques encima de tus citas.

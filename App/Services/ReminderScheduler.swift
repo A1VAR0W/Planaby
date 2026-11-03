@@ -29,6 +29,8 @@ final class ReminderScheduler {
     }
 
     func reschedule() {
+        // Se llama tras cada cambio del plan: también se actualiza la copia en el Calendario de iOS.
+        CalendarMirror.shared.sync()
         center.removePendingNotificationRequests(withIdentifiers: ids)
 
         let now = Date.now

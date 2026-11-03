@@ -81,7 +81,7 @@ struct Interpretation {
 @Observable
 @MainActor
 final class PlanningAssistant {
-    enum Role { case user, assistant }
+    enum Role: String, Codable { case user, assistant }
 
     struct Message: Identifiable {
         let id = UUID()
@@ -91,9 +91,42 @@ final class PlanningAssistant {
         var draft: PlanDraft?
     }
 
+    /// Lo que se guarda de cada mensaje (las propuestas sin aceptar no se guardan).
+    private struct StoredMessage: Codable {
+        let role: Role
+        let text: String
+        let attachmentNames: [String]
+    }
+
     private(set) var messages: [Message] = []
     private(set) var isThinking = false
     @ObservationIgnored private var session: LanguageModelSession?
+
+    /// La conversación se guarda en el iPhone y sigue ahí al cerrar o actualizar la app.
+    private static var historyURL: URL { URL.applicationSupportDirectory.appending(path: "chat.json") }
+    private static let historyLimit = 100
+
+    init() {
+        let stored = (try? Data(contentsOf: Self.historyURL))
+            .flatMap { try? JSONDecoder().decode([StoredMessage].self, from: $0) } ?? []
+        messages = stored.map { Message(role: $0.role, text: $0.text, attachmentNames: $0.attachmentNames) }
+    }
+
+    func clearHistory() {
+        messages = []
+        session = nil
+        saveHistory()
+    }
+
+    private func saveHistory() {
+        let stored = messages.suffix(Self.historyLimit).map {
+            StoredMessage(role: $0.role, text: $0.text, attachmentNames: $0.attachmentNames)
+        }
+        if let data = try? JSONEncoder().encode(Array(stored)) {
+            try? FileManager.default.createDirectory(at: URL.applicationSupportDirectory, withIntermediateDirectories: true)
+            try? data.write(to: Self.historyURL, options: .atomic)
+        }
+    }
 
     /// nil si está disponible; si no, el motivo para mostrarlo.
     static var unavailableReason: String? {
@@ -121,6 +154,7 @@ final class PlanningAssistant {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty || !attachments.isEmpty, !isThinking else { return }
         messages.append(Message(role: .user, text: trimmed.isEmpty ? "Organiza esto" : trimmed, attachmentNames: attachments.map(\.name)))
+        saveHistory()
         isThinking = true
         defer { isThinking = false }
 
@@ -165,10 +199,12 @@ final class PlanningAssistant {
         draft.warnings = result.problems + draft.warnings
         let text = [draft.summary, result.question].filter { !$0.isEmpty }.joined(separator: "\n")
         messages.append(Message(role: .assistant, text: text, draft: draft))
+        saveHistory()
     }
 
     private func reply(_ text: String) {
         messages.append(Message(role: .assistant, text: text))
+        saveHistory()
     }
 
     // MARK: Interpretación

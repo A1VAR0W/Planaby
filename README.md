@@ -37,6 +37,13 @@ Recuerda refrescar la app en SideStore cada 7 días.
 - **Modo escritorio al cargar:** Atajos → Automatización → *Cargador* → *Está conectado* → acción **Abrir modo escritorio** (Planaby). Con el iPhone en horizontal, la pantalla no se apaga mientras carga.
 - **Botón de Acción / Centro de Control:** añade el control **Concentración** de Planaby.
 
+## Tus datos
+
+- **Nada se pierde al cerrar o actualizar:** todo vive en la base de datos de la app (SwiftData), que SideStore conserva al actualizar. Al pasar a segundo plano se guarda lo pendiente, y la conversación con la IA también se guarda.
+- **Antes de cada versión nueva** se copian los archivos de la base de datos (las 3 últimas). Si alguna vez no se pudiera abrir, no se borra: se aparta y Ajustes avisa para restaurar una copia.
+- **Copias de seguridad:** cada día que usas la app, una copia completa en JSON (tareas, calendario, adjuntos, sesiones, ajustes y conversación) en Archivos › En mi iPhone › Planaby › Copias de seguridad (las 14 últimas). En Ajustes › Copias de seguridad: hacer una ahora, exportarla a iCloud Drive y restaurar. Si vas a borrar la app, exporta antes una copia.
+- **Plan Normal en el Calendario de iOS (opcional):** Ajustes › Tus datos. Copia solo el plan Normal a un calendario «Planaby» (en iCloud si lo hay), de ayer a dos meses vista, y lo actualiza con cada cambio. El plan de Trabajo nunca sale de Planaby. Es de un solo sentido: los cambios hechos en el Calendario de iOS se sobrescriben.
+
 ## Interfaz
 
 | Pestaña | Contenido |

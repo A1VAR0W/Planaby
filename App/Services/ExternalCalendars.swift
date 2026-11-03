@@ -138,7 +138,9 @@ final class ExternalCalendars {
 
     private func deviceEvents(in interval: DateInterval) -> [ExternalEvent] {
         guard usesDeviceCalendars else { return [] }
-        let chosen = store.calendars(for: .event).filter { selection[$0.calendarIdentifier] != nil }
+        let chosen = store.calendars(for: .event).filter {
+            selection[$0.calendarIdentifier] != nil && $0.calendarIdentifier != CalendarMirror.shared.calendarID
+        }
         guard !chosen.isEmpty else { return [] }
         let predicate = store.predicateForEvents(withStart: interval.start, end: interval.end, calendars: chosen)
         return store.events(matching: predicate).compactMap { event in
@@ -298,7 +300,9 @@ final class ExternalCalendars {
             revision += 1
             return
         }
+        // El calendario «Planaby» es la copia del plan Normal: no se vuelve a leer.
         calendars = store.calendars(for: .event)
+            .filter { $0.calendarIdentifier != CalendarMirror.shared.calendarID }
             .map { CalendarInfo(id: $0.calendarIdentifier, title: $0.title, sourceTitle: $0.source?.title ?? "", color: Color(cgColor: $0.cgColor)) }
             .sorted { ($0.sourceTitle, $0.title) < ($1.sourceTitle, $1.title) }
         revision += 1
