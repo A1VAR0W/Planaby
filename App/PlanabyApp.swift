@@ -16,6 +16,8 @@ struct PlanabyApp: App {
             }
             .environment(timer)
             .environment(library)
+            .preferredColorScheme(.dark)
+            .tint(Theme.orange)
             .task {
                 _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
             }

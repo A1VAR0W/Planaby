@@ -7,20 +7,20 @@ on:
   workflow_dispatch:
     inputs:
       runner:
-        description: 'Runner de macOS (macos-15-intel si no hay Mac ARM disponibles)'
+        description: 'Runner de macOS (macos-latest para Apple Silicon cuando haya capacidad)'
         required: false
-        default: macos-latest
+        default: macos-15-intel
 
 permissions:
   contents: write
 
 concurrency:
-  group: build-${{ github.ref }}-${{ inputs.runner || 'macos-latest' }}
+  group: build-${{ github.ref }}-${{ inputs.runner || 'macos-15-intel' }}
   cancel-in-progress: true
 
 jobs:
   build:
-    runs-on: ${{ inputs.runner || 'macos-latest' }}
+    runs-on: ${{ inputs.runner || 'macos-15-intel' }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7

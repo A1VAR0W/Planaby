@@ -17,7 +17,7 @@ BASE_URL = os.environ.get("PLANABY_BASE_URL", "https://chat-ink.tail552c89.ts.ne
 PUBLIC = Path(os.environ.get("PLANABY_PUBLIC", "/srv/planaby/public"))
 TOKEN_FILE = Path(os.environ.get("PLANABY_TOKEN_FILE", "/etc/planaby/github-token"))
 BUNDLE_ID = "com.alvaro.planaby"
-TINT = "#FF6B4A"
+TINT = "#FF7A1A"
 KEEP = 5
 
 

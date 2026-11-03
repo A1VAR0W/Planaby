@@ -17,6 +17,18 @@ struct FocusActivityAttributes: ActivityAttributes {
             nextPhase = state.nextPhase
         }
 
+        /// Intervalo de la fase para los contadores del sistema; nil si es abierta.
+        var range: ClosedRange<Date>? {
+            phaseEnd.map { phaseStart...$0 }
+        }
+
+        /// Progreso congelado mientras está en pausa.
+        var pausedProgress: Double {
+            guard let pausedAt, let phaseEnd else { return 0 }
+            let total = phaseEnd.timeIntervalSince(phaseStart)
+            return total > 0 ? min(1, max(0, pausedAt.timeIntervalSince(phaseStart) / total)) : 0
+        }
+
         /// Texto fijo para cuando está en pausa (el contador del sistema no se puede detener).
         var pausedClock: String? {
             guard let pausedAt else { return nil }

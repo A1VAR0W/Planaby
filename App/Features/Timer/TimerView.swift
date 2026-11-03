@@ -25,7 +25,10 @@ struct TimerView: View {
                 .padding(.horizontal, 24)
                 .padding(.bottom, 24)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(PhaseBackground(tint: timer.state?.phase.tint ?? Theme.focus))
+                .background(PhaseBackground(
+                    tint: timer.state?.phase.tint ?? Theme.focus,
+                    isBreak: timer.state?.phase.isBreak ?? false
+                ))
             }
         }
         .toolbar(isDesk ? .hidden : .automatic, for: .navigationBar)
@@ -42,7 +45,7 @@ struct TimerView: View {
         .sheet(isPresented: $showingHistory) {
             NavigationStack { HistoryView() }
         }
-        .sensoryFeedback(.impact(weight: .medium), trigger: timer.state?.phase)
+        .sensoryFeedback(.impact(flexibility: .soft, intensity: 0.7), trigger: timer.state?.phase)
         .task {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
@@ -55,9 +58,10 @@ struct TimerView: View {
         let method = library.selected
         return VStack(spacing: 0) {
             Spacer()
-            Eyebrow(text: "Listo para concentrarte")
+            Eyebrow(text: "Respira y empieza", color: Theme.orange.opacity(0.9))
             Text(Self.preview(of: method))
                 .font(Theme.clock(96))
+                .foregroundStyle(.white)
                 .padding(.top, 12)
 
             Button { showingMethods = true } label: {
@@ -81,11 +85,12 @@ struct TimerView: View {
             Button { timer.start(method) } label: {
                 Text("Empezar")
                     .font(.headline)
+                    .foregroundStyle(.black)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 8)
             }
             .buttonStyle(.glassProminent)
-            .tint(Theme.focus)
+            .tint(Theme.orange)
             .controlSize(.large)
         }
     }
@@ -114,10 +119,15 @@ private struct ActiveTimerView: View {
                     VStack(spacing: 8) {
                         Text(state.clockText(at: context.date))
                             .font(Theme.clock(72))
+                            .foregroundStyle(.white)
                             .contentTransition(.numericText(countsDown: true))
-                        Text(caption)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                        if state.phase.isBreak && !state.isPaused {
+                            BreathingHint(tint: state.phase.tint)
+                        } else {
+                            Text(caption)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
                 .frame(width: 300, height: 300)
@@ -179,7 +189,7 @@ private struct CycleDots: View {
             HStack(spacing: 8) {
                 ForEach(0..<total, id: \.self) { index in
                     Circle()
-                        .fill(index < filled ? state.phase.tint : Color.primary.opacity(0.12))
+                        .fill(index < filled ? state.phase.tint : Color.white.opacity(0.12))
                         .frame(width: 7, height: 7)
                 }
             }

@@ -45,10 +45,13 @@ struct FocusWidget: Widget {
         StaticConfiguration(kind: "FocusWidget", provider: TimerProvider()) { entry in
             FocusWidgetView(entry: entry)
                 .containerBackground(for: .widget) {
-                    LinearGradient(
-                        colors: [(entry.state?.phase.tint ?? Theme.focus).opacity(0.18), .clear],
-                        startPoint: .top, endPoint: .bottom
-                    )
+                    ZStack {
+                        Color.black
+                        RadialGradient(
+                            colors: [(entry.state?.phase.tint ?? Theme.orange).opacity(0.28), .clear],
+                            center: .topLeading, startRadius: 0, endRadius: 220
+                        )
+                    }
                 }
         }
         .configurationDisplayName("Concentración")
@@ -59,6 +62,8 @@ struct FocusWidget: Widget {
 
 struct FocusWidgetView: View {
     @Environment(\.widgetFamily) private var family
+    /// En StandBy el sistema quita el fondo: ahí solo se muestra la cifra, sin botones.
+    @Environment(\.showsWidgetContainerBackground) private var showsBackground
     let entry: TimerEntry
 
     var body: some View {
@@ -71,51 +76,72 @@ struct FocusWidgetView: View {
 
     // MARK: - Inicio y StandBy
 
+    private var clockSize: CGFloat {
+        if !showsBackground { return 64 }
+        return family == .systemSmall ? 44 : 56
+    }
+
     @ViewBuilder
     private var system: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 4) {
             if let state = entry.state {
-                Eyebrow(text: state.phase.title, color: state.phase.tint)
-                Spacer(minLength: 4)
+                Eyebrow(text: state.isPaused ? "En pausa" : state.phase.title, color: state.phase.tint)
+                Spacer(minLength: 0)
                 WidgetClock(state: state, date: entry.date)
-                    .font(Theme.clock(family == .systemSmall ? 40 : 52))
-                    .minimumScaleFactor(0.6)
-                Text(state.method.name)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer(minLength: 4)
-                HStack(spacing: 8) {
-                    Button(intent: TogglePauseIntent()) {
-                        Image(systemName: state.isPaused ? "play.fill" : "pause.fill")
+                    .font(Theme.clock(clockSize))
+                    .foregroundStyle(.white.opacity(state.isPaused ? 0.5 : 1))
+                    .minimumScaleFactor(0.5)
+                    .lineLimit(1)
+                if let end = state.phaseEnd, !state.isPaused {
+                    ProgressView(timerInterval: state.phaseStart...end, countsDown: false) {
+                        EmptyView()
+                    } currentValueLabel: {
+                        EmptyView()
                     }
-                    if family != .systemSmall {
-                        Button(intent: SkipPhaseIntent()) {
-                            Image(systemName: "forward.end.fill")
-                        }
-                    }
-                    Button(intent: StopFocusIntent()) {
-                        Image(systemName: "xmark")
-                    }
+                    .tint(state.phase.tint)
                 }
-                .buttonStyle(.bordered)
-                .buttonBorderShape(.circle)
-                .tint(state.phase.tint)
+                Spacer(minLength: 0)
+                if showsBackground {
+                    HStack(spacing: 8) {
+                        Button(intent: TogglePauseIntent()) {
+                            Image(systemName: state.isPaused ? "play.fill" : "pause.fill")
+                                .foregroundStyle(.black)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        if family != .systemSmall {
+                            Button(intent: SkipPhaseIntent()) {
+                                Image(systemName: "forward.end.fill")
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                        Spacer(minLength: 0)
+                        Text(state.method.name)
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(0.45))
+                    }
+                    .buttonBorderShape(.circle)
+                    .tint(state.phase.tint)
+                }
             } else {
-                Eyebrow(text: "Planaby", color: Theme.focus)
-                Spacer(minLength: 4)
+                Eyebrow(text: "Planaby", color: Theme.orange)
+                Spacer(minLength: 0)
                 Text(entry.method.focusMinutes.map { TimerState.format(TimeInterval($0 * 60)) } ?? "0:00")
-                    .font(Theme.clock(family == .systemSmall ? 40 : 52))
+                    .font(Theme.clock(clockSize))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
                 Text(entry.method.name)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer(minLength: 4)
+                    .foregroundStyle(.white.opacity(0.45))
+                Spacer(minLength: 0)
                 Button(intent: StartFocusIntent()) {
                     Label("Empezar", systemImage: "play.fill")
                         .font(.caption.weight(.semibold))
+                        .foregroundStyle(.black)
                 }
                 .buttonStyle(.borderedProminent)
                 .buttonBorderShape(.capsule)
-                .tint(Theme.focus)
+                .tint(Theme.orange)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)

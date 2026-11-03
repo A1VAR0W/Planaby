@@ -1,11 +1,16 @@
 import SwiftUI
 
+/// Paleta naranja sobre negro: un naranja vivo para concentrarse y tonos más cálidos y suaves para descansar.
 enum Theme {
-    static let focus = Color(red: 1.0, green: 0.42, blue: 0.29)
-    static let shortBreak = Color(red: 0.36, green: 0.82, blue: 0.64)
-    static let longBreak = Color(red: 0.47, green: 0.58, blue: 1.0)
+    static let orange = Color(red: 1.0, green: 0.48, blue: 0.10)
+    static let amber = Color(red: 1.0, green: 0.66, blue: 0.32)
+    static let sand = Color(red: 1.0, green: 0.80, blue: 0.56)
     /// Tinta del modo escritorio por la noche, como StandBy.
-    static let night = Color(red: 1.0, green: 0.23, blue: 0.19)
+    static let night = Color(red: 0.86, green: 0.22, blue: 0.08)
+
+    static let focus = orange
+    static let shortBreak = amber
+    static let longBreak = sand
 
     static func clock(_ size: CGFloat) -> Font {
         .system(size: size, weight: .thin, design: .rounded).monospacedDigit()
@@ -25,24 +30,63 @@ extension PhaseKind {
 
     var symbol: String {
         switch self {
-        case .focus: "scope"
+        case .focus: "flame.fill"
         case .shortBreak: "cup.and.saucer.fill"
         case .longBreak: "leaf.fill"
         }
     }
 }
 
-/// Fondo neutro con un halo muy suave del color de la fase.
+/// Ritmo de respiración lenta: 4 s inhalando y 6 s exhalando.
+enum Breath {
+    static let inhale: TimeInterval = 4
+    static let exhale: TimeInterval = 6
+
+    /// 0 = pulmones vacíos, 1 = llenos, con entrada y salida suaves.
+    static func level(at date: Date) -> Double {
+        let t = date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: inhale + exhale)
+        let progress = t < inhale ? t / inhale : 1 - (t - inhale) / exhale
+        return (1 - cos(progress * .pi)) / 2
+    }
+
+    static func isInhaling(at date: Date) -> Bool {
+        date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: inhale + exhale) < inhale
+    }
+}
+
+/// Halo naranja que respira despacio detrás del contenido.
+struct BreathingGlow: View {
+    let tint: Color
+    var strength: Double = 0.22
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1 / 30)) { context in
+            let level = Breath.level(at: context.date)
+            RadialGradient(
+                colors: [tint.opacity(strength * (0.55 + 0.45 * level)), .clear],
+                center: .center,
+                startRadius: 0,
+                endRadius: 260 + 140 * level
+            )
+        }
+        .allowsHitTesting(false)
+        .ignoresSafeArea()
+    }
+}
+
+/// Fondo negro con el halo de la fase; en los descansos respira con más presencia.
 struct PhaseBackground: View {
     let tint: Color
+    var isBreak = false
 
     var body: some View {
         ZStack {
-            Color(.systemBackground)
-            RadialGradient(colors: [tint.opacity(0.16), .clear], center: .top, startRadius: 0, endRadius: 560)
+            Color.black
+            BreathingGlow(tint: tint, strength: isBreak ? 0.30 : 0.16)
+                .offset(y: -120)
         }
         .ignoresSafeArea()
-        .animation(.easeInOut(duration: 0.8), value: tint)
+        .animation(.easeInOut(duration: 1.2), value: tint)
     }
 }
 
@@ -53,7 +97,7 @@ struct Eyebrow: View {
     var body: some View {
         Text(text.uppercased())
             .font(Theme.eyebrow)
-            .tracking(2)
+            .tracking(2.4)
             .foregroundStyle(color)
     }
 }
@@ -62,7 +106,7 @@ struct RoundButton: View {
     let label: String
     let systemImage: String
     var prominent = false
-    var tint: Color = .accentColor
+    var tint: Color = Theme.orange
     let action: () -> Void
 
     var body: some View {
@@ -77,7 +121,10 @@ struct RoundButton: View {
         .accessibilityLabel(label)
 
         if prominent {
-            button.buttonStyle(.glassProminent).tint(tint)
+            button
+                .buttonStyle(.glassProminent)
+                .tint(tint)
+                .foregroundStyle(.black)
         } else {
             button.buttonStyle(.glass)
         }
@@ -87,16 +134,32 @@ struct RoundButton: View {
 struct ProgressRing: View {
     let progress: Double
     let tint: Color
-    var lineWidth: CGFloat = 4
+    var lineWidth: CGFloat = 6
 
     var body: some View {
         ZStack {
-            Circle().stroke(Color.primary.opacity(0.07), lineWidth: lineWidth)
+            Circle().stroke(Color.white.opacity(0.06), lineWidth: lineWidth)
             Circle()
                 .trim(from: 0, to: progress)
                 .stroke(tint, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
+                .shadow(color: tint.opacity(0.55), radius: 10)
                 .animation(.linear(duration: 1), value: progress)
+        }
+    }
+}
+
+/// Texto que acompaña la respiración durante los descansos.
+struct BreathingHint: View {
+    let tint: Color
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.5)) { context in
+            Text(Breath.isInhaling(at: context.date) ? "Inhala" : "Exhala")
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(tint.opacity(0.85))
+                .contentTransition(.opacity)
+                .animation(.easeInOut(duration: 0.8), value: Breath.isInhaling(at: context.date))
         }
     }
 }
