@@ -29,7 +29,7 @@ targets:
         UILaunchScreen: {}
         ITSAppUsesNonExemptEncryption: false
         NSSupportsLiveActivities: true
-        NSCalendarsFullAccessUsageDescription: Planaby lee tus calendarios (por ejemplo Outlook o Teams) para no colocar bloques encima de tus reuniones.
+        NSCalendarsFullAccessUsageDescription: Planaby lee los calendarios que elijas para no colocar bloques encima de tus citas.
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
@@ -69,13 +69,14 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.alvaro.planaby.widgets
 
-  # Tests del planificador: lógica pura, sin app anfitriona.
+  # Tests del planificador y del lector ICS: lógica pura, sin app anfitriona.
   PlanabyTests:
     type: bundle.unit-test
     platform: iOS
     sources:
       - Tests
       - Shared/Planning/WorkloadPlanner.swift
+      - Shared/Planning/ICSCalendar.swift
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES

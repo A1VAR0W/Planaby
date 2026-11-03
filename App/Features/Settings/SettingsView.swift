@@ -93,7 +93,7 @@ struct SettingsView: View {
                 ExternalCalendarsView()
             } label: {
                 LabeledContent {
-                    Text(ExternalCalendars.shared.isActive ? "\(ExternalCalendars.shared.selection.count) en uso" : "Ninguno")
+                    Text(externalSummary)
                 } label: {
                     Label("Calendarios externos", systemImage: "calendar.badge.clock")
                 }
@@ -244,6 +244,12 @@ struct SettingsView: View {
 
     private func refreshNotificationStatus() async {
         notificationStatus = await NotificationAccess.status()
+    }
+
+    private var externalSummary: String {
+        let external = ExternalCalendars.shared
+        let count = external.subscriptions.count + (external.usesDeviceCalendars ? external.selection.count : 0)
+        return count == 0 ? "Ninguno" : (count == 1 ? "1 en uso" : "\(count) en uso")
     }
 
     private static func scheduleSummary(_ availability: Availability) -> String {

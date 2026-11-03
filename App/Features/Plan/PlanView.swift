@@ -86,6 +86,7 @@ struct PlanView: View {
             }
         }
         .scrollContentBackground(.hidden)
+        .refreshable { await external.syncAll() }
         .background(Color.black)
         .navigationTitle("Plan")
         .navigationBarTitleDisplayMode(.inline)
@@ -172,7 +173,10 @@ struct PlanView: View {
         .onChange(of: inbox.pending, initial: true) { _, pending in
             if pending != nil { showingChat = true }
         }
-        .onAppear { external.refreshStatus() }
+        .onAppear {
+            external.refreshStatus()
+            external.syncIfNeeded()
+        }
     }
 
     /// Lo del día: eventos de Planaby y de los calendarios externos, por hora (todo el día primero).

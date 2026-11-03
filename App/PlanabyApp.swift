@@ -26,6 +26,8 @@ struct PlanabyApp: App {
             if phase == .active {
                 timer.sync()
                 ReminderScheduler.shared.reschedule()
+                // Outlook y otros calendarios suscritos se descargan de nuevo si hace rato.
+                ExternalCalendars.shared.syncIfNeeded()
             }
         }
     }
