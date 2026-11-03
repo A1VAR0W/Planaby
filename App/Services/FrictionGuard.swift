@@ -31,6 +31,8 @@ final class FrictionGuard {
     }
 
     enum Keys {
+        /// Interruptor general «Bloquear apps».
+        static let enabled = "frictionEnabled"
         static let scope = "frictionScope"
         static let pauseSeconds = "frictionPauseSeconds"
         static let passMinutes = "frictionPassMinutes"
@@ -44,6 +46,10 @@ final class FrictionGuard {
     var request: Request?
 
     private init() {}
+
+    static var isEnabled: Bool {
+        UserDefaults.standard.object(forKey: Keys.enabled) as? Bool ?? true
+    }
 
     static var scope: FrictionScope {
         UserDefaults.standard.string(forKey: Keys.scope).flatMap { FrictionScope(rawValue: $0) } ?? .focus
@@ -65,7 +71,7 @@ final class FrictionGuard {
 
     /// Lo que responde la acción «¿Toca pausa consciente?».
     func shouldPause(app: String, now: Date = .now) -> Bool {
-        if hasPass(for: app, now: now) { return false }
+        guard Self.isEnabled, !hasPass(for: app, now: now) else { return false }
         switch Self.scope {
         case .focus: return isFocusing
         case .workHours: return isFocusing || isWorkTime(now)

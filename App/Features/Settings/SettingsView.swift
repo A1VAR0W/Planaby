@@ -17,6 +17,7 @@ struct SettingsView: View {
     @AppStorage(Preferences.deskNightMode) private var nightMode = true
     @AppStorage(Preferences.deskNightStart) private var nightStart = 22
     @AppStorage(Preferences.deskNightEnd) private var nightEnd = 7
+    @AppStorage(FrictionGuard.Keys.enabled) private var blocksApps = true
     @AppStorage(FrictionGuard.Keys.scope) private var frictionScope = FrictionScope.focus.rawValue
     @AppStorage(FrictionGuard.Keys.pauseSeconds) private var pauseSeconds = FrictionGuard.defaultPauseSeconds
     @AppStorage(FrictionGuard.Keys.passMinutes) private var passMinutes = FrictionGuard.defaultPassMinutes
@@ -261,13 +262,17 @@ struct SettingsView: View {
 
     private var frictionSection: some View {
         Section {
+            Toggle(isOn: $blocksApps) {
+                Label("Bloquear apps", systemImage: "hand.raised.fill")
+            }
             Picker(selection: $frictionScope) {
                 ForEach(FrictionScope.allCases) { scope in
                     Text(scope.title).tag(scope.rawValue)
                 }
             } label: {
-                Label("Cuándo frenarte", systemImage: "hand.raised")
+                Label("Cuándo", systemImage: "clock")
             }
+            .disabled(!blocksApps)
             Picker(selection: $pauseSeconds) {
                 ForEach([5, 10, 20, 30], id: \.self) { Text("\($0) s").tag($0) }
             } label: {
@@ -281,21 +286,20 @@ struct SettingsView: View {
             DisclosureGroup {
                 VStack(alignment: .leading, spacing: Space.s) {
                     Step(number: 1, text: "Atajos › Automatización › Nueva › App. Elige las apps que te distraen, «Se abre» y «Ejecutar inmediatamente».")
-                    Step(number: 2, text: "Añade la acción de Planaby «¿Toca pausa consciente?» y escribe el nombre de la app.")
-                    Step(number: 3, text: "Añade «Si»: si el resultado es verdadero, la acción de Planaby «Pausa consciente» con el mismo nombre.")
-                    Step(number: 4, text: "Listo: al abrir esa app mientras te concentras, Planaby te pide respirar antes.")
+                    Step(number: 2, text: "Añade la acción de Planaby «Bloquear app». Listo.")
+                    Step(number: 3, text: "Se hace una sola vez. Después lo enciendes y apagas con el interruptor «Bloquear apps».")
                 }
                 .padding(.vertical, Space.xs)
                 Button("Abrir Atajos") {
                     if let url = URL(string: "shortcuts://") { openURL(url) }
                 }
             } label: {
-                Label("Cómo activarlo", systemImage: "wand.and.stars")
+                Label("Elegir las apps (una sola vez)", systemImage: "wand.and.stars")
             }
         } header: {
             Text("Bloqueo con fricción")
         } footer: {
-            Text("Sin bloquear del todo: Planaby te frena unos segundos para que decidas con calma. Si la abres igualmente, no te vuelve a frenar durante ese rato. Lo verás en Progreso.")
+            Text("Al abrir una app elegida, Planaby te frena unos segundos para que decidas con calma; si la abres igualmente, no vuelve a frenarte durante ese rato. El bloqueo total de iOS (Tiempo de uso) necesita una cuenta de desarrollador de pago, por eso las apps se eligen con Atajos.")
         }
     }
 
