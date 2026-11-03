@@ -38,9 +38,9 @@ enum ICSCalendar {
 
         for event in events where event.recurrenceID == nil {
             guard !event.isCancelled, let start = event.start else { continue }
-            let length = length(of: event, start: start)
+            let span = length(of: event, start: start)
             guard let rule = event.rule else {
-                let occurrence = make(event, start: start, length: length)
+                let occurrence = make(event, start: start, length: span)
                 if occurrence.end > from && occurrence.start < to { result.append(occurrence) }
                 continue
             }
@@ -51,7 +51,7 @@ enum ICSCalendar {
             }
             let skipped = Set(event.exceptions.map { $0.timeIntervalSinceReferenceDate.rounded() })
             // Se amplía la ventana hacia atrás para no perder apariciones que empiezan antes y siguen dentro.
-            let starts = expand(rule, start: start, zone: event.timeZone, from: from.addingTimeInterval(-max(length, 0)), to: to)
+            let starts = expand(rule, start: start, zone: event.timeZone, from: from.addingTimeInterval(-max(span, 0)), to: to)
 
             for occurrenceStart in starts {
                 let key = occurrenceStart.timeIntervalSinceReferenceDate.rounded()
@@ -61,7 +61,7 @@ enum ICSCalendar {
                     let occurrence = make(change, start: changedStart, length: length(of: change, start: changedStart))
                     if occurrence.end > from && occurrence.start < to { result.append(occurrence) }
                 } else {
-                    let occurrence = make(event, start: occurrenceStart, length: length)
+                    let occurrence = make(event, start: occurrenceStart, length: span)
                     if occurrence.end > from && occurrence.start < to { result.append(occurrence) }
                 }
             }
