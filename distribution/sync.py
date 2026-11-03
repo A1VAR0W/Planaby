@@ -71,8 +71,10 @@ def main():
         sys.exit(f"Falta el token de GitHub en {TOKEN_FILE}")
     token = TOKEN_FILE.read_text().strip()
 
-    with urllib.request.urlopen(github_request(f"/repos/{REPO}/releases?per_page=20", token), timeout=30) as response:
+    with urllib.request.urlopen(github_request(f"/repos/{REPO}/releases?per_page=100", token), timeout=30) as response:
         releases = json.load(response)
+    # GitHub no las devuelve por fecha (build-10 sale detrás de build-9): primero la más reciente.
+    releases.sort(key=lambda release: release.get("published_at") or release["created_at"], reverse=True)
 
     builds = []
     for release in releases:
