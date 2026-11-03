@@ -130,6 +130,46 @@ struct DifficultyField: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
+            Text(difficulty >= 4
+                 ? "Necesita concentración profunda: irá a tus horas de más energía."
+                 : "Cuánta concentración pide: 1 es mecánica, 5 muy exigente.")
+                .font(.caption)
+                .foregroundStyle(Theme.secondaryText)
+        }
+    }
+}
+
+/// Prioridad de una tarea, con lo que significa cada opción.
+struct PriorityField: View {
+    @Binding var priority: Int
+
+    static func label(_ value: Int) -> String {
+        switch value {
+        case 0: "Baja"
+        case 2: "Alta"
+        default: "Media"
+        }
+    }
+
+    private var explanation: String {
+        switch priority {
+        case 0: "Puede esperar: si coincide con otra entrega, va después."
+        case 2: "Urgente: va antes que otras con la misma entrega, a tus mejores horas, y se marca con «!» en la lista."
+        default: "Se coloca según su fecha de entrega."
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.s) {
+            LabeledContent("Prioridad", value: Self.label(priority))
+            Picker("Prioridad", selection: $priority) {
+                ForEach(0...2, id: \.self) { Text(Self.label($0)).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            Text(explanation)
+                .font(.caption)
+                .foregroundStyle(Theme.secondaryText)
         }
     }
 }

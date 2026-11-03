@@ -6,6 +6,8 @@ struct FocusView: View {
     @Environment(FocusTimer.self) private var timer
     @State private var showingMethods = false
     @State private var voice: VoiceTaskFlow?
+    @AppStorage(MusicLinks.Keys.focus) private var focusMusic = ""
+    @AppStorage(MusicLinks.Keys.rest) private var restMusic = ""
 
     var body: some View {
         let isRunning = timer.state.map { !$0.isPaused } ?? false
@@ -30,6 +32,21 @@ struct FocusView: View {
                 VoiceButton { voice = VoiceTaskFlow() }
                     .padding(Space.m)
                     .transition(.opacity)
+            }
+        }
+        // Música de la fase actual, si hay un enlace en Ajustes › Música.
+        .overlay(alignment: .topLeading) {
+            let phase = timer.state?.phase ?? .focus
+            if MusicLinks.url(from: phase.isBreak ? restMusic : focusMusic) != nil {
+                Button { MusicLinks.open(for: phase) } label: {
+                    Image(systemName: "music.note")
+                        .font(.system(size: 18, weight: .semibold))
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
+                .padding(Space.m)
+                .accessibilityLabel(phase.isBreak ? "Música de descanso" : "Música para concentrarte")
             }
         }
         .voiceTaskSheet($voice)

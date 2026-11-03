@@ -29,13 +29,14 @@ Recuerda refrescar la app en SideStore cada 7 días.
 - [x] Rediseño: pestañas Enfoque, Progreso (objetivo diario, racha, gráfica de 7 días, métodos, historial) y Ajustes (métodos, objetivo, notificaciones, modo escritorio, atajos).
 - [x] Hito 3: calendario propio con planes Trabajo y Normal, planificación con IA (chat y plantillas, siempre con confirmación) y recordatorios.
 - [x] Secretaria personal: test de ritmo, adjuntos con estimación por IA, reorganizar por prioridad y tareas con checks en modo escritorio.
-- [ ] Hito 4: bloqueo con fricción mediante Atajos, estadísticas avanzadas y tareas.
+- [x] Hito 4: bloqueo con fricción mediante Atajos, estadísticas avanzadas, tareas y vista de mes.
 - [ ] Hito 5: triage con IA de iMessage/SMS e IMAP, filtro de Concentración y Spotify.
 
 ## Atajos útiles
 
 - **Modo escritorio al cargar:** Atajos → Automatización → *Cargador* → *Está conectado* → acción **Abrir modo escritorio** (Planaby). Con el iPhone en horizontal, la pantalla no se apaga mientras carga.
 - **Botón de Acción / Centro de Control:** añade el control **Concentración** de Planaby.
+- **Bloqueo con fricción:** Atajos → Automatización → *App* → elige Instagram, TikTok… → *Se abre* → *Ejecutar inmediatamente*. Acciones: **¿Toca pausa consciente?** (Planaby, con el nombre de la app) → **Si** el resultado es verdadero → **Pausa consciente** (con el mismo nombre). Planaby se abre, te pide respirar unos segundos y decides: «Volver a lo mío» o «Abrir igualmente N min» (durante ese rato no te vuelve a frenar). En Ajustes › Bloqueo con fricción eliges cuándo frenar (solo concentrándote, también en horario de Trabajo o siempre), cuánto respirar y la duración del pase. No usa Family Controls, que necesita una cuenta de pago.
 
 ## Tus datos
 
@@ -49,8 +50,8 @@ Recuerda refrescar la app en SideStore cada 7 días.
 | Pestaña | Contenido |
 |---|---|
 | **Enfoque** | La cifra, el método y un solo botón principal. Con la sesión en marcha se oculta la barra de pestañas (vuelve al pausar). En horizontal pasa a modo escritorio: solo la cifra y, al tocar, una barra inferior con método, controles, tareas y atenuar. Con las tareas activadas aparece a la derecha una lista con checks (las hechas hoy quedan tachadas con papelera). |
-| **Plan** | Selector Trabajo/Normal, semana, agenda del día y tareas pendientes. «+» abre las plantillas (evento, tarea con fecha límite, hábito), ⇅ reorganiza por prioridad y «Planificar con IA» el chat. Al tocar una tarea se abre su ficha (material, bloques, estimar, replanificar). Toda propuesta se revisa (incluir, quitar o mover bloques) antes de guardarse. |
-| **Progreso** | Hoy frente al objetivo, racha, media por sesión, últimos 7 días, métodos de la semana e historial con borrado confirmado. |
+| **Plan** | Selector Trabajo/Normal, semana o mes entero (toca el nombre del mes; las flechas o deslizar cambian de semana o de mes; puntos de color por plan y calendario), agenda del día y tareas pendientes. «+» abre las plantillas (evento, tarea con fecha límite, hábito), ⇅ reorganiza por prioridad y el botón naranja «Planificar con IA» abre el chat (o, con su micrófono, dicta por voz). Al tocar una tarea se abre su ficha (material, bloques, estimar, replanificar). Toda propuesta se revisa (incluir, quitar o mover bloques) antes de guardarse. |
+| **Progreso** | Hoy frente al objetivo, racha, media por sesión, últimos 7 días, métodos de la semana e historial con borrado confirmado. Debajo, el **Análisis** de 7 días, 30 días o 3 meses: mapa de calor por día y hora con tu mejor franja, plan cumplido (bloques con sesión), desvío de tus estimaciones, reparto Trabajo/Normal, distracciones frenadas y entregas a tiempo. |
 | **Ajustes** | Tu ritmo (test y lo aprendido), métodos y plantillas, objetivo diario, notificaciones, modo escritorio (pantalla encendida, atenuar, franja nocturna), atajos y Siri. |
 
 ### Plan y modos
@@ -58,7 +59,7 @@ Recuerda refrescar la app en SideStore cada 7 días.
 - **Modo Normal:** solo se ve y avisa el plan personal; los recordatorios de Trabajo quedan en silencio.
 - **Modo Trabajo:** se ven y suenan los dos planes.
 - **Cambiar de modo:** en la pestaña Plan, en Ajustes, con Siri («Cambia de modo en Planaby») o con un filtro de Concentración: Ajustes de iOS › Concentración › Trabajo › Filtros › Planaby › Modo Trabajo. Al desactivar esa Concentración, Planaby vuelve a Normal.
-- **IA:** Apple Intelligence en el dispositivo interpreta el texto; `WorkloadPlanner` reparte las tareas en los huecos del horario de cada modo (Ajustes › Plan), primero la fecha límite más cercana. Sin Apple Intelligence quedan las plantillas.
+- **IA:** Apple Intelligence en el dispositivo interpreta el texto. Si no está claro si algo es de Trabajo o del plan Normal, pregunta («¿«Llamar a Juan» va en tu plan de Trabajo o en el Normal?») con dos botones, en el chat, por voz y en Reorganizar; `WorkloadPlanner` reparte las tareas en los huecos del horario de cada modo (Ajustes › Plan), primero la fecha límite más cercana. Sin Apple Intelligence quedan las plantillas.
 
 ### Secretaria personal
 
@@ -67,7 +68,7 @@ Recuerda refrescar la app en SideStore cada 7 días.
 - **Estimaciones que aprenden:** las sesiones empezadas desde un bloque quedan ligadas a su tarea; si sueles tardar más (o menos) de lo previsto, las nuevas estimaciones se corrigen y la propuesta lo explica.
 - **Material:** capturas, fotos, PDF y textos en la tarea o en el chat. Se leen en el iPhone (Vision y PDFKit) y «Estimar con IA» propone tiempo, dificultad y pasos.
 - **Reorganizar:** ordena las tareas pendientes arrastrando y, si ha surgido algo, escríbelo («Me han pedido el presupuesto para mañana, unas 3 horas»). Los bloques que aún no han empezado se recolocan con ese orden. Si una tarea nueva no cabe, la revisión ofrece «Hacer hueco moviendo otros bloques».
-- **Por voz:** el micrófono de Plan, de Enfoque (sin sesión en marcha) y de la barra del modo escritorio. Dicta «Preparar la presentación para el viernes, unas 3 horas» o «Reunión con Marta el jueves a las 10»: el reconocimiento de voz del iPhone (en el dispositivo si se puede) lo pasa a texto, Apple Intelligence lo interpreta y sale una tarjeta para confirmar con «Añadir» (en vertical también «Revisar»). Sin Apple Intelligence se apunta como tarea para mañana de 30 min. Deja de escuchar sola tras un silencio.
+- **Por voz:** el micrófono de Plan, de Enfoque (sin sesión en marcha) y de la barra del modo escritorio. Dicta «Preparar la presentación para el viernes, unas 3 horas» o «Reunión con Marta el jueves a las 10»: el reconocimiento de voz del iPhone (en el dispositivo si se puede) lo pasa a texto, Apple Intelligence lo interpreta y sale una tarjeta para confirmar con «Añadir» (en vertical también «Revisar»). Sin Apple Intelligence se apunta como tarea para mañana de 30 min, preguntando antes si es de Trabajo o Normal. Deja de escuchar sola tras un silencio.
 - **Hecha:** marcar una tarea como hecha libera sus bloques futuros.
 - **Horarios por día:** en Ajustes › Horario de Trabajo/Normal, «Días con otro horario» (p. ej. los viernes de 8:00 a 15:00).
 - **Outlook y Teams (solo en Planaby):** en outlook.office.com › Configuración › Calendario › Calendarios compartidos › Publicar un calendario, copia el enlace ICS y pégalo en Ajustes › Calendarios externos › Añadir calendario de Outlook. Planaby lo descarga directamente (sin pasar por el Calendario de iOS) al abrirse como mucho cada 15 minutos o al deslizar hacia abajo en Plan, y guarda una copia para usarla sin conexión. Sus eventos (también los de Teams) se ven en la agenda y la revisión, y el planificador no pone bloques encima. Solo lectura; los eventos «libres» y cancelados no cuentan. `ICSCalendar` entiende las zonas horarias de Windows de Outlook, las repeticiones, las excepciones y las reuniones movidas, y tiene tests en CI.

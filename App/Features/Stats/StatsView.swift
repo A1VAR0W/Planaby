@@ -2,7 +2,8 @@ import Charts
 import SwiftData
 import SwiftUI
 
-/// Pestaña Progreso: hoy frente al objetivo, racha, últimos 7 días, métodos y sesiones recientes.
+/// Pestaña Progreso: hoy frente al objetivo, racha, últimos 7 días, métodos, sesiones recientes
+/// y el análisis (cuándo rindes, plan cumplido, estimaciones, distracciones y entregas).
 struct StatsView: View {
     let onStartFocus: () -> Void
     @Query(sort: \FocusSessionRecord.start, order: .reverse) private var sessions: [FocusSessionRecord]
@@ -53,6 +54,8 @@ struct StatsView: View {
                     }
 
                     RecentCard(sessions: Array(sessions.prefix(4)))
+
+                    InsightsSection()
                 }
                 .padding(.horizontal, Space.m)
                 .padding(.bottom, Space.l)

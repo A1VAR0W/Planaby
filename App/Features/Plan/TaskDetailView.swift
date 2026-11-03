@@ -28,12 +28,7 @@ struct TaskDetailView: View {
                     LabeledContent("Tiempo estimado", value: FocusStats.format(TimeInterval(task.estimatedMinutes * 60)))
                 }
                 DifficultyField(difficulty: $task.difficulty)
-                Picker("Prioridad", selection: $task.priority) {
-                    Text("Baja").tag(0)
-                    Text("Media").tag(1)
-                    Text("Alta").tag(2)
-                }
-                .pickerStyle(.segmented)
+                PriorityField(priority: $task.priority)
             } footer: {
                 Text("Hecho: \(FocusStats.format(TimeInterval(task.completedMinutes * 60))) de \(FocusStats.format(TimeInterval(task.estimatedMinutes * 60))). Si cambias algo, pulsa Replanificar para recolocar los bloques.")
             }

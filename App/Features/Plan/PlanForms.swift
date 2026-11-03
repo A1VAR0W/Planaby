@@ -199,12 +199,7 @@ struct TaskForm: View {
                     LabeledContent("Tiempo estimado", value: FocusStats.format(TimeInterval(estimatedMinutes * 60)))
                 }
                 DifficultyField(difficulty: $difficulty)
-                Picker("Prioridad", selection: $priority) {
-                    Text("Baja").tag(0)
-                    Text("Media").tag(1)
-                    Text("Alta").tag(2)
-                }
-                .pickerStyle(.segmented)
+                PriorityField(priority: $priority)
             } footer: {
                 Text("Planaby lo repartirá en bloques dentro de tu horario de \(mode.title), con lo más exigente en tus mejores horas, y te enseñará la propuesta antes de guardar nada.")
             }

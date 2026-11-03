@@ -40,6 +40,8 @@ final class CalendarMirror {
                 mirror.lastError = nil
                 UserDefaults.standard.set(true, forKey: CalendarMirror.enabledKey)
                 mirror.sync()
+                // Y en sentido contrario: los eventos del iPhone se ven en Planaby.
+                ExternalCalendars.shared.refreshStatus()
             }
         }
     }

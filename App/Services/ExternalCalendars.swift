@@ -62,6 +62,8 @@ final class ExternalCalendars {
     @ObservationIgnored private var observer: NSObjectProtocol?
     private static let key = "externalCalendars"
     private static let subscriptionsKey = "calendarSubscriptions"
+    /// Ya se añadieron una vez los calendarios del iPhone al sincronizar con iOS.
+    static let adoptedKey = "deviceCalendarsAdopted"
     /// Cada cuánto se vuelve a descargar como mínimo al abrir la app.
     private static let refreshInterval: TimeInterval = 15 * 60
     /// Colores de las suscripciones: azul Outlook, morado Teams y otros.
@@ -102,8 +104,26 @@ final class ExternalCalendars {
 
     func refreshStatus() {
         let current = EKEventStore.authorizationStatus(for: .event)
-        guard current != status else { return }
-        status = current
+        if current != status {
+            status = current
+            // Un almacén creado antes de tener permiso no ve los calendarios hasta reiniciarlo.
+            store.reset()
+            reloadCalendars()
+        }
+        if CalendarMirror.shared.isEnabled { adoptDeviceCalendars() }
+    }
+
+    /// Al sincronizar con el Calendario de iOS, los eventos del iPhone se ven también en Planaby
+    /// (en el plan Normal). Solo la primera vez: luego se respeta lo que se elija en Ajustes.
+    func adoptDeviceCalendars() {
+        guard isAuthorized, !UserDefaults.standard.bool(forKey: Self.adoptedKey) else { return }
+        UserDefaults.standard.set(true, forKey: Self.adoptedKey)
+        guard selection.isEmpty else { return }
+        for calendar in store.calendars(for: .event)
+        where calendar.type != .birthday && calendar.calendarIdentifier != CalendarMirror.shared.calendarID {
+            selection[calendar.calendarIdentifier] = .personal
+        }
+        UserDefaults.standard.set(selection.mapValues(\.rawValue), forKey: Self.key)
         reloadCalendars()
     }
 

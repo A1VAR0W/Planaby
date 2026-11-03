@@ -20,6 +20,9 @@ struct SettingsView: View {
     @AppStorage(FrictionGuard.Keys.scope) private var frictionScope = FrictionScope.focus.rawValue
     @AppStorage(FrictionGuard.Keys.pauseSeconds) private var pauseSeconds = FrictionGuard.defaultPauseSeconds
     @AppStorage(FrictionGuard.Keys.passMinutes) private var passMinutes = FrictionGuard.defaultPassMinutes
+    @AppStorage(MusicLinks.Keys.focus) private var focusMusic = ""
+    @AppStorage(MusicLinks.Keys.rest) private var restMusic = ""
+    @AppStorage(MusicLinks.Keys.autoOpen) private var musicAutoOpen = false
 
     @State private var notificationStatus: UNAuthorizationStatus?
 
@@ -30,6 +33,7 @@ struct SettingsView: View {
             focusSection
             planSection
             frictionSection
+            musicSection
             dataSection
             notificationsSection
             deskSection
@@ -83,7 +87,7 @@ struct SettingsView: View {
                 get: { mirror.isEnabled },
                 set: { $0 ? mirror.enable() : mirror.disable() }
             )) {
-                Label("Plan Normal en el Calendario de iOS", systemImage: "calendar")
+                Label("Sincronizar con el Calendario de iOS", systemImage: "calendar")
             }
             NavigationLink {
                 BackupsView()
@@ -102,7 +106,7 @@ struct SettingsView: View {
             } else if let note = PlanabyStore.recoveryNote {
                 Text(note).foregroundStyle(Theme.orange)
             } else {
-                Text("Copia solo el plan Normal (eventos, hábitos y bloques) en un calendario «Planaby» del iPhone; el de Trabajo nunca sale de Planaby. Al desactivarlo se quita ese calendario. Planaby guarda todo al cerrarse y hace una copia de seguridad cada día.")
+                Text("Tus eventos del Calendario del iPhone aparecen en Planaby (plan Normal; elige cuáles en Calendarios externos) y el plan Normal de Planaby se copia a un calendario «Planaby» del iPhone. El plan de Trabajo nunca sale de Planaby. Al desactivarlo se quita ese calendario. Planaby guarda todo al cerrarse y hace una copia de seguridad cada día.")
             }
         }
     }
@@ -292,6 +296,39 @@ struct SettingsView: View {
             Text("Bloqueo con fricción")
         } footer: {
             Text("Sin bloquear del todo: Planaby te frena unos segundos para que decidas con calma. Si la abres igualmente, no te vuelve a frenar durante ese rato. Lo verás en Progreso.")
+        }
+    }
+
+    private var musicSection: some View {
+        Section {
+            LabeledContent {
+                TextField("Enlace de la lista", text: $focusMusic)
+                    .textContentType(.URL)
+                    .keyboardType(.URL)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .multilineTextAlignment(.trailing)
+            } label: {
+                Label("Concentración", systemImage: "headphones")
+            }
+            LabeledContent {
+                TextField("Enlace de la lista", text: $restMusic)
+                    .textContentType(.URL)
+                    .keyboardType(.URL)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .multilineTextAlignment(.trailing)
+            } label: {
+                Label("Descanso", systemImage: "cup.and.saucer")
+            }
+            Toggle(isOn: $musicAutoOpen) {
+                Label("Abrir al empezar cada fase", systemImage: "play.circle")
+            }
+            .disabled(MusicLinks.url(from: focusMusic) == nil && MusicLinks.url(from: restMusic) == nil)
+        } header: {
+            Text("Música")
+        } footer: {
+            Text("Pega el enlace de una lista de Spotify (Compartir › Copiar enlace), Apple Music o YouTube Music. Los de Spotify se abren en su app. Con la opción activada, al empezar una sesión o un descanso con Planaby abierta se abre su música; si no, tócala en Enfoque (♪).")
         }
     }
 

@@ -9,6 +9,7 @@ struct RootView: View {
     @Environment(FocusTimer.self) private var timer
     @Environment(PlanInbox.self) private var inbox
     @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @Environment(\.scenePhase) private var scenePhase
     @State private var tab: AppTab = .focus
     @State private var showsRhythmTest = PersonalProfile.shared.shouldOfferTest
     @State private var friction = FrictionGuard.shared
@@ -59,6 +60,10 @@ struct RootView: View {
             }
         }
         .sensoryFeedback(.impact(flexibility: .soft, intensity: 0.7), trigger: timer.state?.phase)
+        // Música de concentración o de descanso, si está configurada (solo con la app delante).
+        .onChange(of: timer.state?.phase) { old, new in
+            if scenePhase == .active { MusicLinks.phaseChanged(to: new, from: old) }
+        }
         // Una sesión que empieza desde un bloque, un aviso o Siri se sigue en Enfoque.
         .onChange(of: timer.state?.sessionStart) { old, new in
             if new != nil, new != old { tab = .focus }
