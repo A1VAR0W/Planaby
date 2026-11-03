@@ -17,6 +17,8 @@ struct PlanabyBackup: Codable {
     var groupSettings: Data?
     var localSettings: Data?
     var chat: Data?
+    /// Pausas conscientes (copias desde la 0.1.23).
+    var distractions: [Distraction]?
 
     struct Session: Codable {
         var start: Date, end: Date, methodName: String, focusedSeconds: Double, completedCycles: Int, taskTitle: String?
@@ -30,6 +32,10 @@ struct PlanabyBackup: Codable {
     struct Event: Codable {
         var title: String, notes: String, start: Date, end: Date, isAllDay: Bool
         var modeRaw: String, kindRaw: String, recurrenceRaw: String, reminderMinutes: Int?, taskRef: Int?
+    }
+
+    struct Distraction: Codable {
+        var date: Date, app: String, reason: String, resisted: Bool, duringFocus: Bool
     }
 
     struct Attachment: Codable {
@@ -49,6 +55,7 @@ enum BackupService {
     ]
     private static let localKeys = [
         "deskDimmed", "deskNightMode", "deskNightStart", "deskNightEnd", "deskKeepAwake", "deskShowsTasks", "planShowsMonth",
+        "frictionScope", "frictionPauseSeconds", "frictionPassMinutes",
         "externalCalendars", "calendarSubscriptions", CalendarMirror.enabledKey,
     ]
     private static let maxFileSize = 10 * 1024 * 1024
@@ -76,6 +83,7 @@ enum BackupService {
         let sessions = (try? context.fetch(FetchDescriptor<FocusSessionRecord>())) ?? []
         let events = (try? context.fetch(FetchDescriptor<CalendarEvent>())) ?? []
         let attachments = (try? context.fetch(FetchDescriptor<TaskAttachment>())) ?? []
+        let distractions = (try? context.fetch(FetchDescriptor<DistractionRecord>())) ?? []
 
         return PlanabyBackup(
             created: .now,
@@ -103,7 +111,10 @@ enum BackupService {
             },
             groupSettings: settings(groupKeys, from: AppGroup.defaults),
             localSettings: settings(localKeys, from: .standard),
-            chat: try? Data(contentsOf: URL.applicationSupportDirectory.appending(path: "chat.json"))
+            chat: try? Data(contentsOf: URL.applicationSupportDirectory.appending(path: "chat.json")),
+            distractions: distractions.map {
+                PlanabyBackup.Distraction(date: $0.date, app: $0.app, reason: $0.reason, resisted: $0.resisted, duringFocus: $0.duringFocus)
+            }
         )
     }
 
@@ -182,6 +193,7 @@ enum BackupService {
         for event in (try? context.fetch(FetchDescriptor<CalendarEvent>())) ?? [] { context.delete(event) }
         for task in (try? context.fetch(FetchDescriptor<PlanTask>())) ?? [] { context.delete(task) }
         for session in (try? context.fetch(FetchDescriptor<FocusSessionRecord>())) ?? [] { context.delete(session) }
+        for record in (try? context.fetch(FetchDescriptor<DistractionRecord>())) ?? [] { context.delete(record) }
 
         var tasks: [Int: PlanTask] = [:]
         for item in backup.tasks {
@@ -222,6 +234,11 @@ enum BackupService {
                 completedCycles: item.completedCycles, taskTitle: item.taskTitle
             ))
             context.insert(record)
+        }
+        for item in backup.distractions ?? [] {
+            context.insert(DistractionRecord(
+                date: item.date, app: item.app, reason: item.reason, resisted: item.resisted, duringFocus: item.duringFocus
+            ))
         }
         try context.save()
 

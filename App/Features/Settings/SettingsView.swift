@@ -17,6 +17,9 @@ struct SettingsView: View {
     @AppStorage(Preferences.deskNightMode) private var nightMode = true
     @AppStorage(Preferences.deskNightStart) private var nightStart = 22
     @AppStorage(Preferences.deskNightEnd) private var nightEnd = 7
+    @AppStorage(FrictionGuard.Keys.scope) private var frictionScope = FrictionScope.focus.rawValue
+    @AppStorage(FrictionGuard.Keys.pauseSeconds) private var pauseSeconds = FrictionGuard.defaultPauseSeconds
+    @AppStorage(FrictionGuard.Keys.passMinutes) private var passMinutes = FrictionGuard.defaultPassMinutes
 
     @State private var notificationStatus: UNAuthorizationStatus?
 
@@ -26,6 +29,7 @@ struct SettingsView: View {
         Form {
             focusSection
             planSection
+            frictionSection
             dataSection
             notificationsSection
             deskSection
@@ -251,9 +255,48 @@ struct SettingsView: View {
         }
     }
 
+    private var frictionSection: some View {
+        Section {
+            Picker(selection: $frictionScope) {
+                ForEach(FrictionScope.allCases) { scope in
+                    Text(scope.title).tag(scope.rawValue)
+                }
+            } label: {
+                Label("Cuándo frenarte", systemImage: "hand.raised")
+            }
+            Picker(selection: $pauseSeconds) {
+                ForEach([5, 10, 20, 30], id: \.self) { Text("\($0) s").tag($0) }
+            } label: {
+                Label("Respirar", systemImage: "wind")
+            }
+            Picker(selection: $passMinutes) {
+                ForEach([1, 5, 10, 15, 30], id: \.self) { Text("\($0) min").tag($0) }
+            } label: {
+                Label("Si la abres igualmente", systemImage: "hourglass")
+            }
+            DisclosureGroup {
+                VStack(alignment: .leading, spacing: Space.s) {
+                    Step(number: 1, text: "Atajos › Automatización › Nueva › App. Elige las apps que te distraen, «Se abre» y «Ejecutar inmediatamente».")
+                    Step(number: 2, text: "Añade la acción de Planaby «¿Toca pausa consciente?» y escribe el nombre de la app.")
+                    Step(number: 3, text: "Añade «Si»: si el resultado es verdadero, la acción de Planaby «Pausa consciente» con el mismo nombre.")
+                    Step(number: 4, text: "Listo: al abrir esa app mientras te concentras, Planaby te pide respirar antes.")
+                }
+                .padding(.vertical, Space.xs)
+                Button("Abrir Atajos") {
+                    if let url = URL(string: "shortcuts://") { openURL(url) }
+                }
+            } label: {
+                Label("Cómo activarlo", systemImage: "wand.and.stars")
+            }
+        } header: {
+            Text("Bloqueo con fricción")
+        } footer: {
+            Text("Sin bloquear del todo: Planaby te frena unos segundos para que decidas con calma. Si la abres igualmente, no te vuelve a frenar durante ese rato. Lo verás en Progreso.")
+        }
+    }
+
     private var roadmapSection: some View {
         Section {
-            RoadmapRow(title: "Bloqueo de apps con fricción", systemImage: "hand.raised")
             RoadmapRow(title: "Filtro inteligente de mensajes", systemImage: "tray.full")
             RoadmapRow(title: "Control de Spotify", systemImage: "music.note")
         } header: {

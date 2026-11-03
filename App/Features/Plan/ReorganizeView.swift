@@ -145,8 +145,7 @@ struct ReorganizeView: View {
                     problem = ([result.question] + result.problems).first { !$0.isEmpty }
                         ?? "No he entendido qué ha surgido. Reorganizo solo con el orden de la lista."
                 } else if !result.problems.isEmpty {
-                    problem = result.problems.joined(separator: "
-")
+                    problem = result.problems.joined(separator: "\n")
                 }
             } catch {
                 problem = PlanningAssistant.message(for: error)

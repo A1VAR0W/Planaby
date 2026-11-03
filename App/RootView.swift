@@ -11,6 +11,7 @@ struct RootView: View {
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @State private var tab: AppTab = .focus
     @State private var showsRhythmTest = PersonalProfile.shared.shouldOfferTest
+    @State private var friction = FrictionGuard.shared
 
     /// En horizontal, desde Enfoque, el iPhone pasa a modo escritorio a pantalla completa.
     private var isDesk: Bool { verticalSizeClass == .compact && tab == .focus }
@@ -50,6 +51,12 @@ struct RootView: View {
         // La primera vez se ofrece el test de ritmo para personalizar el plan.
         .fullScreenCover(isPresented: $showsRhythmTest) {
             FocusProfileTestView(isFirstRun: true)
+        }
+        // Pausa consciente que llega desde una automatización de Atajos.
+        .fullScreenCover(item: $friction.request) { request in
+            FrictionView(request: request) { resisted in
+                if resisted { tab = .focus }
+            }
         }
         .sensoryFeedback(.impact(flexibility: .soft, intensity: 0.7), trigger: timer.state?.phase)
         // Una sesión que empieza desde un bloque, un aviso o Siri se sigue en Enfoque.

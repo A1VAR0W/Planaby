@@ -7,7 +7,7 @@ import SwiftData
 ///   que la persona pueda restaurar una copia desde Ajustes.
 @MainActor
 enum PlanabyStore {
-    static let schema = Schema([FocusSessionRecord.self, CalendarEvent.self, PlanTask.self, TaskAttachment.self])
+    static let schema = Schema([FocusSessionRecord.self, CalendarEvent.self, PlanTask.self, TaskAttachment.self, DistractionRecord.self])
 
     /// Aviso para Ajustes si hubo que apartar la base de datos.
     private(set) static var recoveryNote: String?
