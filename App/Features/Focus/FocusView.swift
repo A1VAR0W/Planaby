@@ -1,3 +1,4 @@
+import SwiftData
 import SwiftUI
 
 /// Pestaña Enfoque. Una sola acción principal por pantalla: la cifra manda y todo lo demás calla.
@@ -6,6 +7,8 @@ struct FocusView: View {
     @Environment(FocusTimer.self) private var timer
     @State private var showingMethods = false
     @State private var voice: VoiceTaskFlow?
+    @State private var showsInbox = false
+    @Query(filter: #Predicate<MessageItem> { !$0.isRead }) private var unread: [MessageItem]
     @AppStorage(MusicLinks.Keys.focus) private var focusMusic = ""
     @AppStorage(MusicLinks.Keys.rest) private var restMusic = ""
 
@@ -29,9 +32,35 @@ struct FocusView: View {
         // Apuntar algo por voz sin salir de Enfoque (oculto mientras la sesión corre).
         .overlay(alignment: .topTrailing) {
             if !isRunning {
-                VoiceButton { voice = VoiceTaskFlow() }
-                    .padding(Space.m)
-                    .transition(.opacity)
+                HStack(spacing: Space.s) {
+                    let pending = unread.filter { $0.category == .urgent || $0.category == .important }.count
+                    if !unread.isEmpty {
+                        Button { showsInbox = true } label: {
+                            Image(systemName: "tray.fill")
+                                .font(.system(size: 17, weight: .semibold))
+                                .frame(width: 44, height: 44)
+                        }
+                        .buttonStyle(.glass)
+                        .buttonBorderShape(.circle)
+                        .overlay(alignment: .topTrailing) {
+                            if pending > 0 {
+                                Text("\(pending)")
+                                    .font(.caption2.weight(.bold).monospacedDigit())
+                                    .foregroundStyle(.black)
+                                    .padding(.horizontal, 5)
+                                    .frame(minWidth: 18, minHeight: 18)
+                                    .background(Theme.orange, in: .capsule)
+                                    .offset(x: 4, y: -4)
+                                    .accessibilityHidden(true)
+                            }
+                        }
+                        .accessibilityLabel("Bandeja de mensajes")
+                        .accessibilityValue(pending == 1 ? "1 importante sin leer" : "\(pending) importantes sin leer")
+                    }
+                    VoiceButton { voice = VoiceTaskFlow() }
+                }
+                .padding(Space.m)
+                .transition(.opacity)
             }
         }
         // Música de la fase actual, si hay un enlace en Ajustes › Música.
@@ -50,6 +79,9 @@ struct FocusView: View {
             }
         }
         .voiceTaskSheet($voice)
+        .sheet(isPresented: $showsInbox) {
+            NavigationStack { InboxView() }
+        }
         .toolbarVisibility(.hidden, for: .navigationBar)
         .toolbarVisibility(isRunning ? .hidden : .visible, for: .tabBar)
         .animation(.smooth(duration: 0.35), value: isRunning)

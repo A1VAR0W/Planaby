@@ -34,11 +34,11 @@ struct SettingsView: View {
             planSection
             frictionSection
             musicSection
+            messagesSection
             dataSection
             notificationsSection
             deskSection
             shortcutsSection
-            roadmapSection
             aboutSection
         }
         .navigationTitle("Ajustes")
@@ -332,14 +332,19 @@ struct SettingsView: View {
         }
     }
 
-    private var roadmapSection: some View {
+    private var messagesSection: some View {
         Section {
-            RoadmapRow(title: "Filtro inteligente de mensajes", systemImage: "tray.full")
-            RoadmapRow(title: "Control de Spotify", systemImage: "music.note")
-        } header: {
-            Text("Próximamente")
+            NavigationLink {
+                MessageSettingsView()
+            } label: {
+                LabeledContent {
+                    Text(MailInbox.shared.account?.username ?? "Solo Mensajes")
+                } label: {
+                    Label("Filtro de mensajes", systemImage: "tray.full")
+                }
+            }
         } footer: {
-            Text("Llegarán como actualizaciones desde la fuente de SideStore.")
+            Text("Apple Intelligence clasifica tus mensajes y correos en el iPhone y Planaby solo te interrumpe por lo urgente. La bandeja está en Enfoque.")
         }
     }
 
@@ -400,19 +405,5 @@ private struct Step: View {
                 .foregroundStyle(Theme.secondaryText)
         }
         .accessibilityElement(children: .combine)
-    }
-}
-
-/// Fila informativa (no interactiva) de una función que llegará en otro hito.
-private struct RoadmapRow: View {
-    let title: String
-    let systemImage: String
-
-    var body: some View {
-        Label {
-            Text(title).foregroundStyle(Theme.secondaryText)
-        } icon: {
-            Image(systemName: systemImage).foregroundStyle(Theme.orange.opacity(0.7))
-        }
     }
 }

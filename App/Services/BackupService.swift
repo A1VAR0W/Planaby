@@ -55,7 +55,7 @@ enum BackupService {
     ]
     private static let localKeys = [
         "deskDimmed", "deskNightMode", "deskNightStart", "deskNightEnd", "deskKeepAwake", "deskShowsTasks", "planShowsMonth",
-        "frictionScope", "frictionPauseSeconds", "frictionPassMinutes", "musicFocusURL", "musicBreakURL", "musicAutoOpen",
+        "frictionScope", "frictionPauseSeconds", "frictionPassMinutes", "musicFocusURL", "musicBreakURL", "musicAutoOpen", "messageNotifyLevel",
         "externalCalendars", "calendarSubscriptions", CalendarMirror.enabledKey, "deviceCalendarsAdopted",
     ]
     private static let maxFileSize = 10 * 1024 * 1024

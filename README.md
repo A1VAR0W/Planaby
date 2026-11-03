@@ -30,7 +30,7 @@ Recuerda refrescar la app en SideStore cada 7 días.
 - [x] Hito 3: calendario propio con planes Trabajo y Normal, planificación con IA (chat y plantillas, siempre con confirmación) y recordatorios.
 - [x] Secretaria personal: test de ritmo, adjuntos con estimación por IA, reorganizar por prioridad y tareas con checks en modo escritorio.
 - [x] Hito 4: bloqueo con fricción mediante Atajos, estadísticas avanzadas, tareas y vista de mes.
-- [ ] Hito 5: triage con IA de iMessage/SMS e IMAP, filtro de Concentración y Spotify.
+- [x] Hito 5: filtro de mensajes con IA (iMessage/SMS con Atajos y correo por IMAP), avisos según la Concentración y música por fase (Spotify con enlaces). Pendiente: control de Spotify con App Remote (necesita un Client ID de Spotify).
 
 ## Atajos útiles
 
@@ -38,12 +38,22 @@ Recuerda refrescar la app en SideStore cada 7 días.
 - **Botón de Acción / Centro de Control:** añade el control **Concentración** de Planaby.
 - **Bloqueo con fricción:** Atajos → Automatización → *App* → elige Instagram, TikTok… → *Se abre* → *Ejecutar inmediatamente*. Acciones: **¿Toca pausa consciente?** (Planaby, con el nombre de la app) → **Si** el resultado es verdadero → **Pausa consciente** (con el mismo nombre). Planaby se abre, te pide respirar unos segundos y decides: «Volver a lo mío» o «Abrir igualmente N min» (durante ese rato no te vuelve a frenar). En Ajustes › Bloqueo con fricción eliges cuándo frenar (solo concentrándote, también en horario de Trabajo o siempre), cuánto respirar y la duración del pase. No usa Family Controls, que necesita una cuenta de pago.
 
+- **Filtro de mensajes (iMessage y SMS):** Atajos → Automatización → *Mensaje* → remitentes → *Ejecutar inmediatamente* → acción **Filtrar mensaje** (Planaby) con la entrada del atajo y el remitente. Apple Intelligence lo clasifica en el iPhone (urgente, importante, puede esperar o ruido), se guarda en la bandeja de Enfoque y solo avisa de lo urgente (y de lo importante si no te estás concentrando; al terminar la sesión llega un resumen).
+- **Correo cada hora con la app cerrada:** Atajos → Automatización → *Hora del día* → acción **Comprobar correo**.
+
+## Filtro de mensajes y música
+
+- **Correo (IMAP):** Ajustes › Filtro de mensajes › Correo: Gmail, iCloud, Outlook/Hotmail, Yahoo u otro servidor, con una contraseña de aplicación (se guarda en el Llavero). Planaby lee los correos sin abrir de los dos últimos días sin marcarlos como leídos, al abrirse (como mucho cada 10 minutos), al deslizar en la bandeja o con «Comprobar correo». Las cuentas de Microsoft 365 del trabajo suelen tener IMAP bloqueado.
+- **Bandeja:** el botón de bandeja de Enfoque (con el número de urgentes e importantes sin leer). Tocar marca leído; deslizar a la derecha manda el mensaje al chat del plan («Al plan»); a la izquierda, borrar; mantener pulsado, moverlo de categoría. Es una copia: los mensajes de verdad siguen en sus apps.
+- **Que no interrumpan:** en Ajustes de iOS › Concentración (p. ej. Trabajo) silencia Mensajes y Correo y permite Planaby; Planaby avisará solo de lo que importa.
+- **Música:** Ajustes › Música: un enlace de lista para concentrarte y otro para descansar (Spotify, Apple Music o YouTube Music). Los de Spotify se abren en su app. Con «Abrir al empezar cada fase», al empezar una sesión o un descanso con Planaby abierta se abre su música; si no, el botón ♪ de Enfoque.
+
 ## Tus datos
 
 - **Nada se pierde al cerrar o actualizar:** todo vive en la base de datos de la app (SwiftData), que SideStore conserva al actualizar. Al pasar a segundo plano se guarda lo pendiente, y la conversación con la IA también se guarda.
 - **Antes de cada versión nueva** se copian los archivos de la base de datos (las 3 últimas). Si alguna vez no se pudiera abrir, no se borra: se aparta y Ajustes avisa para restaurar una copia.
 - **Copias de seguridad:** cada día que usas la app, una copia completa en JSON (tareas, calendario, adjuntos, sesiones, ajustes y conversación) en Archivos › En mi iPhone › Planaby › Copias de seguridad (las 14 últimas). En Ajustes › Copias de seguridad: hacer una ahora, exportarla a iCloud Drive y restaurar. Si vas a borrar la app, exporta antes una copia.
-- **Plan Normal en el Calendario de iOS (opcional):** Ajustes › Tus datos. Copia solo el plan Normal a un calendario «Planaby» (en iCloud si lo hay), de ayer a dos meses vista, y lo actualiza con cada cambio. El plan de Trabajo nunca sale de Planaby. Es de un solo sentido: los cambios hechos en el Calendario de iOS se sobrescriben.
+- **Sincronizar con el Calendario de iOS (opcional):** Ajustes › Tus datos. Al activarlo, los eventos de los calendarios del iPhone aparecen en Planaby en el plan Normal (se eligen en Calendarios externos; los cumpleaños no) y el planificador no pone bloques encima. Además copia solo el plan Normal a un calendario «Planaby» (en iCloud si lo hay), de ayer a dos meses vista, y lo actualiza con cada cambio. El plan de Trabajo nunca sale de Planaby. Es de un solo sentido: los cambios hechos en el Calendario de iOS se sobrescriben.
 
 ## Interfaz
 
@@ -52,7 +62,7 @@ Recuerda refrescar la app en SideStore cada 7 días.
 | **Enfoque** | La cifra, el método y un solo botón principal. Con la sesión en marcha se oculta la barra de pestañas (vuelve al pausar). En horizontal pasa a modo escritorio: solo la cifra y, al tocar, una barra inferior con método, controles, tareas y atenuar. Con las tareas activadas aparece a la derecha una lista con checks (las hechas hoy quedan tachadas con papelera). |
 | **Plan** | Selector Trabajo/Normal, semana o mes entero (toca el nombre del mes; las flechas o deslizar cambian de semana o de mes; puntos de color por plan y calendario), agenda del día y tareas pendientes. «+» abre las plantillas (evento, tarea con fecha límite, hábito), ⇅ reorganiza por prioridad y el botón naranja «Planificar con IA» abre el chat (o, con su micrófono, dicta por voz). Al tocar una tarea se abre su ficha (material, bloques, estimar, replanificar). Toda propuesta se revisa (incluir, quitar o mover bloques) antes de guardarse. |
 | **Progreso** | Hoy frente al objetivo, racha, media por sesión, últimos 7 días, métodos de la semana e historial con borrado confirmado. Debajo, el **Análisis** de 7 días, 30 días o 3 meses: mapa de calor por día y hora con tu mejor franja, plan cumplido (bloques con sesión), desvío de tus estimaciones, reparto Trabajo/Normal, distracciones frenadas y entregas a tiempo. |
-| **Ajustes** | Tu ritmo (test y lo aprendido), métodos y plantillas, objetivo diario, notificaciones, modo escritorio (pantalla encendida, atenuar, franja nocturna), atajos y Siri. |
+| **Ajustes** | Bloqueo con fricción, música, filtro de mensajes, sincronización con el Calendario de iOS, copias de seguridad, tu ritmo (test y lo aprendido), métodos y plantillas, objetivo diario, notificaciones, modo escritorio (pantalla encendida, atenuar, franja nocturna), atajos y Siri. |
 
 ### Plan y modos
 

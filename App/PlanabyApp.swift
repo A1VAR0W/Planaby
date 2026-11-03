@@ -28,6 +28,8 @@ struct PlanabyApp: App {
                 ReminderScheduler.shared.reschedule()
                 // Outlook y otros calendarios suscritos se descargan de nuevo si hace rato.
                 ExternalCalendars.shared.syncIfNeeded()
+                // Correos nuevos por el filtro de mensajes (si hay cuenta).
+                MailInbox.shared.checkIfNeeded(context: PlanabyStore.container.mainContext)
             } else if phase == .background {
                 // Al cerrar no se pierde nada: se guarda lo pendiente y la copia del día.
                 PlanabyStore.saveNow()

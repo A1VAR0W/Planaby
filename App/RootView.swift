@@ -67,6 +67,10 @@ struct RootView: View {
         // Una sesión que empieza desde un bloque, un aviso o Siri se sigue en Enfoque.
         .onChange(of: timer.state?.sessionStart) { old, new in
             if new != nil, new != old { tab = .focus }
+            // Al terminar: resumen de los mensajes que llegaron durante la sesión.
+            if let old, new == nil {
+                MessageTriage.summarize(since: old, context: PlanabyStore.container.mainContext)
+            }
         }
         // Lo dictado a Siri ("Planifica con Planaby") se abre en el chat del plan.
         .onChange(of: inbox.pending, initial: true) { _, pending in
