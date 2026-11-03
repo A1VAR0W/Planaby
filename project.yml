@@ -1,0 +1,38 @@
+name: Planaby
+options:
+  bundleIdPrefix: com.alvaro
+  deploymentTarget:
+    iOS: "26.0"
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    TARGETED_DEVICE_FAMILY: "1"
+    DEVELOPMENT_TEAM: ""
+targets:
+  Planaby:
+    type: application
+    platform: iOS
+    sources:
+      - App
+      - Shared
+    scheme: {}
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: Planaby
+        UILaunchScreen: {}
+        ITSAppUsesNonExemptEncryption: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+    entitlements:
+      path: App/Planaby.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.alvaro.planaby
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.alvaro.planaby
