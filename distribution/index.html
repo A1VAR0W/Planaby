@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Planaby</title>
+<link rel="icon" href="icon.png">
+<link rel="apple-touch-icon" href="icon.png">
+<style>
+  :root {
+    --bg: #f6f6f7; --card: #ffffff; --text: #111214; --muted: #6b6d73; --line: rgba(0,0,0,.08);
+    --accent: #ff6b4a; --on-accent: #ffffff;
+    color-scheme: light dark;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0b0b0d; --card: #16171a; --text: #f2f2f3; --muted: #8e9096; --line: rgba(255,255,255,.08); }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100dvh; background: var(--bg); color: var(--text);
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    display: grid; place-items: center; padding: 32px 16px;
+  }
+  main { width: 100%; max-width: 420px; text-align: center; }
+  img.icon { width: 96px; height: 96px; border-radius: 22px; box-shadow: 0 10px 30px rgba(0,0,0,.18); }
+  h1 { font-size: 34px; font-weight: 600; letter-spacing: -.02em; margin: 20px 0 4px; }
+  .eyebrow { font-size: 12px; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; color: var(--accent); }
+  .lead { color: var(--muted); margin: 0 0 32px; }
+  .actions { display: grid; gap: 12px; }
+  a.button {
+    display: block; padding: 16px; border-radius: 999px; text-decoration: none; font-weight: 600;
+    background: var(--card); color: var(--text); border: 1px solid var(--line);
+  }
+  a.button.primary { background: var(--accent); color: var(--on-accent); border-color: transparent; }
+  .source { margin-top: 32px; padding: 16px; border-radius: 20px; background: var(--card); border: 1px solid var(--line); text-align: left; }
+  .source span { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .source code { display: block; font: 13px ui-monospace, "SF Mono", monospace; word-break: break-all; user-select: all; }
+  .notes { margin-top: 24px; font-size: 14px; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <img class="icon" src="icon.png" alt="">
+  <h1>Planaby</h1>
+  <p class="lead" id="version">Concentración sin distracciones</p>
+
+  <div class="actions">
+    <a class="button primary" id="sidestore" href="#">Añadir fuente a SideStore</a>
+    <a class="button" id="livecontainer" href="#">Instalar en LiveContainer</a>
+    <a class="button" id="ipa" href="#">Descargar IPA</a>
+  </div>
+
+  <div class="source">
+    <span>URL de la fuente (SideStore, AltStore o LiveContainer)</span>
+    <code id="source-url"></code>
+  </div>
+
+  <p class="notes" id="notes"></p>
+</main>
+<script>
+  const base = location.href.replace(/[?#].*$/, '').replace(/\/?(index\.html)?$/, '/');
+  const sourceURL = base + 'source.json';
+  document.getElementById('source-url').textContent = sourceURL;
+  document.getElementById('sidestore').href = 'sidestore://source?url=' + encodeURIComponent(sourceURL);
+
+  fetch(sourceURL, { cache: 'no-store' })
+    .then(response => response.json())
+    .then(source => {
+      const latest = source.apps[0].versions[0];
+      document.getElementById('version').textContent = `Versión ${latest.version} · build ${latest.buildVersion}`;
+      document.getElementById('ipa').href = latest.downloadURL;
+      document.getElementById('livecontainer').href = 'livecontainer://install?url=' + encodeURIComponent(latest.downloadURL);
+      document.getElementById('notes').textContent = latest.localizedDescription || '';
+    })
+    .catch(() => {
+      document.getElementById('version').textContent = 'Todavía no hay ninguna build publicada';
+    });
+</script>
+</body>
+</html>

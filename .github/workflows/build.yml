@@ -53,6 +53,8 @@ jobs:
             COMPILER_INDEX_STORE_ENABLE=NO \
             SWIFT_ENABLE_COMPILE_CACHE=YES \
             CLANG_ENABLE_COMPILE_CACHE=YES \
+            MARKETING_VERSION=0.1.${{ github.run_number }} \
+            CURRENT_PROJECT_VERSION=${{ github.run_number }} \
             CODE_SIGNING_ALLOWED=NO
 
       - name: Save DerivedData cache
@@ -72,6 +74,18 @@ jobs:
           cp -R DerivedData/Build/Products/Release-iphoneos/Planaby.app Payload/
           zip -qry Planaby.ipa Payload
 
+      # El servidor lee estos datos para generar la fuente de SideStore/LiveContainer.
+      - name: Write build metadata
+        run: |
+          jq -n \
+            --arg version "0.1.${{ github.run_number }}" \
+            --argjson build ${{ github.run_number }} \
+            --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg notes "$(git log -1 --pretty=%s)" \
+            --arg commit "$GITHUB_SHA" \
+            '{version: $version, build: $build, date: $date, notes: $notes, commit: $commit}' > metadata.json
+          cat metadata.json
+
       - uses: actions/upload-artifact@v7
         with:
           name: Planaby-ipa
@@ -84,4 +98,7 @@ jobs:
           tag_name: build-${{ github.run_number }}
           name: Planaby build ${{ github.run_number }}
           prerelease: true
-          files: Planaby.ipa
+          files: |
+            Planaby.ipa
+            metadata.json
+            distribution/icon.png

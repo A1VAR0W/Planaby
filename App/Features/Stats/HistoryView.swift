@@ -8,31 +8,46 @@ struct HistoryView: View {
     var body: some View {
         List {
             Section {
-                LabeledContent("Hoy", value: Self.format(todaySeconds))
-                LabeledContent("Sesiones totales", value: "\(sessions.count)")
+                VStack(alignment: .leading, spacing: 6) {
+                    Eyebrow(text: "Hoy")
+                    Text(Self.format(todaySeconds))
+                        .font(Theme.clock(56))
+                    Text(sessions.count == 1 ? "1 sesión en total" : "\(sessions.count) sesiones en total")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 8)
+                .listRowBackground(Color.clear)
             }
 
             Section("Sesiones") {
                 if sessions.isEmpty {
                     ContentUnavailableView(
-                        "Sin sesiones todavía", systemImage: "timer",
+                        "Sin sesiones todavía", systemImage: "circle.dashed",
                         description: Text("Las sesiones de más de un minuto aparecerán aquí.")
                     )
                 }
                 ForEach(sessions) { session in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(session.methodName).font(.headline)
-                        Text("\(session.start.formatted(date: .abbreviated, time: .shortened)) · \(Self.format(session.focusedSeconds)) · \(session.completedCycles) ciclos")
-                            .font(.subheadline)
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(session.methodName).font(.body.weight(.medium))
+                            Text(session.start.formatted(date: .abbreviated, time: .shortened))
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Text(Self.format(session.focusedSeconds))
+                            .font(.body.monospacedDigit())
                             .foregroundStyle(.secondary)
                     }
                 }
             }
         }
         .navigationTitle("Historial")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
-                Button("Listo") { dismiss() }
+                Button("Listo", systemImage: "checkmark") { dismiss() }
             }
         }
     }

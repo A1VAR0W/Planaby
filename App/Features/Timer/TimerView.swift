@@ -16,11 +16,13 @@ struct TimerView: View {
                 idleView
             }
         }
-        .padding()
-        .navigationTitle("Planaby")
+        .padding(.horizontal, 24)
+        .padding(.bottom, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(PhaseBackground(tint: timer.state?.phase.tint ?? Theme.focus))
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button("Historial", systemImage: "chart.bar") { showingHistory = true }
+                Button("Historial", systemImage: "chart.bar.xaxis") { showingHistory = true }
             }
         }
         .sheet(isPresented: $showingMethods) {
@@ -29,6 +31,7 @@ struct TimerView: View {
         .sheet(isPresented: $showingHistory) {
             NavigationStack { HistoryView() }
         }
+        .sensoryFeedback(.impact(weight: .medium), trigger: timer.state?.phase)
         .task {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
@@ -38,21 +41,41 @@ struct TimerView: View {
     }
 
     private var idleView: some View {
-        VStack(spacing: 32) {
+        let method = library.selected
+        return VStack(spacing: 0) {
             Spacer()
-            Button { showingMethods = true } label: {
-                MethodCard(method: library.selected)
-            }
-            .buttonStyle(.plain)
+            Eyebrow(text: "Listo para concentrarte")
+            Text(Self.preview(of: method))
+                .font(Theme.clock(96))
+                .padding(.top, 12)
 
-            Button { timer.start(library.selected) } label: {
-                Label("Empezar", systemImage: "play.fill")
-                    .font(.title3.bold())
-                    .frame(maxWidth: .infinity)
+            Button { showingMethods = true } label: {
+                HStack(spacing: 6) {
+                    Text(method.name)
+                    Image(systemName: "chevron.down").font(.caption.weight(.semibold))
+                }
+                .font(.subheadline.weight(.medium))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 4)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
+            .buttonStyle(.glass)
+            .padding(.top, 20)
+
+            Text(method.detail)
+                .font(.footnote)
+                .foregroundStyle(.tertiary)
+                .padding(.top, 12)
             Spacer()
+
+            Button { timer.start(method) } label: {
+                Text("Empezar")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+            }
+            .buttonStyle(.glassProminent)
+            .tint(Theme.focus)
+            .controlSize(.large)
         }
     }
 
@@ -61,52 +84,71 @@ struct TimerView: View {
             modelContext.insert(FocusSessionRecord(session))
         }
     }
+
+    private static func preview(of method: FocusMethod) -> String {
+        guard let minutes = method.focusMinutes else { return "0:00" }
+        return Duration.seconds(minutes * 60)
+            .formatted(.time(pattern: minutes >= 60 ? .hourMinuteSecond : .minuteSecond))
+    }
 }
 
 private struct ActiveTimerView: View {
     let state: TimerState
     let onStop: () -> Void
     @Environment(FocusTimer.self) private var timer
+    @State private var confirmingStop = false
 
     var body: some View {
-        VStack(spacing: 28) {
+        VStack(spacing: 0) {
             Spacer()
-            VStack(spacing: 4) {
-                Text(state.phase.title)
-                    .font(.title2.bold())
-                    .foregroundStyle(state.phase.tint)
-                Text(state.method.name)
-                    .foregroundStyle(.secondary)
-            }
+            Eyebrow(text: state.phase.title, color: state.phase.tint)
 
             TimelineView(.periodic(from: .now, by: 1)) { context in
-                VStack(spacing: 20) {
-                    ZStack {
-                        ProgressRing(progress: state.progress(at: context.date), tint: state.phase.tint)
+                ZStack {
+                    ProgressRing(progress: state.progress(at: context.date), tint: state.phase.tint)
+                    VStack(spacing: 8) {
                         Text(clock(at: context.date))
-                            .font(.system(size: 64, weight: .light, design: .rounded))
-                            .monospacedDigit()
+                            .font(Theme.clock(72))
+                            .contentTransition(.numericText(countsDown: true))
+                        Text(caption)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
-                    .frame(width: 280, height: 280)
-
-                    Text("\(state.completedCycles) ciclos · \(Self.format(state.totalFocused(at: context.date))) concentrado")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
                 }
+                .frame(width: 300, height: 300)
             }
+            .padding(.vertical, 32)
 
-            HStack(spacing: 16) {
-                Button(state.isPaused ? "Reanudar" : "Pausar", systemImage: state.isPaused ? "play.fill" : "pause.fill") {
+            CycleDots(state: state)
+            Text(state.method.name)
+                .font(.footnote)
+                .foregroundStyle(.tertiary)
+                .padding(.top, 14)
+            Spacer()
+
+            HStack(spacing: 28) {
+                RoundButton(label: "Terminar", systemImage: "xmark") { confirmingStop = true }
+                RoundButton(
+                    label: state.isPaused ? "Reanudar" : "Pausar",
+                    systemImage: state.isPaused ? "play.fill" : "pause.fill",
+                    prominent: true, tint: state.phase.tint
+                ) {
                     if state.isPaused { timer.resume() } else { timer.pause() }
                 }
-                Button(skipTitle, systemImage: "forward.fill") { timer.skip() }
-                Button("Terminar", systemImage: "stop.fill", role: .destructive, action: onStop)
+                RoundButton(label: skipTitle, systemImage: skipIcon) { timer.skip() }
             }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
-            .labelStyle(.iconOnly)
-            Spacer()
         }
+        .confirmationDialog("¿Terminar la sesión?", isPresented: $confirmingStop, titleVisibility: .visible) {
+            Button("Terminar", role: .destructive, action: onStop)
+        } message: {
+            Text("Se guardará en el historial si llevas más de un minuto concentrado.")
+        }
+    }
+
+    private var caption: String {
+        if state.isPaused { return "En pausa" }
+        guard let end = state.phaseEnd else { return "Sin límite" }
+        return "Hasta las \(end.formatted(date: .omitted, time: .shortened))"
     }
 
     private var skipTitle: String {
@@ -116,58 +158,36 @@ private struct ActiveTimerView: View {
         }
     }
 
+    private var skipIcon: String {
+        state.phase == .focus && state.method.isOpenEnded ? "cup.and.saucer" : "forward.end"
+    }
+
     private func clock(at date: Date) -> String {
         let seconds = state.remaining(at: date) ?? state.elapsed(at: date)
         return Duration.seconds(seconds.rounded(.up))
             .formatted(.time(pattern: seconds >= 3600 ? .hourMinuteSecond : .minuteSecond))
     }
-
-    static func format(_ seconds: TimeInterval) -> String {
-        Duration.seconds(seconds).formatted(.units(allowed: [.hours, .minutes], width: .abbreviated))
-    }
 }
 
-struct MethodCard: View {
-    let method: FocusMethod
+/// Puntos de progreso hacia el descanso largo; si el método no tiene, el número de ciclos.
+private struct CycleDots: View {
+    let state: TimerState
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(method.name).font(.title2.bold())
-                Spacer()
-                Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+        let total = state.method.cyclesBeforeLongBreak
+        if total > 0 {
+            let filled = state.phase == .longBreak ? total : state.completedCycles % total
+            HStack(spacing: 8) {
+                ForEach(0..<total, id: \.self) { index in
+                    Circle()
+                        .fill(index < filled ? state.phase.tint : Color.primary.opacity(0.12))
+                        .frame(width: 7, height: 7)
+                }
             }
-            Text(method.summary).foregroundStyle(.secondary)
-            Text(method.detail).font(.footnote).foregroundStyle(.tertiary)
-        }
-        .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.fill.tertiary, in: .rect(cornerRadius: 20))
-    }
-}
-
-struct ProgressRing: View {
-    let progress: Double
-    let tint: Color
-
-    var body: some View {
-        ZStack {
-            Circle().stroke(tint.opacity(0.15), lineWidth: 14)
-            Circle()
-                .trim(from: 0, to: progress)
-                .stroke(tint, style: StrokeStyle(lineWidth: 14, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-                .animation(.linear(duration: 1), value: progress)
-        }
-    }
-}
-
-extension PhaseKind {
-    var tint: Color {
-        switch self {
-        case .focus: .orange
-        case .shortBreak: .green
-        case .longBreak: .teal
+        } else {
+            Text(state.completedCycles == 1 ? "1 ciclo" : "\(state.completedCycles) ciclos")
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(.secondary)
         }
     }
 }

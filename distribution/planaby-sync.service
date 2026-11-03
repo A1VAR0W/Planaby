@@ -1,0 +1,15 @@
+[Unit]
+Description=Planaby: publica las builds como fuente de SideStore/LiveContainer
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=planaby
+Group=planaby
+ExecStart=/usr/bin/python3 /srv/planaby/bin/sync.py
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/srv/planaby/public

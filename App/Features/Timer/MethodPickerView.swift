@@ -7,24 +7,25 @@ struct MethodPickerView: View {
 
     var body: some View {
         List {
-            Section("Metodologías") {
+            Section {
                 ForEach(FocusMethod.builtIns) { row($0) }
             }
-            Section("Personalizadas") {
+            Section("Tus plantillas") {
                 ForEach(library.custom) { method in
                     row(method)
                         .swipeActions {
-                            Button("Borrar", role: .destructive) { library.delete(method) }
-                            Button("Editar") { editing = method }
+                            Button("Borrar", systemImage: "trash", role: .destructive) { library.delete(method) }
+                            Button("Editar", systemImage: "slider.horizontal.3") { editing = method }
                         }
                 }
                 Button("Nueva plantilla", systemImage: "plus") { editing = .newCustom() }
             }
         }
-        .navigationTitle("Metodología")
+        .navigationTitle("Método")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
-                Button("Listo") { dismiss() }
+                Button("Listo", systemImage: "checkmark") { dismiss() }
             }
         }
         .sheet(item: $editing) { method in
@@ -37,19 +38,24 @@ struct MethodPickerView: View {
             library.selectedID = method.id
             dismiss()
         } label: {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(method.name).font(.headline)
-                    Text(method.summary).font(.subheadline).foregroundStyle(.secondary)
+            HStack(spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(method.name).font(.body.weight(.medium))
+                    Text(method.summary).font(.footnote).foregroundStyle(.secondary)
                     Text(method.detail).font(.caption).foregroundStyle(.tertiary)
                 }
                 Spacer()
                 if method.id == library.selectedID {
-                    Image(systemName: "checkmark").foregroundStyle(Color.accentColor)
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(Theme.focus)
                 }
             }
+            .padding(.vertical, 4)
             .foregroundStyle(.primary)
+            .contentShape(.rect)
         }
+        .buttonStyle(.plain)
     }
 }
 
@@ -74,19 +80,19 @@ struct CustomMethodEditor: View {
             Section("Descansos") {
                 if let ratio = method.flowBreakRatio {
                     Stepper(
-                        "Descanso: \(Int((ratio * 100).rounded())) % de lo trabajado",
+                        "\(Int((ratio * 100).rounded())) % de lo trabajado",
                         value: Binding(get: { ratio }, set: { method.flowBreakRatio = $0 }),
                         in: 0.05...0.5, step: 0.05
                     )
                 } else {
-                    Stepper("Corto: \(method.shortBreakMinutes) min", value: $method.shortBreakMinutes, in: 1...60)
+                    Stepper("Corto · \(method.shortBreakMinutes) min", value: $method.shortBreakMinutes, in: 1...60)
                 }
                 Stepper(
                     method.cyclesBeforeLongBreak == 0 ? "Sin descanso largo" : "Largo cada \(method.cyclesBeforeLongBreak) ciclos",
                     value: $method.cyclesBeforeLongBreak, in: 0...8
                 )
                 if method.cyclesBeforeLongBreak > 0 {
-                    Stepper("Largo: \(method.longBreakMinutes) min", value: $method.longBreakMinutes, in: 5...90)
+                    Stepper("Largo · \(method.longBreakMinutes) min", value: $method.longBreakMinutes, in: 5...90)
                 }
             }
         }
@@ -94,10 +100,10 @@ struct CustomMethodEditor: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Cancelar") { dismiss() }
+                Button("Cancelar", systemImage: "xmark") { dismiss() }
             }
             ToolbarItem(placement: .confirmationAction) {
-                Button("Guardar") {
+                Button("Guardar", systemImage: "checkmark") {
                     if method.name.trimmingCharacters(in: .whitespaces).isEmpty { method.name = "Mi plantilla" }
                     library.save(method)
                     dismiss()
