@@ -5,6 +5,7 @@ import SwiftUI
 struct FocusView: View {
     @Environment(FocusTimer.self) private var timer
     @State private var showingMethods = false
+    @State private var voice: VoiceTaskFlow?
 
     var body: some View {
         let isRunning = timer.state.map { !$0.isPaused } ?? false
@@ -23,6 +24,15 @@ struct FocusView: View {
             }
         }
         .animation(.smooth(duration: 0.5), value: timer.state == nil)
+        // Apuntar algo por voz sin salir de Enfoque (oculto mientras la sesión corre).
+        .overlay(alignment: .topTrailing) {
+            if !isRunning {
+                VoiceButton { voice = VoiceTaskFlow() }
+                    .padding(Space.m)
+                    .transition(.opacity)
+            }
+        }
+        .voiceTaskSheet($voice)
         .toolbarVisibility(.hidden, for: .navigationBar)
         .toolbarVisibility(isRunning ? .hidden : .visible, for: .tabBar)
         .animation(.smooth(duration: 0.35), value: isRunning)

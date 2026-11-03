@@ -17,6 +17,7 @@ struct PlanView: View {
     @State private var showingChat = false
     @State private var showingReorganize = false
     @State private var openTask: PlanTask?
+    @State private var voice: VoiceTaskFlow?
     private let external = ExternalCalendars.shared
     @State private var deletingEvent: CalendarEvent?
     @State private var deletingTask: PlanTask?
@@ -116,17 +117,21 @@ struct PlanView: View {
             }
         }
         .safeAreaInset(edge: .bottom) {
-            Button { showingChat = true } label: {
-                Label("Planificar con IA", systemImage: "sparkles")
-                    .font(.headline)
-                    .foregroundStyle(.black)
-                    .padding(.horizontal, Space.s)
-                    .frame(minHeight: 36)
+            HStack(spacing: Space.s) {
+                Button { showingChat = true } label: {
+                    Label("Planificar con IA", systemImage: "sparkles")
+                        .font(.headline)
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, Space.s)
+                        .frame(minHeight: 36)
+                }
+                .buttonStyle(.glassProminent)
+                .tint(Theme.orange)
+                VoiceButton { voice = VoiceTaskFlow() }
             }
-            .buttonStyle(.glassProminent)
-            .tint(Theme.orange)
             .padding(.bottom, Space.s)
         }
+        .voiceTaskSheet($voice)
         .sheet(item: $form) { form in
             NavigationStack {
                 switch form {

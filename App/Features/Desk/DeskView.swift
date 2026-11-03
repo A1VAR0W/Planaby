@@ -20,6 +20,8 @@ struct DeskView: View {
     /// Hasta cuándo se ven los controles mientras la sesión corre.
     @State private var controlsUntil = Date.now.addingTimeInterval(DeskView.controlsTimeout)
     @State private var confirmingStop = false
+    /// Dictado en curso (añadir tarea por voz).
+    @State private var voice: VoiceTaskFlow?
 
     private static let controlsTimeout: TimeInterval = 6
     /// Margen extra al abrir el menú de métodos, para elegir con calma.
@@ -81,6 +83,29 @@ struct DeskView: View {
         }
         .contentShape(.rect)
         .onTapGesture { reveal() }
+        .overlay {
+            if let voice {
+                ZStack {
+                    Color.black.opacity(0.7)
+                        .ignoresSafeArea()
+                        .contentShape(.rect)
+                        .onTapGesture {}
+                    VoiceTaskPanel(flow: voice, tint: deskTint, ink: deskInk) {
+                        if voice.phase == .saved { showsTasks = true }
+                        self.voice = nil
+                        reveal()
+                    }
+                    .frame(maxWidth: 520)
+                    .background(Color(white: 0.08), in: .rect(cornerRadius: Theme.cardRadius))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: Theme.cardRadius).strokeBorder(Theme.hairline)
+                    }
+                    .padding(Space.l)
+                }
+                .transition(.opacity)
+            }
+        }
+        .animation(.smooth(duration: 0.3), value: voice == nil)
         .confirmationDialog("¿Terminar la sesión?", isPresented: $confirmingStop, titleVisibility: .visible) {
             Button("Terminar", role: .destructive) { timer.stop() }
         } message: {
@@ -138,6 +163,9 @@ struct DeskView: View {
             HStack(spacing: Space.s) {
                 methodMenu(ink: ink)
                 Spacer(minLength: Space.m)
+                VoiceButton(compact: true) {
+                    voice = VoiceTaskFlow()
+                }
                 tasksButton
                 dimButton
             }
@@ -251,6 +279,10 @@ struct DeskView: View {
             }
         )
     }
+
+    /// Colores del panel de voz: rojo tenue de noche, como el resto del modo escritorio.
+    private var deskTint: Color { isNight(.now) ? Theme.night : (timer.state?.phase.tint ?? Theme.orange) }
+    private var deskInk: Color { isNight(.now) ? Theme.night : .white }
 
     /// Muestra los controles y reinicia la cuenta para ocultarlos.
     private func reveal() {
