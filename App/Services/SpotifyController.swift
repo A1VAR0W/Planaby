@@ -67,8 +67,9 @@ final class SpotifyController {
     private static let scopeVersion = 2
 
     private init() {
-        isWebLinked = Self.refreshToken() != nil
-        isConnected = isWebLinked || UserDefaults.standard.bool(forKey: Keys.appOnly)
+        let webLinked = Self.refreshToken() != nil
+        isWebLinked = webLinked
+        isConnected = webLinked || UserDefaults.standard.bool(forKey: Keys.appOnly)
         accountName = UserDefaults.standard.string(forKey: Keys.account)
     }
 
