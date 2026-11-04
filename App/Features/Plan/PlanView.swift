@@ -204,8 +204,11 @@ struct PlanView: View {
     /// Lo del día: eventos de Planaby y de los calendarios externos, por hora (todo el día primero).
     private func rows(on day: Date, visible: Set<PlanMode>) -> [DayRow] {
         guard let end = Calendar.current.date(byAdding: .day, value: 1, to: day) else { return [] }
+        // Los calendarios externos (los del iPhone van a Normal) solo se ven en su propio plan:
+        // en Trabajo no aparecen los eventos personales del iPhone.
+        let mode = modes.mode
         let outside = external.events(in: DateInterval(start: day, end: end))
-            .filter { visible.contains($0.mode) }
+            .filter { $0.mode == mode }
             .map(DayRow.external)
         return (entries(on: day, visible: visible).map(DayRow.local) + outside)
             .sorted { ($0.isAllDay ? 0 : 1, $0.start) < ($1.isAllDay ? 0 : 1, $1.start) }

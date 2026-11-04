@@ -369,6 +369,7 @@ final class PlanningAssistant {
             - Si el usuario pide priorizar o adelantar tareas que ya tiene, pon reorganize a true y copia sus títulos en prioritize; no las repitas en tasks.
             - Si le ha surgido algo con hora (una reunión), es un evento; si además pide hacer hueco, reorganize es true.
             - Si dice una hora de inicio y otra de fin («a las 3 de la tarde hasta las 4», «que acabe a las 4»), es un evento con esa duración aunque lo llame tarea. Si la hora de fin queda antes que la de inicio, es un error al hablar: entiende la misma parte del día (de 15:00 a 16:00).
+            - Si nombra varias fechas para lo mismo («el lunes y el miércoles», «los días 5, 12 y 19»), crea un evento por cada fecha con el mismo título.
             - Ignora muletillas y frases a medias del dictado («vale», «bueno», «necesito que me hagas»).
             - Calcula fechas absolutas a partir de la fecha actual que se indica en cada mensaje ("mañana", "el jueves", "en dos semanas").
             - Si a una cita le falta el día o la hora, pregunta en question y no la incluyas.

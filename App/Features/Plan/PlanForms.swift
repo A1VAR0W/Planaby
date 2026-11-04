@@ -16,6 +16,8 @@ struct EventForm: View {
     /// -1 = sin aviso.
     @State private var reminder: Int
     @State private var notes: String
+    /// Más días con lo mismo a la misma hora (solo al crear y si no se repite).
+    @State private var otherDays: Set<DateComponents> = []
 
     private static let reminderOptions = [-1, 0, 5, 10, 15, 30, 60, 1440]
 
@@ -47,6 +49,16 @@ struct EventForm: View {
                     Picker("Repetir", selection: $recurrence) {
                         ForEach(Recurrence.allCases) { Text($0.title).tag($0) }
                     }
+                }
+            }
+
+            if event == nil, recurrence == .none {
+                Section {
+                    MultiDatePicker("Otros días", selection: $otherDays, in: Calendar.current.startOfDay(for: .now)...)
+                } header: {
+                    Text(otherDays.isEmpty ? "Otros días" : "Otros días · \(otherDays.count)")
+                } footer: {
+                    Text("Marca más días para crear lo mismo a la misma hora en cada uno (por ejemplo, varias clases o turnos).")
                 }
             }
 
@@ -91,10 +103,12 @@ struct EventForm: View {
             event.reminderMinutes = reminderMinutes
             event.notes = notes
         } else {
-            context.insert(CalendarEvent(
-                title: cleanTitle, notes: notes, start: start, end: end, mode: mode,
-                kind: kind, recurrence: recurrence, reminderMinutes: reminderMinutes
-            ))
+            for day in [start] + extraStarts {
+                context.insert(CalendarEvent(
+                    title: cleanTitle, notes: notes, start: day, end: day.addingTimeInterval(end.timeIntervalSince(start)),
+                    mode: mode, kind: kind, recurrence: recurrence, reminderMinutes: reminderMinutes
+                ))
+            }
         }
         try? context.save()
         ReminderScheduler.shared.reschedule()
@@ -102,6 +116,18 @@ struct EventForm: View {
             Task { await NotificationAccess.requestIfNeeded() }
         }
         dismiss()
+    }
+
+    /// Los otros días marcados, a la misma hora que el primero (sin repetir el primero).
+    private var extraStarts: [Date] {
+        guard recurrence == .none else { return [] }
+        let calendar = Calendar.current
+        let time = calendar.dateComponents([.hour, .minute], from: start)
+        return otherDays
+            .compactMap { calendar.date(from: $0) }
+            .filter { !calendar.isDate($0, inSameDayAs: start) }
+            .compactMap { calendar.date(bySettingHour: time.hour ?? 9, minute: time.minute ?? 0, second: 0, of: $0) }
+            .sorted()
     }
 
     /// Hoy, a la siguiente hora en punto; otro día, a las 9.
