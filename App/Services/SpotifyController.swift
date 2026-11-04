@@ -350,20 +350,89 @@ final class SpotifyController {
     }
 
     func next() async {
-        if await perform({ api, done in api.skip(toNext: done) }) { return }
+        if await skipForward() { return }
         if isWebLinked { await command("POST", "/me/player/next") } else { recover(.next) }
     }
 
     func previous() async {
-        if await perform({ api, done in api.skip(toPrevious: done) }) { return }
+        if await skipBack() { return }
         if isWebLinked { await command("POST", "/me/player/previous") } else { recover(.previous) }
     }
 
     func toggleShuffle() async {
         shuffle.toggle()
         let value = shuffle
-        if await perform({ api, done in api.setShuffle(value, callback: done) }) { return }
-        if isWebLinked { await command("PUT", "/me/player/shuffle?state=\(value)") } else { recover(.shuffle(value)) }
+        switch await order({ api, done in api.setShuffle(value, callback: done) }) {
+        case .done: return
+        case .rejected(let reason):
+            shuffle = !value
+            lastError = "Spotify no deja cambiar el aleatorio aquí" + (reason.isEmpty ? "." : " (\(reason)).")
+        case .unavailable:
+            if isWebLinked { await command("PUT", "/me/player/shuffle?state=\(value)") } else { recover(.shuffle(value)) }
+        }
+    }
+
+    /// Pasa a la siguiente. Si Spotify no deja saltar (límite de saltos de la cuenta gratuita, o
+    /// dice que sí pero no cambia), se lleva la canción a su final y Spotify pone la siguiente sola.
+    /// Devuelve false solo si la app de Spotify no responde.
+    private func skipForward() async -> Bool {
+        guard let api = await remotePlayer() else { return false }
+        let before = await Self.snapshot(on: api)
+        switch await order({ api, done in api.skip(toNext: done) }) {
+        case .unavailable:
+            return false
+        case .done:
+            // Comprobar que de verdad ha cambiado de canción.
+            try? await Task.sleep(for: .milliseconds(700))
+            guard let before, let after = await Self.snapshot(on: api) else { return true }
+            if after.uri != before.uri || after.position + 2 < before.position { apply(remote: after); return true }
+            return await seekToEnd(of: before, reason: "")
+        case .rejected(let reason):
+            guard let before else { lastError = Self.noSkip(reason); return true }
+            return await seekToEnd(of: before, reason: reason)
+        }
+    }
+
+    private func seekToEnd(of snapshot: RemoteSnapshot, reason: String) async -> Bool {
+        guard snapshot.duration > 2 else { lastError = Self.noSkip(reason); return true }
+        let end = Int((snapshot.duration - 0.5) * 1000)
+        switch await order({ api, done in api.seek(toPosition: end, callback: done) }) {
+        case .unavailable:
+            return false
+        case .rejected(let seekReason):
+            lastError = Self.noSkip(seekReason.isEmpty ? reason : seekReason)
+            return true
+        case .done:
+            // En pausa no llegaría al final: se reanuda para que entre la siguiente.
+            if snapshot.paused { _ = await order({ api, done in api.resume(done) }) }
+            lastError = nil
+            return true
+        }
+    }
+
+    /// Canción anterior; si Spotify no deja ir atrás, vuelve al principio de la canción.
+    private func skipBack() async -> Bool {
+        switch await order({ api, done in api.skip(toPrevious: done) }) {
+        case .unavailable:
+            return false
+        case .done:
+            return true
+        case .rejected(let reason):
+            switch await order({ api, done in api.seek(toPosition: 0, callback: done) }) {
+            case .unavailable: return false
+            case .done:
+                progress = 0
+                progressDate = .now
+                lastError = nil
+            case .rejected:
+                lastError = "Spotify no deja ir a la canción anterior aquí" + (reason.isEmpty ? "." : " (\(reason)).")
+            }
+            return true
+        }
+    }
+
+    private static func noSkip(_ reason: String) -> String {
+        "Spotify no deja pasar de canción ahora" + (reason.isEmpty ? "." : " (\(reason)).")
     }
 
     /// Sin conexión con la app de Spotify. Si falta el acceso, se pide de nuevo (Spotify se abre
@@ -380,9 +449,9 @@ final class SpotifyController {
     private func runPending(_ command: PendingCommand) async {
         switch command {
         case .pause: _ = await perform { api, done in api.pause(done) }
-        case .next: _ = await perform { api, done in api.skip(toNext: done) }
-        case .previous: _ = await perform { api, done in api.skip(toPrevious: done) }
-        case .shuffle(let value): _ = await perform { api, done in api.setShuffle(value, callback: done) }
+        case .next: _ = await skipForward()
+        case .previous: _ = await skipBack()
+        case .shuffle(let value): _ = await order { api, done in api.setShuffle(value, callback: done) }
         }
     }
 
@@ -452,30 +521,44 @@ final class SpotifyController {
 
     private static let asleep = "Spotify está dormido. Pulsa reproducir para despertarlo."
 
-    /// Manda una orden por App Remote y espera su respuesta; si falla, rehace la conexión y lo
-    /// intenta una vez más. Devuelve false si la app de Spotify no responde.
+    /// Manda una orden por App Remote y espera su respuesta. Devuelve false si la app de Spotify
+    /// no responde; un rechazo (ya estaba en pausa…) cuenta como hecho.
     private func perform(_ action: (any SPTAppRemotePlayerAPI, @escaping SPTAppRemoteCallback) -> Void) async -> Bool {
+        switch await order(action) {
+        case .done: return true
+        case .rejected:
+            lastError = nil
+            return true
+        case .unavailable: return false
+        }
+    }
+
+    /// Manda una orden por App Remote y espera su respuesta; si no contesta, rehace la conexión y
+    /// lo intenta una vez más. Si Spotify la rechaza, dice por qué.
+    private func order(_ action: (any SPTAppRemotePlayerAPI, @escaping SPTAppRemoteCallback) -> Void) async -> RemoteResult {
         for attempt in 0..<2 {
-            guard let api = await remotePlayer() else { return false }
+            guard let api = await remotePlayer() else { return .unavailable }
             let gate = Gate<RemoteOutcome>()
             let outcome = await withCheckedContinuation { (continuation: CheckedContinuation<RemoteOutcome, Never>) in
                 gate.set(continuation)
-                action(api) { _, error in gate.finish(error == nil ? .done : .rejected) }
+                action(api) { _, error in
+                    gate.finish(error.map { RemoteOutcome.rejected(Self.reason(of: $0)) } ?? RemoteOutcome.done)
+                }
                 Task {
                     try? await Task.sleep(for: .seconds(3))
                     gate.finish(.timedOut)
                 }
             }
-            if outcome == .done {
+            switch outcome {
+            case .done:
                 lastError = nil
-                return true
-            }
-            if outcome == .rejected, appRemote?.isConnected == true {
-                // Spotify recibió la orden pero no hacía falta (ya estaba en pausa, sin
-                // canción siguiente…): la conexión está bien; se pone al día lo que se ve.
+                return .done
+            case .rejected(let reason) where appRemote?.isConnected == true:
+                // La conexión está bien, pero Spotify no la ha hecho: se pone al día lo que se ve.
                 if let snapshot = await Self.snapshot(on: api) { apply(remote: snapshot) }
-                lastError = nil
-                return true
+                return .rejected(reason)
+            default:
+                break
             }
             if attempt == 0 {
                 // La conexión estaba rota: se suelta y se vuelve a abrir.
@@ -484,7 +567,14 @@ final class SpotifyController {
                 connectStarted = nil
             }
         }
-        return false
+        return .unavailable
+    }
+
+    /// El motivo que da Spotify, en corto.
+    private nonisolated static func reason(of error: any Error) -> String {
+        let text = (error as NSError).userInfo[NSLocalizedFailureReasonErrorKey] as? String
+            ?? error.localizedDescription
+        return text.count > 90 ? String(text.prefix(90)) + "…" : text
     }
 
     /// Al pasar Planaby a segundo plano se suelta la conexión, como pide el SDK.
@@ -751,10 +841,18 @@ enum SpotifyError: LocalizedError {
 private enum RemoteOutcome: Sendable {
     /// Hecha.
     case done
-    /// Spotify contestó con un error (la conexión funciona).
-    case rejected
+    /// Spotify contestó con un error (la conexión funciona), con su motivo.
+    case rejected(String)
     /// Sin respuesta: la conexión estaba rota.
     case timedOut
+}
+
+/// Resultado de una orden para quien la pide.
+private enum RemoteResult: Sendable {
+    case done
+    case rejected(String)
+    /// La app de Spotify no responde.
+    case unavailable
 }
 
 /// Espera la respuesta de App Remote una sola vez (respuesta o tiempo agotado).
