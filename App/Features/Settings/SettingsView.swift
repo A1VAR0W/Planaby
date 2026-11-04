@@ -264,6 +264,14 @@ struct SettingsView: View {
         }
     }
 
+    @AppStorage(FrictionGuard.Keys.lastTrigger) private var lastBlockTrigger: Double = 0
+    @AppStorage(FrictionGuard.Keys.apps) private var blockedAppsRaw = ""
+
+    private var blockSetupStatus: String {
+        if lastBlockTrigger > 0 { return "Funciona" }
+        return blockedAppsRaw.isEmpty ? "Sin configurar" : "Falta Atajos"
+    }
+
     private var frictionSection: some View {
         Section {
             Toggle(isOn: $blocksApps) {
@@ -287,18 +295,14 @@ struct SettingsView: View {
             } label: {
                 Label("Si la abres igualmente", systemImage: "hourglass")
             }
-            DisclosureGroup {
-                VStack(alignment: .leading, spacing: Space.s) {
-                    Step(number: 1, text: "Atajos › Automatización › Nueva › App. Elige las apps que te distraen, «Se abre» y «Ejecutar inmediatamente».")
-                    Step(number: 2, text: "Añade la acción de Planaby «Bloquear app». Listo.")
-                    Step(number: 3, text: "Se hace una sola vez. Después lo enciendes y apagas con el interruptor «Bloquear apps».")
-                }
-                .padding(.vertical, Space.xs)
-                Button("Abrir Atajos") {
-                    if let url = URL(string: "shortcuts://") { openURL(url) }
-                }
+            NavigationLink {
+                BlockSetupView()
             } label: {
-                Label("Elegir las apps (una sola vez)", systemImage: "wand.and.stars")
+                LabeledContent {
+                    Text(blockSetupStatus)
+                } label: {
+                    Label("Elegir las apps", systemImage: "wand.and.stars")
+                }
             }
         } header: {
             Text("Bloqueo con fricción")

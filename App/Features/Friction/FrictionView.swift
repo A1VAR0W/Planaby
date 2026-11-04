@@ -97,21 +97,42 @@ struct FrictionView: View {
             .tint(Theme.orange)
             .controlSize(.large)
 
-            Button {
-                reasonFocused = false
-                FrictionGuard.shared.finish(request, reason: reason, resisted: false, context: context)
-                if let url = FrictionGuard.url(for: request.app) { openURL(url) }
-                onDone(false)
-            } label: {
-                Text("Abrir \(appName) \(pass) min")
-                    .font(.subheadline.weight(.medium))
-                    .frame(maxWidth: .infinity, minHeight: 36)
+            // Una automatización para varias apps no dice cuál se abrió: se elige aquí.
+            let choices = FrictionGuard.chosenApps
+            Group {
+                if request.app.isEmpty, choices.count > 1 {
+                    Menu {
+                        ForEach(choices) { app in
+                            Button(app.name) { openAnyway(app.name) }
+                        }
+                    } label: {
+                        Text("Abrir igualmente \(pass) min")
+                            .font(.subheadline.weight(.medium))
+                            .frame(maxWidth: .infinity, minHeight: 36)
+                    }
+                    .menuStyle(.button)
+                } else {
+                    Button {
+                        openAnyway(request.app)
+                    } label: {
+                        Text("Abrir \(appName) \(pass) min")
+                            .font(.subheadline.weight(.medium))
+                            .frame(maxWidth: .infinity, minHeight: 36)
+                    }
+                }
             }
             .buttonStyle(.glass)
             .controlSize(.large)
             .disabled(!enabled)
             .accessibilityHint(enabled ? "Durante \(pass) minutos no te volveré a frenar" : "Espera a que termine la cuenta atrás")
         }
+    }
+
+    private func openAnyway(_ app: String) {
+        reasonFocused = false
+        FrictionGuard.shared.finish(request, reason: reason, resisted: false, context: context)
+        if let url = FrictionGuard.url(for: app) { openURL(url) }
+        onDone(false)
     }
 
     // MARK: - Textos

@@ -1,5 +1,58 @@
 import AppIntents
 
+/// Apps que se pueden bloquear. Cada una aparece en Atajos con su acción ya preparada
+/// («Bloquear Instagram»), así no hay que escribir nada al crear la automatización.
+enum BlockableApp: String, AppEnum, CaseIterable, Identifiable {
+    case any, instagram, tiktok, youtube, x, whatsapp, facebook, threads, snapchat, reddit, telegram, discord, twitch, netflix, pinterest, linkedin
+
+    var id: String { rawValue }
+
+    static let typeDisplayRepresentation: TypeDisplayRepresentation = "App"
+    static let caseDisplayRepresentations: [BlockableApp: DisplayRepresentation] = [
+        .any: "la app que se abre",
+        .instagram: "Instagram",
+        .tiktok: "TikTok",
+        .youtube: "YouTube",
+        .x: "X",
+        .whatsapp: "WhatsApp",
+        .facebook: "Facebook",
+        .threads: "Threads",
+        .snapchat: "Snapchat",
+        .reddit: "Reddit",
+        .telegram: "Telegram",
+        .discord: "Discord",
+        .twitch: "Twitch",
+        .netflix: "Netflix",
+        .pinterest: "Pinterest",
+        .linkedin: "LinkedIn",
+    ]
+
+    /// Nombre de la app; vacío para «la app que se abre».
+    var name: String {
+        switch self {
+        case .any: ""
+        case .instagram: "Instagram"
+        case .tiktok: "TikTok"
+        case .youtube: "YouTube"
+        case .x: "X"
+        case .whatsapp: "WhatsApp"
+        case .facebook: "Facebook"
+        case .threads: "Threads"
+        case .snapchat: "Snapchat"
+        case .reddit: "Reddit"
+        case .telegram: "Telegram"
+        case .discord: "Discord"
+        case .twitch: "Twitch"
+        case .netflix: "Netflix"
+        case .pinterest: "Pinterest"
+        case .linkedin: "LinkedIn"
+        }
+    }
+
+    /// Las que se pueden elegir en Planaby (todas menos «la app que se abre»).
+    static var choosable: [BlockableApp] { allCases.filter { $0 != .any } }
+}
+
 /// La acción única de la automatización «Al abrir una app»: si el bloqueo está activado y toca
 /// frenar, abre Planaby con la pausa consciente; si no, no hace nada y la app se abre normal.
 struct BlockAppIntent: AppIntent {
@@ -9,14 +62,27 @@ struct BlockAppIntent: AppIntent {
     )
     static let supportedModes: IntentModes = [.background, .foreground(.dynamic)]
 
-    @Parameter(title: "App (opcional)", description: "El nombre de la app, por ejemplo Instagram")
-    var app: String?
+    @Parameter(title: "App", default: .any)
+    var app: BlockableApp
+
+    static var parameterSummary: some ParameterSummary {
+        Summary("Bloquear \(\.$app)")
+    }
+
+    init() {}
+
+    init(app: BlockableApp) {
+        self.app = app
+    }
 
     @MainActor
     func perform() async throws -> some IntentResult {
         let guardian = FrictionGuard.shared
-        guard guardian.shouldPause(app: app ?? "") else { return .result() }
-        guardian.present(app: app ?? "")
+        // Aunque no toque frenar, queda constancia de que la automatización funciona.
+        guardian.noteTrigger()
+        let name = guardian.resolvedName(app.name)
+        guard guardian.shouldPause(app: name) else { return .result() }
+        guardian.present(app: name)
         try await continueInForeground(alwaysConfirm: false)
         return .result()
     }
@@ -32,7 +98,8 @@ struct ShouldPauseIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<Bool> {
-        .result(value: FrictionGuard.shared.shouldPause(app: app ?? ""))
+        FrictionGuard.shared.noteTrigger()
+        return .result(value: FrictionGuard.shared.shouldPause(app: app ?? ""))
     }
 }
 

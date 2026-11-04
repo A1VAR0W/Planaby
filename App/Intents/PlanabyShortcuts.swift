@@ -46,6 +46,13 @@ struct PlanabyShortcuts: AppShortcutsProvider {
             shortTitle: "Cambiar de modo",
             systemImageName: "briefcase.fill"
         )
+        // Una acción por app, ya con su nombre: «Bloquear Instagram con Planaby».
+        AppShortcut(
+            intent: BlockAppIntent(),
+            phrases: ["Bloquear \(\.$app) con \(.applicationName)", "Frenar \(\.$app) con \(.applicationName)"],
+            shortTitle: "Bloquear app",
+            systemImageName: "hand.raised.fill"
+        )
         AppShortcut(
             intent: OpenDeskIntent(),
             phrases: ["Modo escritorio en \(.applicationName)"],

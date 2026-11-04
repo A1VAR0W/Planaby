@@ -37,6 +37,10 @@ final class FrictionGuard {
         static let pauseSeconds = "frictionPauseSeconds"
         static let passMinutes = "frictionPassMinutes"
         static let passes = "frictionPasses"
+        /// Apps elegidas en Planaby (rawValue de BlockableApp separados por comas).
+        static let apps = "frictionApps"
+        /// Última vez que la automatización avisó a Planaby (segundos desde 1970).
+        static let lastTrigger = "frictionLastTrigger"
     }
 
     static let defaultPauseSeconds = 10
@@ -61,6 +65,25 @@ final class FrictionGuard {
 
     static var passMinutes: Int {
         UserDefaults.standard.object(forKey: Keys.passMinutes) as? Int ?? defaultPassMinutes
+    }
+
+    /// Las apps elegidas en Ajustes › Bloqueo con fricción.
+    static var chosenApps: [BlockableApp] {
+        (UserDefaults.standard.string(forKey: Keys.apps) ?? "")
+            .split(separator: ",")
+            .compactMap { BlockableApp(rawValue: String($0)) }
+    }
+
+    /// La automatización ha llamado a Planaby: así Ajustes sabe que está bien hecha.
+    func noteTrigger() {
+        UserDefaults.standard.set(Date.now.timeIntervalSince1970, forKey: Keys.lastTrigger)
+    }
+
+    /// Con «la app que se abre» y una sola app elegida, se sabe cuál es.
+    func resolvedName(_ name: String) -> String {
+        guard name.isEmpty else { return name }
+        let chosen = Self.chosenApps
+        return chosen.count == 1 ? chosen[0].name : ""
     }
 
     /// Hay una sesión en marcha, en fase de concentración y sin pausar.
