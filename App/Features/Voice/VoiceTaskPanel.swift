@@ -264,6 +264,8 @@ struct VoiceTaskPanel: View {
             HStack(spacing: Space.s) {
                 if allowsReview {
                     Button("Revisar") { reviewing = true }
+                        .lineLimit(1)
+                        .fixedSize()
                         .buttonStyle(.glass)
                         .controlSize(.large)
                 }
@@ -292,6 +294,9 @@ struct VoiceTaskPanel: View {
                 Label(primary, systemImage: primaryIcon)
                     .font(.headline)
                     .foregroundStyle(.black)
+                    .lineLimit(1)
+                    // Nunca se aplasta: el texto del botón va siempre en una línea.
+                    .fixedSize()
                     .padding(.horizontal, Space.s)
                     .frame(minHeight: 36)
             }

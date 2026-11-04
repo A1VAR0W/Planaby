@@ -35,7 +35,7 @@ struct SpotifySettingsView: View {
                     }
                     Button("Desconectar", role: .destructive) { spotify.disconnect() }
                 } footer: {
-                    Text("En Enfoque verás lo que suena con su carátula, y en el modo escritorio el botón ♪ lo pone a pantalla completa. Planaby controla la app de Spotify del iPhone (también con cuenta gratuita); si Spotify estaba cerrado, se abre un instante para despertarlo y vuelve a Planaby." + (spotify.hasSession ? " Si Spotify está dormido (nada sonando un buen rato), al pulsar reproducir se abre un instante para despertarlo." : " Sin sesión renovable, el acceso dura una hora y Spotify se abre al caducar: pulsa «Mantener conectado» una vez para evitarlo."))
+                    Text("En Enfoque verás lo que suena con su carátula, y en el modo escritorio el botón ♪ lo pone a pantalla completa. Planaby controla la app de Spotify del iPhone (también con cuenta gratuita); si Spotify estaba cerrado, se abre un instante para despertarlo y vuelve a Planaby." + (spotify.hasSession ? " Si Spotify está dormido (nada sonando un buen rato), al pulsar reproducir se abre un instante para despertarlo." : " Queda configurado aunque cierres Planaby. Sin sesión renovable, el acceso que da Spotify dura una hora: al caducar, el siguiente control abre Spotify un instante y sigue solo, sin volver a Ajustes. «Mantener conectado» lo evita."))
                 }
                 .task { await spotify.refresh() }
             } else {

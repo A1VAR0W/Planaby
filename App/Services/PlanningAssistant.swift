@@ -368,6 +368,8 @@ final class PlanningAssistant {
             - Un evento tiene día y hora fijos. Una tarea es trabajo nuevo con fecha límite y duración estimada; Planaby la repartirá en bloques, así que no inventes los bloques.
             - Si el usuario pide priorizar o adelantar tareas que ya tiene, pon reorganize a true y copia sus títulos en prioritize; no las repitas en tasks.
             - Si le ha surgido algo con hora (una reunión), es un evento; si además pide hacer hueco, reorganize es true.
+            - Si dice una hora de inicio y otra de fin («a las 3 de la tarde hasta las 4», «que acabe a las 4»), es un evento con esa duración aunque lo llame tarea. Si la hora de fin queda antes que la de inicio, es un error al hablar: entiende la misma parte del día (de 15:00 a 16:00).
+            - Ignora muletillas y frases a medias del dictado («vale», «bueno», «necesito que me hagas»).
             - Calcula fechas absolutas a partir de la fecha actual que se indica en cada mensaje ("mañana", "el jueves", "en dos semanas").
             - Si a una cita le falta el día o la hora, pregunta en question y no la incluyas.
             - Si el usuario dice dónde va (trabajo, personal, normal, casa), usa eso. Si no lo dice y el contenido no deja claro si es de trabajo o personal (por ejemplo «llamar a Juan» o «revisar el documento»), pon mode a unknown y Planaby se lo preguntará. No decidas por el modo actual.
