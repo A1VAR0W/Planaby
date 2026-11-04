@@ -131,6 +131,8 @@ struct FrictionView: View {
     private func openAnyway(_ app: String) {
         reasonFocused = false
         FrictionGuard.shared.finish(request, reason: reason, resisted: false, context: context)
+        // Abrirla igualmente da un pase: durante ese rato tampoco avisa al salir.
+        LeaveGuard.shared.excuse(for: TimeInterval(pass * 60))
         if let url = FrictionGuard.url(for: app) { openURL(url) }
         onDone(false)
     }

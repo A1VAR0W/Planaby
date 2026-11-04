@@ -9,6 +9,9 @@ struct BlockSetupView: View {
     @AppStorage(FrictionGuard.Keys.apps) private var appsRaw = ""
     @AppStorage(FrictionGuard.Keys.lastTrigger) private var lastTrigger: Double = 0
     @AppStorage(FrictionGuard.Keys.enabled) private var blocksApps = true
+    @AppStorage(FrictionGuard.Keys.scope) private var frictionScope = FrictionScope.focus.rawValue
+    @AppStorage(FrictionGuard.Keys.pauseSeconds) private var pauseSeconds = FrictionGuard.defaultPauseSeconds
+    @AppStorage(FrictionGuard.Keys.passMinutes) private var passMinutes = FrictionGuard.defaultPassMinutes
     @Environment(\.openURL) private var openURL
 
     private var chosen: [BlockableApp] {
@@ -28,6 +31,12 @@ struct BlockSetupView: View {
 
     var body: some View {
         Form {
+            Section {
+                Text("Opcional. Sin esto Planaby ya te avisa si sales de la app mientras te concentras. Con una automatización de Atajos, además, te frena con una pausa para respirar al abrir las apps que elijas.")
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.secondaryText)
+            }
+
             Section {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: Space.s)], spacing: Space.s) {
                     ForEach(BlockableApp.choosable) { app in
@@ -85,8 +94,26 @@ struct BlockSetupView: View {
             } footer: {
                 Text("Abre una de las apps elegidas y vuelve aquí: si aparece «Funciona», ya está. Planaby solo te frena cuando toca según «Cuándo» (por ejemplo, solo concentrándote).")
             }
+
+            Section {
+                Toggle("Frenar al abrirlas", isOn: $blocksApps)
+                Picker("Cuándo", selection: $frictionScope) {
+                    ForEach(FrictionScope.allCases) { Text($0.title).tag($0.rawValue) }
+                }
+                .disabled(!blocksApps)
+                Picker("Respirar", selection: $pauseSeconds) {
+                    ForEach([5, 10, 20, 30], id: \.self) { Text("\($0) s").tag($0) }
+                }
+                Picker("Si la abres igualmente", selection: $passMinutes) {
+                    ForEach([1, 5, 10, 15, 30], id: \.self) { Text("\($0) min").tag($0) }
+                }
+            } header: {
+                Text("Cómo frena")
+            } footer: {
+                Text("Si la abres igualmente, durante ese rato no te vuelve a frenar ni te avisa por salir.")
+            }
         }
-        .navigationTitle("Bloquear apps")
+        .navigationTitle("Frenar apps")
         .navigationBarTitleDisplayMode(.inline)
     }
 

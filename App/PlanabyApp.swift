@@ -26,6 +26,8 @@ struct PlanabyApp: App {
         .modelContainer(PlanabyStore.container)
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
+                // Antes de poner al día el temporizador (el modo estricto lo ajusta).
+                LeaveGuard.shared.didReturn()
                 timer.sync()
                 ReminderScheduler.shared.reschedule()
                 // Outlook y otros calendarios suscritos se descargan de nuevo si hace rato.
@@ -34,6 +36,7 @@ struct PlanabyApp: App {
                 // Correos nuevos por el filtro de mensajes (si hay cuenta).
                 MailInbox.shared.checkIfNeeded(context: PlanabyStore.container.mainContext)
             } else if phase == .background {
+                LeaveGuard.shared.didLeave()
                 SpotifyController.shared.disconnectRemote()
                 // Al cerrar no se pierde nada: se guarda lo pendiente y la copia del día.
                 PlanabyStore.saveNow()

@@ -18,10 +18,9 @@ struct SettingsView: View {
     @AppStorage(Preferences.deskNightMode) private var nightMode = true
     @AppStorage(Preferences.deskNightStart) private var nightStart = 22
     @AppStorage(Preferences.deskNightEnd) private var nightEnd = 7
-    @AppStorage(FrictionGuard.Keys.enabled) private var blocksApps = true
-    @AppStorage(FrictionGuard.Keys.scope) private var frictionScope = FrictionScope.focus.rawValue
-    @AppStorage(FrictionGuard.Keys.pauseSeconds) private var pauseSeconds = FrictionGuard.defaultPauseSeconds
-    @AppStorage(FrictionGuard.Keys.passMinutes) private var passMinutes = FrictionGuard.defaultPassMinutes
+    @AppStorage(LeaveGuard.Keys.enabled) private var leaveGuard = true
+    @AppStorage(LeaveGuard.Keys.grace) private var leaveGrace = LeaveGuard.defaultGrace
+    @AppStorage(LeaveGuard.Keys.strict) private var leaveStrict = false
     @AppStorage(MusicLinks.Keys.focus) private var focusMusic = ""
     @AppStorage(MusicLinks.Keys.rest) private var restMusic = ""
     @AppStorage(MusicLinks.Keys.autoOpen) private var musicAutoOpen = false
@@ -268,46 +267,38 @@ struct SettingsView: View {
     @AppStorage(FrictionGuard.Keys.apps) private var blockedAppsRaw = ""
 
     private var blockSetupStatus: String {
-        if lastBlockTrigger > 0 { return "Funciona" }
-        return blockedAppsRaw.isEmpty ? "Sin configurar" : "Falta Atajos"
+        if lastBlockTrigger > 0 { return "Activo" }
+        return blockedAppsRaw.isEmpty ? "Opcional" : "Falta Atajos"
     }
 
     private var frictionSection: some View {
         Section {
-            Toggle(isOn: $blocksApps) {
-                Label("Bloquear apps", systemImage: "hand.raised.fill")
+            Toggle(isOn: $leaveGuard) {
+                Label("Avisar si salgo de Planaby", systemImage: "hand.raised.fill")
             }
-            Picker(selection: $frictionScope) {
-                ForEach(FrictionScope.allCases) { scope in
-                    Text(scope.title).tag(scope.rawValue)
-                }
+            Picker(selection: $leaveGrace) {
+                ForEach(LeaveGuard.graceOptions, id: \.self) { Text(LeaveGuard.minutes(TimeInterval($0))).tag($0) }
             } label: {
-                Label("Cuándo", systemImage: "clock")
+                Label("Margen", systemImage: "hourglass")
             }
-            .disabled(!blocksApps)
-            Picker(selection: $pauseSeconds) {
-                ForEach([5, 10, 20, 30], id: \.self) { Text("\($0) s").tag($0) }
-            } label: {
-                Label("Respirar", systemImage: "wind")
+            .disabled(!leaveGuard)
+            Toggle(isOn: $leaveStrict) {
+                Label("Modo estricto", systemImage: "lock.fill")
             }
-            Picker(selection: $passMinutes) {
-                ForEach([1, 5, 10, 15, 30], id: \.self) { Text("\($0) min").tag($0) }
-            } label: {
-                Label("Si la abres igualmente", systemImage: "hourglass")
-            }
+            .disabled(!leaveGuard)
             NavigationLink {
                 BlockSetupView()
             } label: {
                 LabeledContent {
                     Text(blockSetupStatus)
                 } label: {
-                    Label("Elegir las apps", systemImage: "wand.and.stars")
+                    Label("Frenar apps concretas", systemImage: "wand.and.stars")
                 }
             }
         } header: {
-            Text("Bloqueo con fricción")
+            Text("Bloqueo")
         } footer: {
-            Text("Al abrir una app elegida, Planaby te frena unos segundos para que decidas con calma; si la abres igualmente, no vuelve a frenarte durante ese rato. El bloqueo total de iOS (Tiempo de uso) necesita una cuenta de desarrollador de pago, por eso las apps se eligen con Atajos.")
+            Text("Sin configurar nada: mientras te concentras, si te vas a otra app más de \(LeaveGuard.minutes(TimeInterval(leaveGrace))) te llegan avisos para volver, y al volver ves cuánto rato estuviste fuera. Bloquear el iPhone no cuenta. " + (leaveStrict ? "Modo estricto: el rato fuera no cuenta como concentración y el bloque sigue donde lo dejaste." : "Con el modo estricto, el rato fuera no cuenta como concentración.") + " «Frenar apps concretas» es opcional y usa Atajos.")
         }
     }
 

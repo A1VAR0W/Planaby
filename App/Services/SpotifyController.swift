@@ -52,7 +52,8 @@ final class SpotifyController {
     @ObservationIgnored private var verifier: String?
     @ObservationIgnored private var appRemote: SPTAppRemote?
     @ObservationIgnored private var sessionManager: SPTSessionManager?
-    @ObservationIgnored private var awaitingSession = false
+    /// Esperando la vuelta de Spotify tras «Conectar solo con la app» (se ve en Ajustes).
+    private(set) var awaitingSession = false
     /// Renovación del acceso en curso: las demás peticiones la esperan en vez de pedir otra
     /// (el token de renovación cambia en cada uso y dos a la vez se anularían).
     @ObservationIgnored private var renewal: Task<Void, Error>?
@@ -372,42 +373,65 @@ final class SpotifyController {
         }
     }
 
-    /// Pasa a la siguiente. Si Spotify no deja saltar (límite de saltos de la cuenta gratuita, o
-    /// dice que sí pero no cambia), se lleva la canción a su final y Spotify pone la siguiente sola.
-    /// Devuelve false solo si la app de Spotify no responde.
+    /// Pasa a la siguiente y comprueba que de verdad cambia de canción. Con cuenta gratuita
+    /// Spotify a veces rechaza el salto o vuelve a empezar la misma; entonces se prueba, por
+    /// orden: llevarla a su final (Spotify pone la siguiente sola) y volver a poner la lista en
+    /// aleatorio (otra canción de la misma lista). Devuelve false solo si Spotify no responde.
     private func skipForward() async -> Bool {
         guard let api = await remotePlayer() else { return false }
-        let before = await Self.snapshot(on: api)
-        switch await order({ api, done in api.skip(toNext: done) }) {
-        case .unavailable:
-            return false
-        case .done:
-            // Comprobar que de verdad ha cambiado de canción.
-            try? await Task.sleep(for: .milliseconds(700))
-            guard let before, let after = await Self.snapshot(on: api) else { return true }
-            if after.uri != before.uri || after.position + 2 < before.position { apply(remote: after); return true }
-            return await seekToEnd(of: before, reason: "")
-        case .rejected(let reason):
-            guard let before else { lastError = Self.noSkip(reason); return true }
-            return await seekToEnd(of: before, reason: reason)
+        guard let before = await Self.snapshot(on: api) else {
+            if case .unavailable = await order({ api, done in api.skip(toNext: done) }) { return false }
+            return true
         }
+        // Con «repetir canción» puesto, la siguiente sería otra vez la misma.
+        if before.repeatsTrack {
+            _ = await order({ api, done in api.setRepeatMode(.context, callback: done) })
+        }
+
+        var reason = ""
+        switch await order({ api, done in api.skip(toNext: done) }) {
+        case .unavailable: return false
+        case .rejected(let why): reason = why
+        case .done: break
+        }
+        if await changedTrack(from: before, on: api, within: 1.5) { return true }
+
+        // 2 · Al final de la canción entra la siguiente sin gastar saltos.
+        if before.duration > 3 {
+            let end = Int((before.duration - 0.8) * 1000)
+            switch await order({ api, done in api.seek(toPosition: end, callback: done) }) {
+            case .unavailable: return false
+            case .rejected(let why): if reason.isEmpty { reason = why }
+            case .done:
+                if before.paused { _ = await order({ api, done in api.resume(done) }) }
+                if await changedTrack(from: before, on: api, within: 3.5) { return true }
+            }
+        }
+
+        // 3 · Volver a poner la lista (o el álbum) en aleatorio: sale otra canción de ella.
+        if !before.contextURI.isEmpty {
+            if !before.shuffle { _ = await order({ api, done in api.setShuffle(true, callback: done) }) }
+            if case .done = await order({ api, done in api.play(before.contextURI, callback: done) }),
+               await changedTrack(from: before, on: api, within: 3) {
+                return true
+            }
+        }
+        lastError = Self.noSkip(reason)
+        return true
     }
 
-    private func seekToEnd(of snapshot: RemoteSnapshot, reason: String) async -> Bool {
-        guard snapshot.duration > 2 else { lastError = Self.noSkip(reason); return true }
-        let end = Int((snapshot.duration - 0.5) * 1000)
-        switch await order({ api, done in api.seek(toPosition: end, callback: done) }) {
-        case .unavailable:
-            return false
-        case .rejected(let seekReason):
-            lastError = Self.noSkip(seekReason.isEmpty ? reason : seekReason)
-            return true
-        case .done:
-            // En pausa no llegaría al final: se reanuda para que entre la siguiente.
-            if snapshot.paused { _ = await order({ api, done in api.resume(done) }) }
-            lastError = nil
-            return true
-        }
+    /// Espera a que Spotify cambie de canción (true) o a que pase el tiempo (false).
+    private func changedTrack(from before: RemoteSnapshot, on api: any SPTAppRemotePlayerAPI, within seconds: Double) async -> Bool {
+        let deadline = Date.now.addingTimeInterval(seconds)
+        repeat {
+            try? await Task.sleep(for: .milliseconds(400))
+            if let now = await Self.snapshot(on: api), now.uri != before.uri {
+                apply(remote: now)
+                lastError = nil
+                return true
+            }
+        } while Date.now < deadline
+        return false
     }
 
     /// Canción anterior; si Spotify no deja ir atrás, vuelve al principio de la canción.
@@ -492,6 +516,7 @@ final class SpotifyController {
             try? await Task.sleep(for: .milliseconds(500))
             return true
         }
+        LeaveGuard.shared.excuse(for: 30)
         if let url = URL(string: "spotify:") { _ = await UIApplication.shared.open(url) }
         lastError = "Abre Spotify un momento para que Planaby pueda controlarlo."
         return false
@@ -617,6 +642,7 @@ final class SpotifyController {
     func wakeSpotify(playing uri: String = "") {
         guard let remote = remote() else { return }
         lastError = nil
+        LeaveGuard.shared.excuse(for: 30)
         remote.authorizeAndPlayURI(uri, completionHandler: nil)
     }
 
@@ -637,7 +663,17 @@ final class SpotifyController {
         guard let manager = sessions() else { return }
         lastError = nil
         awaitingSession = true
+        LeaveGuard.shared.excuse(for: 90)
         manager.initiateSession(with: [.appRemoteControl], options: .default, campaign: nil)
+    }
+
+    /// Si la sesión renovable no llega, se conecta igualmente con el acceso que da la app de
+    /// Spotify (el mismo de «Conectar con la app»): queda configurado y controla al momento.
+    private func connectWithoutSession(_ why: String) {
+        awaitingSession = false
+        guard !isRemoteConnected else { return }
+        lastError = "Spotify no ha dado una sesión renovable (\(why)). Conectando con la app de Spotify…"
+        wakeSpotify()
     }
 
     fileprivate func sessionStarted(access: String, refresh: String, expiry: Date) {
@@ -658,16 +694,32 @@ final class SpotifyController {
     }
 
     fileprivate func sessionFailed(_ message: String) {
-        awaitingSession = false
-        lastError = "Spotify no ha dado permiso: \(message)"
+        guard awaitingSession else { return }
+        connectWithoutSession(message)
     }
 
     /// Vuelta desde Spotify (planaby-spotify://callback?code=… o #access_token=…).
     func handleOpenURL(_ url: URL) {
         guard url.scheme == Self.redirectScheme else { return }
-        if awaitingSession, let sessionManager,
-           sessionManager.application(UIApplication.shared, open: url, options: [:]) {
-            return
+        if awaitingSession, let sessionManager {
+            if sessionManager.application(UIApplication.shared, open: url, options: [:]) {
+                // El SDK canjea el código por la sesión; si en unos segundos no llega, plan B.
+                Task {
+                    try? await Task.sleep(for: .seconds(8))
+                    if self.awaitingSession { self.connectWithoutSession("no ha respondido") }
+                }
+                return
+            }
+            // Spotify ha vuelto con algo que el SDK no entiende (por ejemplo, un código sin
+            // la sesión que lo pidió): se pide el acceso directo a la app de Spotify.
+            let text = url.absoluteString
+            if !text.contains("access_token") {
+                let why = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                    .queryItems?.first { $0.name == "error" }?.value ?? "respuesta no válida"
+                connectWithoutSession(why)
+                return
+            }
+            awaitingSession = false
         }
         guard let remote = remote(), let parameters = remote.authorizationParameters(from: url) else { return }
         if let token = parameters[SPTAppRemoteAccessTokenKey] {
@@ -928,6 +980,10 @@ fileprivate struct RemoteSnapshot: Sendable {
     let paused: Bool
     let shuffle: Bool
     let imageID: String
+    /// La lista, el álbum o la radio de donde sale la canción.
+    let contextURI: String
+    /// «Repetir canción» puesto.
+    let repeatsTrack: Bool
 }
 
 extension RemoteSnapshot {
@@ -936,7 +992,8 @@ extension RemoteSnapshot {
         self.init(
             title: track.name, artist: track.artist.name, album: track.album.name, uri: track.uri,
             duration: TimeInterval(track.duration) / 1000, position: TimeInterval(state.playbackPosition) / 1000,
-            paused: state.isPaused, shuffle: state.playbackOptions.isShuffling, imageID: track.imageIdentifier
+            paused: state.isPaused, shuffle: state.playbackOptions.isShuffling, imageID: track.imageIdentifier,
+            contextURI: state.contextURI.absoluteString, repeatsTrack: state.playbackOptions.repeatMode == .track
         )
     }
 }

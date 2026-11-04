@@ -13,6 +13,7 @@ struct RootView: View {
     @State private var tab: AppTab = .focus
     @State private var showsRhythmTest = PersonalProfile.shared.shouldOfferTest
     @State private var friction = FrictionGuard.shared
+    @State private var leaveGuard = LeaveGuard.shared
 
     /// En horizontal, desde Enfoque, el iPhone pasa a modo escritorio a pantalla completa.
     private var isDesk: Bool { verticalSizeClass == .compact && tab == .focus }
@@ -59,6 +60,18 @@ struct RootView: View {
                 if resisted { tab = .focus }
             }
         }
+        // Vuelta tras salir de Planaby en mitad de un bloque.
+        .alert(
+            leaveGuard.returned.map { "Has estado fuera \(LeaveGuard.minutes($0.seconds))" } ?? "",
+            isPresented: Binding(get: { leaveGuard.returned != nil }, set: { if !$0 { leaveGuard.returned = nil } }),
+            presenting: leaveGuard.returned
+        ) { _ in
+            Button("Seguir concentrándome", role: .cancel) { tab = .focus }
+            Button("Pausar la sesión") { timer.pause() }
+        } message: { info in
+            Text(Self.returnMessage(info))
+        }
+        .sensoryFeedback(.warning, trigger: leaveGuard.returned?.id)
         .sensoryFeedback(.impact(flexibility: .soft, intensity: 0.7), trigger: timer.state?.phase)
         // Música de concentración o de descanso, si está configurada (solo con la app delante).
         .onChange(of: timer.state?.phase) { old, new in
@@ -83,5 +96,12 @@ struct RootView: View {
                 timer.reconcile()
             }
         }
+    }
+
+    private static func returnMessage(_ info: LeaveGuard.Return) -> String {
+        let rest = info.remaining.map { " Te quedan \(LeaveGuard.minutes($0)) de concentración." } ?? ""
+        return info.strict
+            ? "Ese rato no ha contado: el bloque sigue donde lo dejaste." + rest
+            : "Saliste de Planaby en mitad del bloque." + rest
     }
 }

@@ -36,6 +36,17 @@ final class FocusTimer {
 
     func skip() { mutate { $0.skip(at: .now) } }
 
+    /// Modo estricto: el rato fuera de Planaby no cuenta. La concentración se pausa con efecto
+    /// desde que se salió y se reanuda ahora (si el bloque terminó estando fuera, sigue abierto).
+    func discount(from leftAt: Date, to now: Date) {
+        guard var updated = TimerState.loadShared() ?? state,
+              updated.phase == .focus, !updated.isPaused, updated.phaseStart <= leftAt else { return }
+        if let end = updated.phaseEnd, end <= leftAt { return }
+        updated.pause(at: leftAt)
+        updated.resume(at: now)
+        commit(updated)
+    }
+
     /// Elige método: si hay sesión en marcha, se cambia sin reiniciarla.
     func select(_ method: FocusMethod) {
         MethodLibrary.shared.selectedID = method.id

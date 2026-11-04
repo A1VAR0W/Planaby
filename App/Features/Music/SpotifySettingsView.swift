@@ -76,8 +76,20 @@ struct SpotifySettingsView: View {
                         }
                     }
                     .disabled(connecting || clientID.trimmingCharacters(in: .whitespaces).count < 20)
-                    Button("Conectar solo con la app de Spotify") { spotify.connectWithApp() }
-                        .disabled(connecting || clientID.trimmingCharacters(in: .whitespaces).count < 20)
+                    Button {
+                        spotify.connectWithApp()
+                    } label: {
+                        HStack(spacing: Space.s) {
+                            if spotify.awaitingSession { ProgressView() }
+                            Text(spotify.awaitingSession ? "Esperando a Spotify…" : "Conectar solo con la app de Spotify")
+                        }
+                    }
+                    .disabled(connecting || clientID.trimmingCharacters(in: .whitespaces).count < 20)
+                    if let message = spotify.lastError {
+                        Label(message, systemImage: "exclamationmark.triangle.fill")
+                            .font(.footnote)
+                            .foregroundStyle(Theme.orange)
+                    }
                 } footer: {
                     Text("«Conectar con Spotify» necesita «Web API»: inicias sesión una vez y Planaby reconecta solo, y ve lo que suena aunque Spotify esté cerrado o en otro dispositivo. «Solo con la app de Spotify» no la usa: Spotify se abre una vez para dar permiso y vuelve; después Planaby lo controla sin abrirlo (solo lo despierta si está dormido y pulsas reproducir).")
                 }

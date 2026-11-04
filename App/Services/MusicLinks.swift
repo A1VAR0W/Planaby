@@ -28,6 +28,7 @@ enum MusicLinks {
             Task { await spotify.play(uri: uri.absoluteString) }
             return
         }
+        LeaveGuard.shared.excuse(for: 60)
         if let app = spotifyURI(for: web) {
             UIApplication.shared.open(app) { opened in
                 if !opened { UIApplication.shared.open(web) }

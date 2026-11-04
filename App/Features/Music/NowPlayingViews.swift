@@ -291,6 +291,7 @@ struct NowPlayingView: View {
             }
             ToolbarItem(placement: .primaryAction) {
                 Button("Abrir Spotify", systemImage: "arrow.up.forward.app") {
+                    LeaveGuard.shared.excuse(for: 60)
                     if let url = URL(string: spotify.track?.uri ?? "spotify:") { UIApplication.shared.open(url) }
                 }
             }
