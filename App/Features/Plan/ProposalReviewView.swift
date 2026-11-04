@@ -154,7 +154,7 @@ private struct DraftRow: View {
                             .font(.body.weight(.medium))
                             .strikethrough(!item.isIncluded)
                         Label {
-                            Text("\(item.start.formatted(date: .omitted, time: .shortened))–\(item.end.formatted(date: .omitted, time: .shortened)) · \(item.mode.title)")
+                            Text("\(item.start.formatted(date: .omitted, time: .shortened))–\(item.end.formatted(date: .omitted, time: .shortened)) · \(item.recurrence == .none ? item.mode.title : item.recurrence.title)")
                         } icon: {
                             Image(systemName: item.kind.symbol)
                         }

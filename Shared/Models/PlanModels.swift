@@ -111,35 +111,7 @@ final class CalendarEvent {
 
     /// Apariciones del evento dentro de un intervalo, teniendo en cuenta la repetición.
     func occurrences(in interval: DateInterval, calendar: Calendar = .current) -> [DateInterval] {
-        let length = max(0, duration)
-        guard recurrence != .none else {
-            let own = DateInterval(start: start, duration: length)
-            return own.intersects(interval) ? [own] : []
-        }
-
-        var result: [DateInterval] = []
-        let startDay = calendar.startOfDay(for: max(start, interval.start.addingTimeInterval(-length)))
-        let time = calendar.dateComponents([.hour, .minute], from: start)
-        let originalWeekday = calendar.component(.weekday, from: start)
-        var day = startDay
-        while day <= interval.end {
-            let weekday = calendar.component(.weekday, from: day)
-            let matches = switch recurrence {
-            case .none: false
-            case .daily: true
-            case .weekdays: (2...6).contains(weekday)
-            case .weekly: weekday == originalWeekday
-            }
-            if matches,
-               let occurrenceStart = calendar.date(bySettingHour: time.hour ?? 0, minute: time.minute ?? 0, second: 0, of: day),
-               occurrenceStart >= start {
-                let occurrence = DateInterval(start: occurrenceStart, duration: length)
-                if occurrence.intersects(interval) { result.append(occurrence) }
-            }
-            guard let next = calendar.date(byAdding: .day, value: 1, to: day) else { break }
-            day = next
-        }
-        return result
+        Recurrence.occurrences(start: start, duration: duration, recurrence: recurrence, in: interval, calendar: calendar)
     }
 }
 
@@ -231,4 +203,42 @@ final class TaskAttachment {
     }
 
     var kind: AttachmentKind { AttachmentKind(rawValue: kindRaw) ?? .other }
+}
+
+extension Recurrence {
+    /// Las veces que algo que empieza en `start` y dura `duration` cae dentro de `interval`.
+    static func occurrences(
+        start: Date, duration: TimeInterval, recurrence: Recurrence, in interval: DateInterval, calendar: Calendar = .current
+    ) -> [DateInterval] {
+        let length = max(0, duration)
+        guard recurrence != .none else {
+
+            let own = DateInterval(start: start, duration: length)
+            return own.intersects(interval) ? [own] : []
+        }
+
+        var result: [DateInterval] = []
+        let startDay = calendar.startOfDay(for: max(start, interval.start.addingTimeInterval(-length)))
+        let time = calendar.dateComponents([.hour, .minute], from: start)
+        let originalWeekday = calendar.component(.weekday, from: start)
+        var day = startDay
+        while day <= interval.end {
+            let weekday = calendar.component(.weekday, from: day)
+            let matches = switch recurrence {
+            case .none: false
+            case .daily: true
+            case .weekdays: (2...6).contains(weekday)
+            case .weekly: weekday == originalWeekday
+            }
+            if matches,
+               let occurrenceStart = calendar.date(bySettingHour: time.hour ?? 0, minute: time.minute ?? 0, second: 0, of: day),
+               occurrenceStart >= start {
+                let occurrence = DateInterval(start: occurrenceStart, duration: length)
+                if occurrence.intersects(interval) { result.append(occurrence) }
+            }
+            guard let next = calendar.date(byAdding: .day, value: 1, to: day) else { break }
+            day = next
+        }
+        return result
+    }
 }

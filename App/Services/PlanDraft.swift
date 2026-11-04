@@ -15,6 +15,10 @@ struct PlanDraft: Identifiable {
         /// Tarea a la que pertenece, si es un bloque de trabajo.
         var taskID: UUID?
         var isIncluded = true
+
+        func occurrences(in interval: DateInterval) -> [DateInterval] {
+            Recurrence.occurrences(start: start, duration: end.timeIntervalSince(start), recurrence: recurrence, in: interval)
+        }
     }
 
     struct Workload: Identifiable {
@@ -165,6 +169,19 @@ enum PlanBuilder {
 
     // MARK: - Núcleo
 
+    /// Algún evento nuevo pisa bloques de trabajo ya guardados que aún no han empezado:
+    /// entonces hay que reorganizar para moverlos.
+    static func clashesWithBlocks(_ events: [PlanDraft.Item], context: ModelContext, now: Date = .now) -> Bool {
+        guard !events.isEmpty else { return false }
+        let range = DateInterval(start: now, duration: 21 * 24 * 3600)
+        let taken = events.flatMap { $0.occurrences(in: range) }
+        let blocks = ((try? context.fetch(FetchDescriptor<CalendarEvent>())) ?? [])
+            .filter { $0.kind == .workBlock && $0.start > now && $0.task != nil }
+        return blocks.contains { block in
+            taken.contains { $0.start < block.end && block.start < $0.end }
+        }
+    }
+
     private static func pendingTasks(context: ModelContext) -> [PlanTask] {
         ((try? context.fetch(FetchDescriptor<PlanTask>())) ?? []).filter { !$0.isDone }
     }
@@ -184,7 +201,7 @@ enum PlanBuilder {
         // No se puede estar en dos sitios: los huecos se calculan con los dos planes.
         // Las reuniones de Outlook, Teams y otros calendarios de iOS también ocupan.
         let busy = existing.flatMap { $0.occurrences(in: range) }
-            + events.map { DateInterval(start: $0.start, end: $0.end) }
+            + events.flatMap { $0.occurrences(in: range) }
             + ExternalCalendars.shared.busyIntervals(in: range)
 
         let work = tasks.enumerated().map { index, task in

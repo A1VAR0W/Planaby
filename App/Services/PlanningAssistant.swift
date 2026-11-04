@@ -15,7 +15,7 @@ struct ParsedPlan {
     var reorganize: Bool
     @Guide(description: "Títulos exactos de tareas pendientes que el usuario quiere adelantar o priorizar, en orden")
     var prioritize: [String]
-    @Guide(description: "Pregunta breve si falta un dato imprescindible, como el día o la hora de una cita; vacía si no hace falta")
+    @Guide(description: "Pregunta breve solo si falta un dato imprescindible, como el día de una cita. Vacía si ya se puede planificar, si el usuario dio dos opciones (usa la primera) o si ya lo respondió antes")
     var question: String
 }
 
@@ -29,8 +29,10 @@ struct ParsedEvent {
     var durationMinutes: Int
     @Guide(description: "work si es claramente de trabajo o estudios; personal si es claramente ocio, casa, salud, familia o recados; unknown si no se puede saber", .anyOf(["work", "personal", "unknown"]))
     var mode: String
-    @Guide(description: "Minutos de antelación del aviso; 15 si no se indica", .range(0...1440))
+    @Guide(description: "Minutos de antelación del aviso; 15 si no se indica; 0 para la comida", .range(0...1440))
     var reminderMinutes: Int
+    @Guide(description: "none si es una vez; weekdays si se repite de lunes a viernes (la comida o descansos de cada día laborable); daily si es cada día; weekly si es cada semana", .anyOf(["none", "weekdays", "daily", "weekly"]))
+    var repeats: String
 }
 
 @Generable
@@ -74,6 +76,31 @@ struct Interpretation {
     var undecidedTasks: Set<UUID> = []
 
     var isEmpty: Bool { events.isEmpty && tasks.isEmpty && !reorganize && prioritize.isEmpty }
+
+    /// Une lo nuevo con una propuesta aún sin aceptar: lo que se llama igual (y, si es un
+    /// evento, cae el mismo día) se sustituye; el resto se suma y se vuelve a repartir todo.
+    func merged(with new: Interpretation) -> Interpretation {
+        var result = self
+        let calendar = Calendar.current
+        for event in new.events {
+            result.events.removeAll {
+                $0.title.lowercased() == event.title.lowercased()
+                    && ($0.recurrence != .none || calendar.isDate($0.start, inSameDayAs: event.start))
+            }
+        }
+        result.events += new.events
+        for task in new.tasks {
+            result.tasks.removeAll { $0.title.lowercased() == task.title.lowercased() }
+        }
+        result.tasks += new.tasks
+        result.reorganize = reorganize || new.reorganize
+        result.prioritize += new.prioritize.filter { !prioritize.contains($0) }
+        result.question = new.question
+        result.problems = new.problems
+        result.undecidedEvents = new.undecidedEvents
+        result.undecidedTasks = new.undecidedTasks
+        return result
+    }
     var needsMode: Bool { !undecidedEvents.isEmpty || !undecidedTasks.isEmpty }
 
     /// «¿«Llamar a Juan» va en tu plan de Trabajo o en el Normal?»
@@ -103,7 +130,9 @@ struct Interpretation {
     /// La propuesta que sale de lo entendido (colocar lo nuevo o reorganizar).
     @MainActor
     func makeDraft(context: ModelContext) -> PlanDraft {
-        var draft = reorganize || !prioritize.isEmpty
+        // Si lo nuevo pisa bloques ya guardados, se reorganizan para hacerle hueco.
+        let clashes = PlanBuilder.clashesWithBlocks(events, context: context)
+        var draft = reorganize || !prioritize.isEmpty || clashes
             ? PlanBuilder.reorganize(order: prioritize, newEvents: events, newTasks: tasks, context: context)
             : PlanBuilder.draft(events: events, tasks: tasks, context: context)
         draft.warnings = problems + draft.warnings
@@ -127,6 +156,8 @@ final class PlanningAssistant {
         let text: String
         var attachmentNames: [String] = []
         var draft: PlanDraft?
+        /// Lo entendido que dio lugar a `draft`: los siguientes mensajes lo completan.
+        var request: Interpretation?
         /// Lo entendido, a la espera de saber si va a Trabajo o a Normal.
         var pending: Interpretation?
     }
@@ -201,10 +232,22 @@ final class PlanningAssistant {
         do {
             let session = self.session ?? Self.makeSession()
             self.session = session
-            var result = try await Self.interpret(trimmed, attachments: attachments, session: session, context: context)
+            let response = try await session.respond(
+                to: Self.prompt(for: trimmed, attachments: attachments, context: context, proposal: openProposalText),
+                generating: ParsedPlan.self,
+                options: GenerationOptions(temperature: 0.2)
+            )
+            var result = Self.convert(response.content, context: context)
             // El material adjunto queda guardado con las tareas que salgan de él.
             for index in result.tasks.indices {
                 result.tasks[index].attachments = attachments
+            }
+            // Si hay una propuesta sin aceptar, lo nuevo la completa o la corrige y se
+            // reorganiza todo junto (por ejemplo, la hora de comer después de pedir una tarea).
+            if !result.isEmpty, let index = openProposalIndex, let previous = messages[index].request {
+                result = previous.merged(with: result)
+                messages[index].draft = nil
+                messages[index].request = nil
             }
             respond(to: result, context: context)
         } catch {
@@ -220,9 +263,15 @@ final class PlanningAssistant {
         messages[index].draft = draft
     }
 
+    /// La última propuesta que sigue abierta (sin aceptar ni sustituir).
+    private var openProposalIndex: Int? {
+        messages.lastIndex { $0.draft != nil && $0.request != nil }
+    }
+
     func markAccepted(_ messageID: Message.ID) {
         guard let index = messages.firstIndex(where: { $0.id == messageID }) else { return }
         messages[index].draft = nil
+        messages[index].request = nil
         reply("Hecho: tu calendario está actualizado.")
     }
 
@@ -250,8 +299,10 @@ final class PlanningAssistant {
         }
 
         let draft = result.makeDraft(context: context)
-        let text = [draft.summary, result.question].filter { !$0.isEmpty }.joined(separator: "\n")
-        messages.append(Message(role: .assistant, text: text, draft: draft))
+        // No se repite una pregunta que ya se hizo.
+        let asked = messages.contains { $0.role == .assistant && !result.question.isEmpty && $0.text.contains(result.question) }
+        let text = [draft.summary, asked ? "" : result.question].filter { !$0.isEmpty }.joined(separator: "\n")
+        messages.append(Message(role: .assistant, text: text, draft: draft, request: result))
         saveHistory()
     }
 
@@ -288,7 +339,8 @@ final class PlanningAssistant {
                 title: event.title, start: start,
                 end: start.addingTimeInterval(TimeInterval(event.durationMinutes * 60)),
                 mode: PlanMode(rawValue: event.mode) ?? fallbackMode, kind: .event,
-                reminderMinutes: event.reminderMinutes
+                recurrence: Recurrence(rawValue: event.repeats) ?? .none,
+                reminderMinutes: event.reminderMinutes > 0 ? event.reminderMinutes : nil
             )
             if PlanMode(rawValue: event.mode) == nil { result.undecidedEvents.insert(item.id) }
             result.events.append(item)
@@ -369,6 +421,9 @@ final class PlanningAssistant {
             - Si el usuario pide priorizar o adelantar tareas que ya tiene, pon reorganize a true y copia sus títulos en prioritize; no las repitas en tasks.
             - Si le ha surgido algo con hora (una reunión), es un evento; si además pide hacer hueco, reorganize es true.
             - Si dice una hora de inicio y otra de fin («a las 3 de la tarde hasta las 4», «que acabe a las 4»), es un evento con esa duración aunque lo llame tarea. Si la hora de fin queda antes que la de inicio, es un error al hablar: entiende la misma parte del día (de 15:00 a 16:00).
+            - Las horas de comer o descansos de cada día («como de 2 a 3», «mi hora de comida es de 1:30 a 2:30») son un evento titulado «Comida» que empieza hoy (o el próximo día laborable), con repeats weekdays y mode work. Si da dos opciones, usa la primera y no preguntes.
+            - Cada mensaje puede completar o corregir la propuesta pendiente que se indica: devuelve solo lo nuevo o lo que cambia (con el mismo título si es un cambio). Planaby lo junta con lo anterior y lo reparte todo de nuevo. No repitas lo que ya está en la propuesta.
+            - Planaby ya tiene en cuenta el calendario, el horario de trabajo y los eventos existentes al repartir los bloques; no preguntes por ellos.
             - Si nombra varias fechas para lo mismo («el lunes y el miércoles», «los días 5, 12 y 19»), crea un evento por cada fecha con el mismo título.
             - Ignora muletillas y frases a medias del dictado («vale», «bueno», «necesito que me hagas»).
             - Calcula fechas absolutas a partir de la fecha actual que se indica en cada mensaje ("mañana", "el jueves", "en dos semanas").
@@ -380,7 +435,9 @@ final class PlanningAssistant {
             """)
     }
 
-    private static func prompt(for text: String, attachments: [ImportedAttachment], context: ModelContext) -> String {
+    private static func prompt(
+        for text: String, attachments: [ImportedAttachment], context: ModelContext, proposal: String = "ninguna"
+    ) -> String {
         let now = Date.now
         let pending = ((try? context.fetch(FetchDescriptor<PlanTask>())) ?? [])
             .filter { !$0.isDone }
@@ -396,12 +453,50 @@ final class PlanningAssistant {
         return """
             Ahora: \(now.formatted(.dateTime.weekday(.wide).day().month(.wide).year().hour().minute())) (\(formatter.string(from: now))).
             Modo actual: \(ModeController.shared.mode.rawValue).
+            Horario de trabajo: \(scheduleText(ModeController.shared.availability(for: .work))).
+            Agenda de hoy y mañana: \(agenda(context: context, from: now)).
             Carga ya planificada: \(loadSummary(context: context, from: now)).
+            Propuesta pendiente sin aceptar: \(proposal).
             Tareas pendientes:
             \(pending.isEmpty ? "ninguna" : pending)
             \(material.isEmpty ? "" : "Material adjunto:\n\(material)")
             Petición: \(text.isEmpty ? "Organiza el material adjunto." : text)
             """
+    }
+
+    /// Lo que hay en el calendario hoy y mañana (propio y externo), para no preguntar por ello.
+    private static func agenda(context: ModelContext, from now: Date) -> String {
+        let calendar = Calendar.current
+        let range = DateInterval(start: now, end: calendar.date(byAdding: .day, value: 2, to: calendar.startOfDay(for: now)) ?? now)
+        let own = ((try? context.fetch(FetchDescriptor<CalendarEvent>())) ?? []).flatMap { event in
+            event.occurrences(in: range).map { (title: event.title, interval: $0) }
+        }
+        let external = ExternalCalendars.shared.events(in: range)
+            .filter { !$0.isAllDay }
+            .map { (title: $0.title, interval: $0.interval) }
+        let items = (own + external).sorted { $0.interval.start < $1.interval.start }.prefix(16)
+        guard !items.isEmpty else { return "nada" }
+        let time = DateFormatter()
+        time.locale = Locale(identifier: "en_US_POSIX")
+        time.dateFormat = "EEE HH:mm"
+        let end = DateFormatter()
+        end.dateFormat = "HH:mm"
+        return items.map { "\($0.title) \(time.string(from: $0.interval.start))–\(end.string(from: $0.interval.end))" }
+            .joined(separator: "; ")
+    }
+
+    private static func scheduleText(_ rules: Availability) -> String {
+        let hours = { (minutes: Int) in String(format: "%d:%02d", minutes / 60, minutes % 60) }
+        return "\(hours(rules.startMinute))–\(hours(rules.endMinute)), días \(rules.weekdays.sorted().map { Calendar.current.shortWeekdaySymbols[$0 - 1] }.joined(separator: ","))"
+    }
+
+    /// Resumen de la propuesta abierta, para que el modelo no la repita.
+    private var openProposalText: String {
+        guard let index = openProposalIndex, let request = messages[index].request else { return "ninguna" }
+        let tasks = request.tasks.map { "tarea «\($0.title)» (\($0.estimatedMinutes) min, entrega \(Self.formatter.string(from: $0.deadline)))" }
+        let events = request.events.map { "evento «\($0.title)» \(Self.formatter.string(from: $0.start))\($0.recurrence == .none ? "" : " (\($0.recurrence.title))")" }
+        let all = tasks + events
+        return all.isEmpty ? "ninguna" : all.joined(separator: "; ")
     }
 
     /// Horas ocupadas por día en la próxima semana, para que el modelo pueda avisar si va justo.
