@@ -20,8 +20,17 @@ struct PlanabyApp: App {
                 .environment(inbox)
                 .preferredColorScheme(.dark)
                 .tint(Theme.orange)
-                // Vuelta desde la app de Spotify al conectar App Remote.
-                .onOpenURL { SpotifyController.shared.handleOpenURL($0) }
+                // planaby://desk (widgets, Live Activity) y vuelta desde Spotify (App Remote).
+                .onOpenURL { url in
+                    if url.scheme == "planaby" {
+                        switch url.host() {
+                        case "inbox": CommsCenter.shared.inboxRequested = true
+                        default: DeskLauncher.shared.requestDesk()
+                        }
+                    } else {
+                        SpotifyController.shared.handleOpenURL(url)
+                    }
+                }
         }
         .modelContainer(PlanabyStore.container)
         .onChange(of: scenePhase) { _, phase in
@@ -35,6 +44,8 @@ struct PlanabyApp: App {
                 Task { await SpotifyController.shared.connectRemote() }
                 // Correos nuevos por el filtro de mensajes (si hay cuenta).
                 MailInbox.shared.checkIfNeeded(context: PlanabyStore.container.mainContext)
+                // «Mientras estabas fuera»: lo nuevo y relevante que no se ha enseñado.
+                CommsCenter.shared.checkAway()
             } else if phase == .background {
                 LeaveGuard.shared.didLeave()
                 SpotifyController.shared.disconnectRemote()

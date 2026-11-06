@@ -7,7 +7,7 @@ struct FocusView: View {
     @Environment(FocusTimer.self) private var timer
     @State private var showingMethods = false
     @State private var voice: VoiceTaskFlow?
-    @State private var showsInbox = false
+    @State private var comms = CommsCenter.shared
     @State private var showsPlayer = false
     @State private var showsStartNow = false
     @State private var showsContext = false
@@ -46,9 +46,9 @@ struct FocusView: View {
         .overlay(alignment: .topTrailing) {
             if !isRunning {
                 HStack(spacing: Space.s) {
-                    let pending = unread.filter { $0.category == .urgent || $0.category == .important }.count
+                    let pending = comms.items(for: .idle, from: unread).count
                     if !unread.isEmpty {
-                        Button { showsInbox = true } label: {
+                        Button { comms.inboxRequested = true } label: {
                             Image(systemName: "tray.fill")
                                 .font(.system(size: 17, weight: .semibold))
                                 .frame(width: 44, height: 44)
@@ -68,7 +68,7 @@ struct FocusView: View {
                             }
                         }
                         .accessibilityLabel("Bandeja de mensajes")
-                        .accessibilityValue(pending == 1 ? "1 importante sin leer" : "\(pending) importantes sin leer")
+                        .accessibilityValue(pending == 1 ? "1 pendiente" : "\(pending) pendientes")
                     }
                     VoiceButton { voice = VoiceTaskFlow() }
                 }
@@ -96,9 +96,6 @@ struct FocusView: View {
             }
         }
         .voiceTaskSheet($voice)
-        .sheet(isPresented: $showsInbox) {
-            NavigationStack { InboxView() }
-        }
         .sheet(isPresented: $showsPlayer) {
             NavigationStack { NowPlayingView() }
                 .presentationDetents([.large])
@@ -141,6 +138,7 @@ private struct IdleFocusView: View {
     @Environment(ModeController.self) private var modes
     @Query(filter: #Predicate<PlanTask> { !$0.isDone }, sort: \PlanTask.deadline) private var tasks: [PlanTask]
     @Query private var events: [CalendarEvent]
+    @State private var comms = CommsCenter.shared
 
     var body: some View {
         let method = library.selected
@@ -161,8 +159,13 @@ private struct IdleFocusView: View {
 
             Spacer()
 
-            AdaptiveSuggestionCard()
-                .padding(.bottom, Space.m)
+            if let away = comms.away, !comms.phaseCardVisible {
+                AwayDigestCard(digest: away)
+                    .padding(.bottom, Space.m)
+            } else {
+                AdaptiveSuggestionCard()
+                    .padding(.bottom, Space.m)
+            }
 
             let main = MainTask.pick(from: tasks, events: events, mode: modes.mode)
             if let main {
@@ -237,6 +240,16 @@ private struct ActiveSessionView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            Group {
+                if state.phase.isBreak {
+                    BreakCommsStrip()
+                } else {
+                    WorkCommsPill()
+                }
+            }
+            .padding(.top, Space.xxl)
+            .animation(.smooth(duration: 0.3), value: state.phase.isBreak)
+
             Spacer()
 
             if let task = state.taskTitle {

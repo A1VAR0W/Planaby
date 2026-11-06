@@ -10,8 +10,17 @@ struct MessageVerdict {
         .anyOf(["urgent", "important", "later", "noise"])
     )
     var category: String
-    @Guide(description: "Qué dice o qué pide, en una frase corta en español")
+    @Guide(description: "Qué dice o qué pide, en una frase corta en español que empiece por el nombre de quien escribe si se sabe (p. ej. «Jonatan necesita que revises un documento»)")
     var summary: String
+    @Guide(description: "true si quien escribe espera una respuesta tuya (una pregunta o una petición directa); false si es informativo, automático o no pide nada")
+    var needsReply: Bool
+}
+
+/// Resultado del filtro: categoría, resumen y si espera respuesta (independiente de la categoría).
+struct TriageResult: Equatable {
+    var category: MessageCategory
+    var summary: String
+    var needsReply: Bool
 }
 
 /// Filtro de mensajes: Apple Intelligence (en el iPhone) decide si un mensaje o un correo es
@@ -54,7 +63,8 @@ enum MessageTriage {
     @discardableResult
     static func ingest(
         source: MessageSource, sender: String, subject: String = "", body: String, received: Date = .now,
-        externalID: String = "", context: ModelContext
+        externalID: String = "", app: CommApp? = nil, appName: String = "", bundleID: String = "",
+        context: ModelContext
     ) async -> MessageItem? {
         if !externalID.isEmpty {
             let id = externalID
@@ -62,22 +72,37 @@ enum MessageTriage {
             if existing > 0 { return nil }
         }
         let text = String(body.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1_500))
-        let (category, summary) = await classify(source: source, sender: sender, subject: subject, body: text)
+        let app = app ?? (source == .mail ? .mail : .messages)
+        let result = await classify(source: source, app: app, appName: appName, sender: sender, subject: subject, body: text)
         let item = MessageItem(
             received: received, source: source, sender: sender, subject: subject, body: text,
-            category: category, summary: summary, externalID: externalID
+            category: result.category, summary: result.summary, externalID: externalID
         )
+        item.appRaw = app.rawValue
+        item.appName = appName
+        item.bundleID = bundleID
+        item.needsReply = result.needsReply
         context.insert(item)
         try? context.save()
         notify(item)
+        CommsCenter.shared.refresh()
         return item
     }
 
-    static func classify(source: MessageSource, sender: String, subject: String, body: String) async -> (MessageCategory, String) {
+    static func classify(
+        source: MessageSource, app: CommApp? = nil, appName: String = "", sender: String, subject: String, body: String
+    ) async -> TriageResult {
         let rules = Self.rules
         let fallbackSummary = String((subject.isEmpty ? body : subject).prefix(120))
+        let heuristicReply = { (category: MessageCategory) in
+            CommPolicy.needsReply(sender: sender, subject: subject, body: body, category: category)
+        }
         // Lo que la persona ya decidió para este remitente manda sobre la IA.
-        if let chosen = rules.override(for: sender) { return (chosen, fallbackSummary) }
+        if let chosen = rules.override(for: sender) {
+            return TriageResult(category: chosen, summary: fallbackSummary, needsReply: heuristicReply(chosen))
+        }
+        let channel = app.map { $0 == .other && !appName.isEmpty ? appName : $0.title } ?? source.title
+        let isWork = app.map { CommsCenter.shared.settings.isWork($0) } ?? false
         if AIProvider.isAvailable {
             let session = AIProvider.session(instructions: """
                 Eres el filtro de mensajes de Planaby, una app de concentración. Decides si un mensaje merece \
@@ -86,31 +111,39 @@ enum MessageTriage {
                 """)
             let prompt = """
                 Ahora: \(Date.now.formatted(.dateTime.weekday(.wide).day().month(.wide).hour().minute()))
-                Canal: \(source.title)
+                Canal: \(channel)\(isWork ? " (trabajo)" : "")
                 Remitente prioritario: \(rules.isPriority(sender) ? "sí" : "no")
                 Mensaje:
                 \(AIProvider.wrap("De: \(sender.isEmpty ? "desconocido" : sender)\n\(subject.isEmpty ? "" : "Asunto: \(subject)\n")Texto: \(body.isEmpty ? "(vacío)" : body)", limit: 1_400))
                 """
             if let response = try? await session.respond(to: prompt, generating: MessageVerdict.self, options: GenerationOptions(temperature: 0.1)),
                let category = MessageCategory(rawValue: response.content.category) {
-                return (rules.adjust(category, sender: sender, text: "\(subject) \(body)"), response.content.summary)
+                let adjusted = rules.adjust(category, sender: sender, text: "\(subject) \(body)")
+                // Lo automático nunca espera respuesta, diga lo que diga la IA.
+                let reply = adjusted != .noise && response.content.needsReply
+                return TriageResult(category: adjusted, summary: response.content.summary, needsReply: reply)
             }
         }
-        return (rules.heuristic(fromMessages: source == .messages, sender: sender, subject: subject, body: body), fallbackSummary)
+        let category = rules.heuristic(fromMessages: source != .mail, sender: sender, subject: subject, body: body)
+        return TriageResult(category: category, summary: fallbackSummary, needsReply: heuristicReply(category))
     }
 
     // MARK: Avisos
 
     private static func notify(_ item: MessageItem) {
-        let focusing = FrictionGuard.shared.isFocusing
+        let center = CommsCenter.shared
+        let focusing = center.phase == .focus
+        // Concentrándose, lo personal se guarda para el descanso salvo las excepciones elegidas.
+        if focusing, !CommPolicy.showsDuringFocus(item.entry(rules: rules), settings: center.settings, now: .now) { return }
         let shouldNotify = switch item.category {
         case .urgent: true
-        case .important: notifyLevel >= 1 && !focusing
+        case .important: notifyLevel >= 1 && !focusing && item.source != .notification
         case .later, .noise: false
         }
+        // Lo que llega de una notificación ya lo ha avisado su app: Planaby solo repite lo urgente.
         guard shouldNotify else { return }
         let content = UNMutableNotificationContent()
-        content.title = "\(item.category.title): \(item.sender.isEmpty ? item.source.title : item.sender)"
+        content.title = "\(item.category.title): \(item.sender.isEmpty ? item.appTitle : item.sender)"
         content.body = item.summary.isEmpty ? item.subject : item.summary
         content.sound = item.category == .urgent ? .default : nil
         content.threadIdentifier = "messages"

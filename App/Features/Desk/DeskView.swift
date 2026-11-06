@@ -7,9 +7,15 @@ import SwiftUI
 /// muestra una única barra inferior (método, controles, tareas y atenuar) que se oculta sola; en pausa
 /// o sin sesión se queda visible. Mientras carga la pantalla no se apaga, y de noche todo pasa
 /// a rojo tenue, como StandBy. La lista de tareas, si se activa, queda a la derecha con checks.
+///
+/// Comparte diseño y datos con los widgets de StandBy y la Live Activity (`DeskPresentation`):
+/// tres disposiciones (concentración, descanso y sin sesión), la tarea, lo siguiente y un recuento
+/// de comunicaciones sin textos de mensajes. Es la pantalla de Planaby en horizontal; el StandBy de
+/// iOS es otra cosa y solo puede mostrar los widgets y la Live Activity.
 struct DeskView: View {
     @Environment(FocusTimer.self) private var timer
     @Environment(MethodLibrary.self) private var library
+    @State private var comms = CommsCenter.shared
     @AppStorage(Preferences.deskDimmed) private var dimmed = false
     @AppStorage(Preferences.deskNightMode) private var nightMode = true
     @AppStorage(Preferences.deskNightStart) private var nightStart = 22
@@ -40,10 +46,18 @@ struct DeskView: View {
             let tint = night ? Theme.night : (state?.phase.tint ?? Theme.orange)
             let ink = night ? Theme.night : Color.white
             let showControls = state == nil || state?.isPaused == true || context.date < controlsUntil
+            let presentation = DeskPresentation(
+                state: state, comms: comms.revision >= 0 ? CommsSnapshot.load() : .empty,
+                agenda: AgendaSnapshot.load().items, now: context.date
+            )
 
             ZStack {
                 Color.black.ignoresSafeArea()
-                BreathingGlow(tint: tint, strength: night || dimmed ? 0.08 : (state?.phase.isBreak == true ? 0.28 : 0.16))
+                // Pantalla OLED encendida mucho rato: el halo solo respira en los descansos y nunca de noche.
+                BreathingGlow(
+                    tint: tint, strength: night || dimmed ? 0.08 : (state?.phase.isBreak == true ? 0.28 : 0.16),
+                    animated: state?.phase.isBreak == true && !night && !dimmed
+                )
 
                 VStack(spacing: 0) {
                     HStack(spacing: Space.l) {
@@ -55,6 +69,8 @@ struct DeskView: View {
                             VStack(spacing: 0) {
                                 Spacer(minLength: 0)
                                 face(state: state, date: context.date, tint: tint, ink: ink)
+                                details(presentation, date: context.date, tint: tint, ink: ink)
+                                    .padding(.top, Space.s)
                                 Spacer(minLength: 0)
                             }
                             .frame(maxWidth: .infinity)
@@ -152,13 +168,62 @@ struct DeskView: View {
 
     // MARK: - Partes
 
+    /// Debajo de la cifra: la tarea y lo siguiente, y el recuento de comunicaciones (sin textos).
+    private func details(_ presentation: DeskPresentation, date: Date, tint: Color, ink: Color) -> some View {
+        VStack(spacing: Space.xs) {
+            switch presentation.layout {
+            case .focus, .rest:
+                if let task = presentation.taskTitle {
+                    Text(task)
+                        .font(.headline)
+                        .foregroundStyle(ink.opacity(0.85))
+                }
+                // Una sola línea: la fase que viene y lo siguiente del plan.
+                let next = [presentation.nextPhaseText, presentation.nextItemTitle.map { "Luego: \($0)" }]
+                    .compactMap { $0 }.joined(separator: " · ")
+                if !next.isEmpty {
+                    Text(next)
+                        .font(.footnote)
+                        .foregroundStyle(ink.opacity(0.55))
+                }
+            case .idle:
+                if let title = presentation.nextItemTitle, let start = presentation.nextItemStart {
+                    Text(start > date ? "\(start.formatted(date: .omitted, time: .shortened)) · \(title)" : "Ahora · \(title)")
+                        .font(.headline)
+                        .foregroundStyle(ink.opacity(0.8))
+                }
+            }
+            if let text = presentation.commsText {
+                Button { comms.inboxRequested = true } label: {
+                    HStack(spacing: Space.s) {
+                        Circle()
+                            .fill(tint)
+                            .frame(width: 7, height: 7)
+                            .accessibilityHidden(true)
+                        Text(text)
+                            .font(.footnote.weight(.medium))
+                            .foregroundStyle(ink.opacity(0.75))
+                    }
+                    .frame(minHeight: 36)
+                    .padding(.horizontal, Space.s)
+                    .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Abre la bandeja")
+            }
+        }
+        .lineLimit(1)
+        .minimumScaleFactor(0.8)
+        .multilineTextAlignment(.center)
+    }
+
     /// La cifra, con la fase encima y la hora debajo.
     private func face(state: TimerState?, date: Date, tint: Color, ink: Color) -> some View {
         VStack(spacing: Space.xs) {
             if let state {
                 Eyebrow(text: state.isPaused ? "En pausa" : state.phase.title, color: tint)
                 Text(state.clockText(at: date))
-                    .font(Theme.clock(136))
+                    .font(Theme.clock(120))
                     .foregroundStyle(ink.opacity(state.isPaused ? 0.55 : 1))
                     .contentTransition(.numericText(countsDown: true))
                 if state.phase.isBreak && !state.isPaused {
@@ -170,7 +235,7 @@ struct DeskView: View {
                 }
             } else {
                 Text(date, format: .dateTime.hour().minute())
-                    .font(Theme.clock(136))
+                    .font(Theme.clock(120))
                     .foregroundStyle(ink)
                 Text(date.formatted(.dateTime.weekday(.wide).day().month(.wide)))
                     .font(.title3)

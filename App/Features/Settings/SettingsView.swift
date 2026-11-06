@@ -206,6 +206,11 @@ struct SettingsView: View {
 
     private var deskSection: some View {
         Section {
+            NavigationLink {
+                StandBySetupView()
+            } label: {
+                Label("Configurar StandBy", systemImage: "platter.filled.bottom.iphone")
+            }
             Toggle(isOn: $keepAwake) {
                 Label("Pantalla encendida al cargar", systemImage: "bolt.fill")
             }
@@ -229,7 +234,7 @@ struct SettingsView: View {
         } header: {
             Text("Modo escritorio")
         } footer: {
-            Text("Gira el iPhone en horizontal en la pestaña Enfoque. Con el iPhone cargando, la pantalla no se apaga.")
+            Text("Gira el iPhone en horizontal en la pestaña Enfoque. Con el iPhone cargando, la pantalla no se apaga. «Configurar StandBy» explica cómo abrirlo solo al cargar con la Concentración Trabajo.")
         }
     }
 

@@ -17,6 +17,9 @@ struct RootView: View {
     @State private var transition: FocusTimer.AutomaticTransition?
     @State private var showsStuck = false
     @State private var pendingStuck = false
+    @State private var pendingInbox = false
+    @State private var comms = CommsCenter.shared
+    @State private var desk = DeskLauncher.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// En horizontal, desde Enfoque, el iPhone pasa a modo escritorio a pantalla completa.
@@ -67,16 +70,26 @@ struct RootView: View {
         // Vuelta tras salir de Planaby en mitad de un bloque: «Bienvenido de nuevo».
         .sheet(item: $leaveGuard.returned, onDismiss: {
             tab = .focus
-            // «Me he atascado» se abre cuando ya se ha cerrado esta hoja.
+            // «Me he atascado» o la bandeja se abren cuando ya se ha cerrado esta hoja (nunca dos a la vez).
             if pendingStuck {
                 pendingStuck = false
                 showsStuck = true
+            } else if pendingInbox {
+                pendingInbox = false
+                comms.inboxRequested = true
             }
         }) { info in
-            RecoveryView(info: info) { pendingStuck = true }
+            RecoveryView(info: info, onStuck: { pendingStuck = true }, onInbox: { pendingInbox = true })
         }
         .sheet(isPresented: $showsStuck) {
             NavigationStack { StuckSheet() }
+        }
+        // Bandeja de comunicaciones: desde la píldora, la tarjeta de fase, el escritorio o un widget.
+        .sheet(isPresented: Binding(
+            get: { comms.inboxRequested && leaveGuard.returned == nil && !showsStuck && friction.request == nil },
+            set: { comms.inboxRequested = $0 }
+        )) {
+            NavigationStack { InboxView() }
         }
         .sensoryFeedback(.warning, trigger: leaveGuard.returned?.id)
         // Cambio de fase con la app delante: tarjeta, sonido y vibración según «Avisos de concentración».
@@ -90,6 +103,10 @@ struct RootView: View {
                 .zIndex(1)
             }
         }
+        // Las tarjetas de comunicaciones esperan mientras se ve la de cambio de fase.
+        .onChange(of: transition == nil) { _, hidden in comms.phaseCardVisible = !hidden }
+        // «Abrir escritorio si toca», el widget o la Live Activity: a Enfoque (en horizontal, el escritorio).
+        .onChange(of: desk.deskRequested) { tab = .focus }
         .onChange(of: timer.lastTransition) { _, new in
             guard let new, scenePhase == .active else { return }
             let intoBreak = new.next.isBreak

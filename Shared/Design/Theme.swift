@@ -96,11 +96,13 @@ enum Breath {
 struct BreathingGlow: View {
     let tint: Color
     var strength: Double = 0.22
+    /// false: halo quieto (pantallas que pasan mucho rato encendidas).
+    var animated = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Group {
-            if reduceMotion {
+            if reduceMotion || !animated {
                 gradient(level: 0.5)
             } else {
                 TimelineView(.animation(minimumInterval: 1 / 30)) { context in

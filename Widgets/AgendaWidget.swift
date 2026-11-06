@@ -51,6 +51,7 @@ struct AgendaWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "AgendaWidget", provider: AgendaProvider()) { entry in
             AgendaWidgetView(entry: entry)
+                .widgetURL(PlanabyLinks.desk)
                 .containerBackground(for: .widget) {
                     ZStack {
                         Color.black

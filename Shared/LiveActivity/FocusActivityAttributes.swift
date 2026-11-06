@@ -9,14 +9,23 @@ struct FocusActivityAttributes: ActivityAttributes {
         var phaseEnd: Date?
         var pausedAt: Date?
         var nextPhase: PhaseKind
+        // Opcionales: lo mismo que el modo escritorio (DeskPresentation), sin textos de mensajes.
+        var taskTitle: String?
+        /// «2 comunicaciones laborales importantes» o «Mientras trabajabas: 3 pendientes».
+        var commsText: String?
+        var commsCount: Int?
 
-        init(_ state: TimerState) {
+        init(_ state: TimerState, comms: CommsSnapshot = .load()) {
             phase = state.phase
             methodName = state.method.name
             phaseStart = state.phaseStart
             phaseEnd = state.phaseEnd
             pausedAt = state.pausedAt
             nextPhase = state.nextPhase
+            let presentation = DeskPresentation(state: state, comms: comms, agenda: [], now: .now)
+            taskTitle = state.taskTitle
+            commsText = presentation.commsText
+            commsCount = presentation.commsCount
         }
 
         /// Intervalo de la fase para los contadores del sistema; nil si es abierta.

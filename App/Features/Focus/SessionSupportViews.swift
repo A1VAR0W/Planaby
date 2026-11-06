@@ -177,8 +177,11 @@ struct StuckSheet: View {
 struct RecoveryView: View {
     let info: LeaveGuard.Return
     let onStuck: () -> Void
+    var onInbox: () -> Void = {}
     @Environment(\.dismiss) private var dismiss
     @Environment(FocusTimer.self) private var timer
+    /// Lo que llegó mientras estabas fuera va en esta hoja (y no en otra tarjeta a la vez).
+    @State private var digest: CommsCenter.AwayDigest?
 
     /// Más de diez minutos fuera: volver con un bloque corto cuesta menos.
     private var isLong: Bool { info.seconds >= 600 }
@@ -220,6 +223,13 @@ struct RecoveryView: View {
                 .card()
             }
 
+            if let digest {
+                AwayDigestCard(digest: digest, showsClose: false) {
+                    onInbox()
+                    dismiss()
+                }
+            }
+
             VStack(spacing: Space.s) {
                 Button {
                     if isLong { timer.refocus(minutes: 10) }
@@ -252,8 +262,9 @@ struct RecoveryView: View {
             }
         }
         .padding(Space.l)
-        .presentationDetents([.medium])
+        .presentationDetents(digest == nil ? [.medium] : [.medium, .large])
         .presentationDragIndicator(.visible)
+        .onAppear { if digest == nil { digest = CommsCenter.shared.takeAway() } }
     }
 
     private var summary: String {

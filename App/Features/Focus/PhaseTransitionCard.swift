@@ -1,3 +1,4 @@
+import SwiftData
 import SwiftUI
 
 /// Aviso de cambio de fase con Planaby delante: sustituye a la notificación (que no se enseña
@@ -9,6 +10,7 @@ struct PhaseTransitionCard: View {
 
     @Environment(FocusTimer.self) private var timer
     @Environment(MethodLibrary.self) private var library
+    @Query(sort: \MessageItem.received, order: .reverse) private var messages: [MessageItem]
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.m) {
@@ -28,6 +30,7 @@ struct PhaseTransitionCard: View {
                 }
                 Spacer(minLength: 0)
             }
+            commsSummary
             actions
         }
         .padding(Space.m)
@@ -85,6 +88,45 @@ struct PhaseTransitionCard: View {
             text += " Con «\(task)»."
         }
         return text
+    }
+
+    // MARK: - Comunicaciones
+
+    /// Al empezar el descanso: lo que se guardó mientras te concentrabas, dentro de esta misma
+    /// tarjeta (sin otra tarjeta ni hoja encima).
+    @ViewBuilder
+    private var commsSummary: some View {
+        if intoBreak, !transition.endedStarter {
+            let comms = CommsCenter.shared
+            let pending = comms.items(for: .rest, from: messages)
+            if !pending.isEmpty {
+                Button {
+                    onClose()
+                    comms.inboxRequested = true
+                } label: {
+                    HStack(spacing: Space.s) {
+                        GlowDot()
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(pending.count == 1 ? "Mientras te concentrabas: 1 pendiente" : "Mientras te concentrabas: \(pending.count) pendientes")
+                                .font(.subheadline.weight(.semibold))
+                            Text(comms.breakdown(pending).map { "\($0.app) \($0.count)" }.joined(separator: " · "))
+                                .font(.caption)
+                                .foregroundStyle(Theme.secondaryText)
+                                .lineLimit(1)
+                        }
+                        Spacer(minLength: 0)
+                        Text("Ver")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Theme.orange)
+                    }
+                    .padding(Space.s)
+                    .background(Color.white.opacity(0.06), in: .rect(cornerRadius: 16))
+                    .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Abre la bandeja")
+            }
+        }
     }
 
     // MARK: - Acciones

@@ -23,7 +23,7 @@ struct SenderRulesView: View {
             } header: {
                 Text("Siempre importantes")
             } footer: {
-                Text("Sus mensajes nunca se quedan en «Puede esperar» ni en «Ruido». Si escriben «urgente», sí se tratan como urgentes.")
+                Text("Sus mensajes nunca se quedan en «Puede esperar» ni en «Irrelevante». Si escriben «urgente», sí se tratan como urgentes.")
             }
 
             Section {

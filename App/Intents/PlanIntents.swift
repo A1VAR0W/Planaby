@@ -25,14 +25,23 @@ struct SetPlanModeIntent: AppIntent {
 
 /// Filtro de Concentración: al activar una Concentración del iPhone, Planaby cambia de modo.
 /// Al desactivarla, iOS vuelve a ejecutarlo sin modo y Planaby regresa a Normal.
+/// Además apunta que la Concentración está activa (para «Abrir escritorio si toca» y para guardar
+/// lo personal hasta el descanso). Es independiente del plan Trabajo elegido a mano en Planaby.
+/// Al desactivarse no abre ni cierra Planaby: solo actualiza su estado.
 struct PlanModeFocusFilter: SetFocusFilterIntent {
     static let title: LocalizedStringResource = "Modo de Planaby"
 
     @Parameter(title: "Modo")
     var mode: PlanMode?
 
+    @Parameter(title: "Abrir escritorio al cargar en horizontal", default: true)
+    var opensDesk: Bool
+
     var displayRepresentation: DisplayRepresentation {
-        DisplayRepresentation(title: "Planaby: modo \(mode?.title ?? "Normal")")
+        DisplayRepresentation(
+            title: "Planaby: modo \(mode?.title ?? "Normal")",
+            subtitle: mode != nil && opensDesk ? "Abre el escritorio al cargar en horizontal" : nil
+        )
     }
 
     @MainActor
@@ -40,9 +49,17 @@ struct PlanModeFocusFilter: SetFocusFilterIntent {
         let controller = ModeController.shared
         if let mode {
             controller.set(mode, source: .focus)
-        } else if controller.source == .focus {
-            controller.set(.personal, source: .manual)
+            SystemFocusState.set(active: true, opensDesk: opensDesk)
+            IntentLog.record(.focusFilter, result: "Concentración activada (modo \(mode.title))")
+        } else {
+            if controller.source == .focus {
+                controller.set(.personal, source: .manual)
+            }
+            SystemFocusState.set(active: false, opensDesk: false)
+            IntentLog.record(.focusFilter, result: "Concentración desactivada")
         }
+        // Lo personal vuelve a las reglas normales (o se guarda, si se acaba de activar).
+        CommsCenter.shared.refresh()
         return .result()
     }
 }

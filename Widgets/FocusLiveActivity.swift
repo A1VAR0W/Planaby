@@ -7,6 +7,8 @@ struct FocusLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: FocusActivityAttributes.self) { context in
             LockScreenActivityView(state: context.state, isStale: context.isStale)
+                // Al tocarla se vuelve a Planaby (a Enfoque; en horizontal, el modo escritorio).
+                .widgetURL(PlanabyLinks.desk)
                 .activityBackgroundTint(.black.opacity(0.88))
                 .activitySystemActionForegroundColor(Theme.orange)
         } dynamicIsland: { context in
@@ -52,6 +54,7 @@ struct FocusLiveActivity: Widget {
                     .frame(width: 20, height: 20)
             }
             .keylineTint(state.phase.tint)
+            .widgetURL(PlanabyLinks.desk)
         }
     }
 }
@@ -68,11 +71,25 @@ private struct LockScreenActivityView: View {
                 PhaseLabels(state: state, isStale: isStale, alignment: .leading)
                 Spacer(minLength: 8)
                 ActivityClock(state: state, isStale: isStale)
-                    .font(Theme.clock(44))
+                    .font(.system(size: 52, weight: .light, design: .rounded).monospacedDigit())
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
                     .layoutPriority(1)
+            }
+            // Solo el recuento: en la pantalla bloqueada nunca se enseña el texto de un mensaje.
+            if let comms = state.commsText, !isStale {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(state.phase.tint)
+                        .frame(width: 6, height: 6)
+                    Text(comms)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.white.opacity(0.75))
+                    Spacer(minLength: 0)
+                }
+                .lineLimit(1)
+                .accessibilityElement(children: .combine)
             }
             ActivityControls(state: state, isStale: isStale, style: .pills)
         }
@@ -88,7 +105,7 @@ private struct PhaseLabels: View {
     var body: some View {
         VStack(alignment: alignment, spacing: 2) {
             Eyebrow(text: isStale ? "Completado" : (state.pausedAt == nil ? state.phase.title : "En pausa"), color: state.phase.tint)
-            Text(isStale ? "Ahora: \(state.nextPhase.title)" : state.methodName)
+            Text(isStale ? "Ahora: \(state.nextPhase.title)" : (state.taskTitle ?? state.methodName))
                 .font(.caption)
                 .foregroundStyle(Theme.secondaryText)
         }

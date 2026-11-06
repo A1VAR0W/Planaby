@@ -6,6 +6,19 @@ struct TimerEntry: TimelineEntry {
     let date: Date
     let state: TimerState?
     let method: FocusMethod
+    /// Recuento sin textos (nunca cuerpos de mensaje: el widget se ve con el iPhone bloqueado).
+    var comms: CommsSnapshot = .empty
+    var agenda: [AgendaItem] = []
+
+    /// Lo mismo que enseña el modo escritorio de la app.
+    var presentation: DeskPresentation {
+        DeskPresentation(state: state, comms: comms, agenda: agenda, now: date)
+    }
+}
+
+/// Al tocar un widget o la Live Activity se vuelve a Planaby, a Enfoque (en horizontal, el escritorio).
+enum PlanabyLinks {
+    static let desk = URL(string: "planaby://desk")
 }
 
 /// El widget calcula de antemano las próximas fases, así cambia de fase solo aunque la app esté cerrada.
@@ -26,15 +39,18 @@ struct TimerProvider: TimelineProvider {
     private func entries() -> [TimerEntry] {
         let now = Date.now
         let method = MethodLibrary.storedSelection()
+        let comms = CommsSnapshot.load()
+        let agenda = AgendaSnapshot.load().items
         guard var state = TimerState.loadShared() else {
-            return [TimerEntry(date: now, state: nil, method: method)]
+            return [TimerEntry(date: now, state: nil, method: method, comms: comms, agenda: agenda)]
         }
         state.catchUp(to: now)
-        var entries = [TimerEntry(date: now, state: state, method: method)]
+        var entries = [TimerEntry(date: now, state: state, method: method, comms: comms, agenda: agenda)]
+        // Solo las transiciones de fase: nada se redibuja cada segundo (los contadores son del sistema).
         for transition in state.upcomingTransitions(limit: 8) {
             var next = state
             next.catchUp(to: transition.date)
-            entries.append(TimerEntry(date: transition.date, state: next, method: method))
+            entries.append(TimerEntry(date: transition.date, state: next, method: method, comms: comms, agenda: agenda))
         }
         return entries
     }
@@ -44,6 +60,7 @@ struct FocusWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "FocusWidget", provider: TimerProvider()) { entry in
             FocusWidgetView(entry: entry)
+                .widgetURL(PlanabyLinks.desk)
                 .containerBackground(for: .widget) {
                     ZStack {
                         Color.black
@@ -55,7 +72,7 @@ struct FocusWidget: Widget {
                 }
         }
         .configurationDisplayName("Concentración")
-        .description("Temporizador de Planaby en inicio, pantalla bloqueada y StandBy.")
+        .description("Temporizador de Planaby en inicio, pantalla bloqueada y StandBy, con la tarea y las comunicaciones pendientes (sin el texto de los mensajes).")
         .supportedFamilies([.systemSmall, .systemMedium, .accessoryCircular, .accessoryRectangular])
     }
 }
@@ -83,6 +100,71 @@ struct FocusWidgetView: View {
 
     @ViewBuilder
     private var system: some View {
+        if showsBackground {
+            home
+        } else {
+            standBy
+        }
+    }
+
+    // MARK: - StandBy
+
+    /// StandBy: cifra muy grande, el estado y una línea de contexto. Sin botones ni animaciones; de
+    /// noche iOS lo tiñe de rojo. El recuento de comunicaciones no lleva textos de mensajes.
+    private var standBy: some View {
+        let presentation = entry.presentation
+        let tint = presentation.phase?.tint ?? Theme.orange
+        return VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Image(systemName: presentation.phase?.symbol ?? "timer")
+                    .font(.caption.weight(.bold))
+                Text(presentation.stateTitle.uppercased())
+                    .font(.caption.weight(.bold))
+                    .tracking(1.6)
+            }
+            .foregroundStyle(tint)
+            .widgetAccentable()
+            Spacer(minLength: 0)
+            if let state = entry.state {
+                WidgetClock(state: state, date: entry.date)
+                    .font(.system(size: 76, weight: .light, design: .rounded).monospacedDigit())
+                    .foregroundStyle(.white.opacity(state.isPaused ? 0.6 : 1))
+                    .minimumScaleFactor(0.4)
+                    .lineLimit(1)
+            } else {
+                Text(entry.method.focusMinutes.map { TimerState.format(TimeInterval($0 * 60)) } ?? "0:00")
+                    .font(.system(size: 76, weight: .light, design: .rounded).monospacedDigit())
+                    .foregroundStyle(.white.opacity(0.8))
+                    .minimumScaleFactor(0.4)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            Group {
+                if let comms = presentation.commsText {
+                    Label(comms, systemImage: "circle.fill")
+                        .labelStyle(StandByDotLabel(tint: tint))
+                } else if let task = presentation.taskTitle {
+                    Text(task)
+                } else if presentation.layout == .idle, let next = presentation.nextItemTitle, let start = presentation.nextItemStart {
+                    Text("\(start.formatted(date: .omitted, time: .shortened)) · \(next)")
+                } else if let next = presentation.nextPhaseText {
+                    Text(next)
+                } else {
+                    Text(entry.method.name)
+                }
+            }
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(.white.opacity(0.75))
+            .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+
+    // MARK: - Inicio
+
+    @ViewBuilder
+    private var home: some View {
         VStack(alignment: .leading, spacing: 4) {
             if let state = entry.state {
                 Eyebrow(text: state.isPaused ? "En pausa" : state.phase.title, color: state.phase.tint)
@@ -175,7 +257,8 @@ struct FocusWidgetView: View {
                     .font(.caption.weight(.semibold))
                 WidgetClock(state: state, date: entry.date)
                     .font(.title.weight(.light).monospacedDigit())
-                Text(state.method.name)
+                let count = entry.presentation.commsCount
+                Text(count > 0 ? "\(state.method.name) · \(state.phase.isBreak ? "\(count) pendientes" : "\(count) de trabajo")" : state.method.name)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -203,6 +286,22 @@ private struct WidgetClock: View {
             Text(timerInterval: state.phaseStart...end, countsDown: true)
         } else {
             Text(state.phaseStart, style: .timer)
+        }
+    }
+}
+
+
+/// Punto pequeño delante del recuento, en el color de la fase.
+private struct StandByDotLabel: LabelStyle {
+    let tint: Color
+
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(tint)
+                .frame(width: 7, height: 7)
+                .widgetAccentable()
+            configuration.title
         }
     }
 }

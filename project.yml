@@ -43,10 +43,14 @@ targets:
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
         # Vuelta desde Spotify (App Remote) y consultar si está instalada.
+        # planaby://desk y planaby://inbox: widgets y Live Activity vuelven a Planaby.
         CFBundleURLTypes:
           - CFBundleURLName: com.alvaro.planaby.spotify
             CFBundleURLSchemes:
               - planaby-spotify
+          - CFBundleURLName: com.alvaro.planaby
+            CFBundleURLSchemes:
+              - planaby
         LSApplicationQueriesSchemes:
           - spotify
         NSMicrophoneUsageDescription: Planaby usa el micrófono para que añadas tareas y citas dictándolas.
@@ -110,6 +114,12 @@ targets:
       - Shared/Engine/AttentionEngine.swift
       - Shared/Engine/TriageRules.swift
       - Shared/Models/MessageItem.swift
+      - Shared/Engine/CommApps.swift
+      - Shared/Engine/CommPolicy.swift
+      - Shared/Engine/DeskLaunch.swift
+      - Shared/Engine/DeskPresentation.swift
+      - Shared/Planning/AgendaSnapshot.swift
+      - Shared/Models/PlanModels.swift
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES

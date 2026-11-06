@@ -26,8 +26,42 @@ struct MessageSettingsView: View {
                 } label: {
                     Label("Remitentes prioritarios", systemImage: "person.crop.circle.badge.checkmark")
                 }
+                NavigationLink {
+                    CommAppsSettingsView()
+                } label: {
+                    Label("Apps de trabajo y excepciones", systemImage: "briefcase")
+                }
             } footer: {
-                Text("Lo importante no te avisa mientras te concentras: al terminar la sesión recibes un resumen. Lo que puede esperar y el ruido nunca avisan. Para que Mensajes y Correo no te interrumpan, en Ajustes de iOS › Concentración › (p. ej. Trabajo) silencia esas apps y permite Planaby.")
+                Text("Concentrándote solo ves lo importante de tus apps de trabajo; lo personal espera al descanso. Lo que puede esperar y lo irrelevante nunca avisan. Para que las apps no te interrumpan, en Ajustes de iOS › Concentración › (p. ej. Trabajo) silencia esas apps y permite Planaby.")
+            }
+
+            Section {
+                DisclosureGroup {
+                    VStack(alignment: .leading, spacing: Space.s) {
+                        Step(number: 1, text: "Atajos › Automatización › Nueva › Notificación. Elige la app (WhatsApp, Teams, Outlook, Gmail, Instagram…) y «Ejecutar inmediatamente». Crea una automatización por app.")
+                        Step(number: 2, text: "Añade «Filtrar notificación» de Planaby. En App escribe su nombre; en Título, Subtítulo, Texto y Fecha elige los datos de la notificación que ofrezca Atajos.")
+                        Step(number: 3, text: "Si una app no rellena algún dato, déjalo vacío: Planaby clasifica con lo que llegue.")
+                    }
+                    .padding(.vertical, Space.xs)
+                    if let last = IntentLog.last(.filter) {
+                        LabeledContent("Última ejecución") {
+                            Text("\(last.date.formatted(.relative(presentation: .named))) · \(last.result)")
+                                .multilineTextAlignment(.trailing)
+                        }
+                        .font(.footnote)
+                    } else {
+                        Text("Aún no se ha ejecutado ninguna vez.")
+                            .font(.footnote)
+                            .foregroundStyle(Theme.secondaryText)
+                    }
+                    Button("Abrir Atajos") {
+                        if let url = URL(string: "shortcuts://") { openURL(url) }
+                    }
+                } label: {
+                    Label("Notificaciones de otras apps (iOS 27)", systemImage: "bell.badge")
+                }
+            } footer: {
+                Text("Requiere iOS 27 con el disparador «Notificación» en Atajos. No todas las notificaciones llegan ni traen el mensaje completo (depende de cada app y de la vista previa), y Planaby no puede abrir un mensaje concreto: solo la app.")
             }
 
             Section {

@@ -138,6 +138,13 @@ final class FocusTimer {
         commit(current)
     }
 
+    /// Vuelve a pintar widgets y Live Activity sin tocar el estado (p. ej. al llegar una
+    /// comunicación). La Live Activity solo se actualiza si hay sesión.
+    func refreshSurfaces() {
+        if state != nil { liveActivity.sync(with: state) }
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+
     private func mutate(_ change: (inout TimerState) -> Void) {
         guard var updated = state else { return }
         change(&updated)
