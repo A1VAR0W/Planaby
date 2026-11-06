@@ -85,10 +85,12 @@ struct WorkloadPlanner {
 
     private enum Preference { case peak, valley, earliest }
 
-    func plan(_ items: [WorkItem], busy: [DateInterval], from now: Date) -> PlanResult {
+    /// `used`: minutos ya ocupados por día y grupo (bloques que se quedan donde estaban), con la
+    /// clave de `capKey(group:day:)`, para no pasar del tope diario al recolocar solo una parte.
+    func plan(_ items: [WorkItem], busy: [DateInterval], from now: Date, used: [String: Int] = [:]) -> PlanResult {
         var result = PlanResult()
         var occupied = busy
-        var usedPerDay: [String: Int] = [:]
+        var usedPerDay = used
         let earliest = roundUp(now)
 
         let ordered = items.sorted { a, b in
@@ -113,7 +115,7 @@ struct WorkloadPlanner {
                     let weekday = calendar.component(.weekday, from: day)
                     guard rules.weekdays.contains(weekday) else { continue }
                     let hours = rules.hours(onWeekday: weekday)
-                    let capKey = "\(item.capGroup)|\(day.timeIntervalSinceReferenceDate)"
+                    let capKey = Self.capKey(group: item.capGroup, day: day)
                     let capLeft = rules.dailyCapMinutes - usedPerDay[capKey, default: 0]
                     let wanted = spread
                         ? max(Int((Double(remaining) / Double(days.count - index)).rounded(.up)), min(remaining, rules.minBlockMinutes))
@@ -217,6 +219,11 @@ struct WorkloadPlanner {
         let step = TimeInterval(granularity * 60)
         let value = date.timeIntervalSinceReferenceDate
         return Date(timeIntervalSinceReferenceDate: (value / step).rounded(.up) * step)
+    }
+
+    /// Clave del tope diario: grupo (el modo) y comienzo del día.
+    static func capKey(group: String, day: Date) -> String {
+        "\(group)|\(day.timeIntervalSinceReferenceDate)"
     }
 
     /// Partes de `interval` que no tocan ningún intervalo de `blocked`.

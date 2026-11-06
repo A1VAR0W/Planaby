@@ -3,15 +3,6 @@ import PDFKit
 import UniformTypeIdentifiers
 import Vision
 
-/// Adjunto recién importado, todavía sin guardar en la base de datos.
-struct ImportedAttachment: Identifiable, Sendable {
-    let id = UUID()
-    let name: String
-    let kind: AttachmentKind
-    let fileName: String
-    let text: String
-}
-
 /// Copia capturas y archivos a la carpeta de la app y saca su texto: OCR (Vision) para
 /// imágenes, PDFKit para PDF y lectura directa para texto. Todo en el dispositivo.
 enum AttachmentStore {

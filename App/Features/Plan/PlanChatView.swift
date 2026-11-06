@@ -1,15 +1,16 @@
 import SwiftData
 import SwiftUI
 
-/// Chat de planificación con Apple Intelligence. Cada respuesta con algo que añadir trae una
-/// propuesta que hay que revisar y aceptar; el chat nunca guarda nada por su cuenta.
+/// Chat de planificación con Apple Intelligence. Hay una sola propuesta activa: cada mensaje la
+/// modifica (sin duplicar ni empezar de cero) y nada se guarda hasta «Aceptar propuesta».
 struct PlanChatView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
     @Environment(PlanInbox.self) private var inbox
     @State private var assistant = PlanningAssistant()
     @State private var input = ""
-    @State private var reviewing: PlanningAssistant.Message.ID?
+    @State private var reviewing = false
+    @State private var modifying = false
     @State private var confirmingClear = false
     @State private var attachments: [ImportedAttachment] = []
     @State private var showsPhotos = false
@@ -55,13 +56,19 @@ struct PlanChatView: View {
         } message: {
             Text("Lo que ya está en tu plan no cambia.")
         }
-        .navigationDestination(item: $reviewing) { id in
-            ProposalReviewView(draft: draftBinding(for: id)) {
-                assistant.markAccepted(id)
-                reviewing = nil
-            }
+        .navigationDestination(isPresented: $reviewing) {
+            ProposalReviewView(draft: draftBinding, onAccepted: {
+                assistant.markAccepted()
+                reviewing = false
+            }, onAskAI: {
+                reviewing = false
+                startModifying()
+            })
+            .onAppear { assistant.beginManualEdits() }
+            .onDisappear { assistant.endManualEdits() }
         }
         .task {
+            assistant.restore(context: context)
             if let pending = inbox.pending {
                 inbox.pending = nil
                 await assistant.send(pending, context: context)
@@ -77,11 +84,16 @@ struct PlanChatView: View {
                         intro
                     }
                     ForEach(assistant.messages) { message in
-                        MessageBubble(message: message) {
-                            reviewing = message.id
-                        } onChooseMode: { mode in
-                            assistant.chooseMode(mode, for: message.id, context: context)
-                        }
+                        MessageBubble(
+                            message: message, assistant: assistant,
+                            onReview: { reviewing = true },
+                            onModify: startModifying,
+                            onAccept: { assistant.acceptActive(context: context) },
+                            onUndo: { assistant.undo(context: context) },
+                            onRedo: { assistant.redo(context: context) },
+                            onChooseMode: { mode in assistant.chooseMode(mode, for: message.id, context: context) },
+                            onChoose: { option in assistant.choose(option, context: context) }
+                        )
                         .id(message.id)
                     }
                     if assistant.isThinking {
@@ -142,6 +154,15 @@ struct PlanChatView: View {
         let hasContent = !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty
         let canSend = hasContent && !assistant.isThinking && importing == 0
         return VStack(alignment: .leading, spacing: Space.s) {
+            if let draft = assistant.draft, modifying || inputFocused, !assistant.isThinking {
+                ProposalChips(draft: draft, canUndo: assistant.canUndo) { starter in
+                    input = starter
+                    inputFocused = true
+                } onUndo: {
+                    assistant.undo(context: context)
+                }
+                .padding(.horizontal, -Space.m)
+            }
             if !attachments.isEmpty || importing > 0 {
                 ScrollView(.horizontal) {
                     HStack(spacing: Space.s) {
@@ -171,7 +192,7 @@ struct PlanChatView: View {
                 .buttonBorderShape(.circle)
                 .accessibilityLabel("Adjuntar")
                 .attachmentImporters(photos: $showsPhotos, files: $showsFiles, importing: $importing) { attachments.append($0) }
-                TextField("Escribe qué quieres planificar", text: $input, axis: .vertical)
+                TextField(assistant.draft == nil ? "Escribe qué quieres planificar" : "¿Qué quieres cambiar?", text: $input, axis: .vertical)
                     .lineLimit(1...4)
                     .focused($inputFocused)
                     .padding(.horizontal, Space.m)
@@ -201,27 +222,39 @@ struct PlanChatView: View {
         let files = attachments
         input = ""
         attachments = []
+        modifying = false
         Task { await assistant.send(text, attachments: files, context: context) }
     }
 
-    private func draftBinding(for id: PlanningAssistant.Message.ID) -> Binding<PlanDraft> {
+    /// «Modificar con IA»: la propuesta se queda y el cursor va al campo.
+    private func startModifying() {
+        modifying = true
+        inputFocused = true
+    }
+
+    /// La revisión edita siempre la última versión de la propuesta activa.
+    private var draftBinding: Binding<PlanDraft> {
         Binding(
-            get: {
-                assistant.messages.first { $0.id == id }?.draft
-                    ?? PlanDraft(items: [], tasks: [], summary: "", warnings: [])
-            },
-            set: { assistant.updateDraft($0, in: id) }
+            get: { assistant.draft ?? PlanDraft(items: [], tasks: [], summary: "", warnings: []) },
+            set: { assistant.updateManually($0) }
         )
     }
 }
 
 private struct MessageBubble: View {
     let message: PlanningAssistant.Message
+    let assistant: PlanningAssistant
     let onReview: () -> Void
+    let onModify: () -> Void
+    let onAccept: () -> Void
+    let onUndo: () -> Void
+    let onRedo: () -> Void
     let onChooseMode: (PlanMode) -> Void
+    let onChoose: (ProposalOption) -> Void
 
     var body: some View {
         let isUser = message.role == .user
+        let isActive = assistant.isActive(message)
         VStack(alignment: isUser ? .trailing : .leading, spacing: Space.s) {
             if !message.attachmentNames.isEmpty {
                 Label(message.attachmentNames.joined(separator: ", "), systemImage: "paperclip")
@@ -237,30 +270,30 @@ private struct MessageBubble: View {
                 .background(isUser ? Theme.orange : Theme.surface, in: .rect(cornerRadius: 20))
                 .textSelection(.enabled)
 
+            if !message.changes.isEmpty {
+                ProposalChangeList(changes: message.changes, dimmed: !isActive)
+                    .padding(.horizontal, Space.s)
+            }
+
             if message.pending != nil {
                 ModeChoice(onChoose: onChooseMode)
             }
 
-            if let draft = message.draft {
-                VStack(alignment: .leading, spacing: Space.s) {
-                    if !draft.warnings.isEmpty {
-                        Label(draft.warnings.count == 1 ? "1 aviso" : "\(draft.warnings.count) avisos", systemImage: "exclamationmark.triangle.fill")
-                            .font(.footnote)
-                            .foregroundStyle(Theme.orange)
-                    }
-                    Button(action: onReview) {
-                        Label("Revisar propuesta", systemImage: "checklist")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.black)
-                            .frame(minHeight: 32)
-                    }
-                    .buttonStyle(.glassProminent)
-                    .tint(Theme.orange)
-                }
+            if !message.options.isEmpty {
+                ProposalOptionsView(options: message.options, onChoose: onChoose)
+            }
+
+            if let state = message.proposal {
+                ProposalCard(
+                    draft: isActive ? assistant.draft : nil, state: isActive ? .active : (state == .active ? .replaced : state),
+                    isFirst: message.changes.isEmpty && !message.asksToAccept,
+                    asksToAccept: message.asksToAccept, canUndo: assistant.canUndo, canRedo: assistant.canRedo,
+                    onReview: onReview, onModify: onModify, onAccept: onAccept, onUndo: onUndo, onRedo: onRedo
+                )
             }
         }
         .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
-        .padding(isUser ? .leading : .trailing, Space.xxl)
+        .padding(isUser ? .leading : .trailing, message.proposal == nil ? Space.xxl : Space.s)
     }
 }
 

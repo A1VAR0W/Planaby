@@ -1,55 +1,6 @@
 import Foundation
 import SwiftData
 
-/// Propuesta pendiente de confirmar. Nada se escribe en el calendario hasta aceptarla.
-struct PlanDraft: Identifiable {
-    struct Item: Identifiable {
-        let id = UUID()
-        var title: String
-        var start: Date
-        var end: Date
-        var mode: PlanMode
-        var kind: EventKind
-        var recurrence: Recurrence = .none
-        var reminderMinutes: Int?
-        /// Tarea a la que pertenece, si es un bloque de trabajo.
-        var taskID: UUID?
-        var isIncluded = true
-
-        func occurrences(in interval: DateInterval) -> [DateInterval] {
-            Recurrence.occurrences(start: start, duration: end.timeIntervalSince(start), recurrence: recurrence, in: interval)
-        }
-    }
-
-    struct Workload: Identifiable {
-        let id: UUID
-        var title: String
-        var mode: PlanMode
-        var deadline: Date
-        var estimatedMinutes: Int
-        var priority: Int
-        var difficulty = 3
-        var notes = ""
-        var attachments: [ImportedAttachment] = []
-        /// Tarea que ya existe y se está replanificando (sus bloques nuevos se le enlazan).
-        var existing: PersistentIdentifier?
-    }
-
-    let id = UUID()
-    var items: [Item]
-    var tasks: [Workload]
-    var summary: String
-    var warnings: [String]
-    /// Bloques actuales que se quitan al aceptar (se vuelven a colocar en `items`).
-    var removals: [PersistentIdentifier] = []
-    /// Hay tareas que no caben y se podría hacer hueco moviendo otros bloques.
-    var canMakeRoom = false
-
-    var includedItems: [Item] { items.filter(\.isIncluded) }
-    /// Eventos nuevos (no bloques), para poder recalcular la propuesta.
-    var newEvents: [Item] { items.filter { $0.kind != .workBlock } }
-}
-
 /// Convierte peticiones (chat, plantillas o reorganizar) en una propuesta y la guarda al aceptarla.
 /// Usa el perfil personal: horas de energía, preferencia por lo difícil y desvío de estimaciones.
 @MainActor
@@ -65,7 +16,8 @@ enum PlanBuilder {
         personal.refresh(context: context, now: now)
         let adjusted = tasks.map { task in
             var task = task
-            task.estimatedMinutes = personal.adjustedEstimate(task.estimatedMinutes)
+            task.statedMinutes = task.statedMinutes ?? task.estimatedMinutes
+            task.estimatedMinutes = personal.adjustedEstimate(task.requestedMinutes)
             return task
         }
         var draft = build(events: events, tasks: adjusted, removing: [], context: context, now: now)
@@ -93,7 +45,8 @@ enum PlanBuilder {
         var workloads = newTasks.map { task in
             var task = task
             if adjustingEstimates {
-                task.estimatedMinutes = personal.adjustedEstimate(task.estimatedMinutes)
+                task.statedMinutes = task.statedMinutes ?? task.estimatedMinutes
+                task.estimatedMinutes = personal.adjustedEstimate(task.requestedMinutes)
             }
             return task
         }
@@ -101,14 +54,8 @@ enum PlanBuilder {
         for task in chosen + rest {
             let future = task.blocks.filter { $0.start > now }
             removals += future
-            let started = task.blocks.filter { $0.start <= now }.reduce(0) { $0 + Int($1.duration / 60) }
-            let remaining = task.estimatedMinutes - started
-            guard remaining > 0, task.deadline > now else { continue }
-            workloads.append(PlanDraft.Workload(
-                id: UUID(), title: task.title, mode: task.mode, deadline: task.deadline,
-                estimatedMinutes: remaining, priority: task.priority, difficulty: task.difficulty,
-                existing: task.persistentModelID
-            ))
+            guard let workload = workload(replanning: task, now: now) else { continue }
+            workloads.append(workload)
         }
 
         var draft = build(events: newEvents, tasks: workloads, removing: removals, context: context, now: now, ranked: true)
@@ -120,10 +67,14 @@ enum PlanBuilder {
     }
 
     /// Repite una propuesta que no cabía, pero moviendo los bloques futuros de otras tareas.
+    /// Conserva la propuesta (identificadores, cambios y condiciones) y solo mete el resto de tareas.
     static func makeRoom(for draft: PlanDraft, context: ModelContext) -> PlanDraft {
-        let fresh = draft.tasks.filter { $0.existing == nil }
-        // Las estimaciones de la propuesta original ya venían corregidas.
-        return reorganize(order: [], newEvents: draft.newEvents, newTasks: fresh, adjustingEstimates: false, context: context)
+        var draft = draft
+        if draft.order.isEmpty {
+            // Primero lo nuevo, como al reorganizar.
+            draft.order = draft.tasks.filter { $0.existing == nil }.map(\.id)
+        }
+        return replan(draft, affected: [], reorganizeAll: true, context: context)
     }
 
     static func accept(_ draft: PlanDraft, context: ModelContext) {
@@ -136,6 +87,17 @@ enum PlanBuilder {
         var tasks: [UUID: PlanTask] = [:]
         for workload in draft.tasks {
             if let existing = workload.existing, let task = context.model(for: existing) as? PlanTask {
+                // Solo cambia lo que se cambió en la propuesta (la carga salió de esta misma tarea).
+                if task.title != workload.title { task.title = workload.title }
+                if task.deadline != workload.deadline { task.deadline = workload.deadline }
+                if task.priority != workload.priority { task.priority = workload.priority }
+                if task.difficulty != workload.difficulty { task.difficulty = workload.difficulty }
+                if task.mode != workload.mode { task.mode = workload.mode }
+                if task.notes != workload.notes { task.notes = workload.notes }
+                let started = startedMinutes(of: task, now: .now)
+                if workload.requestedMinutes != task.estimatedMinutes - started {
+                    task.estimatedMinutes = started + workload.requestedMinutes
+                }
                 tasks[workload.id] = task
                 continue
             }
@@ -186,6 +148,94 @@ enum PlanBuilder {
 
     private static func pendingTasks(context: ModelContext) -> [PlanTask] {
         ((try? context.fetch(FetchDescriptor<PlanTask>())) ?? []).filter { !$0.isDone }
+    }
+
+    private static func startedMinutes(of task: PlanTask, now: Date) -> Int {
+        task.blocks.filter { $0.start <= now }.reduce(0) { $0 + Int($1.duration / 60) }
+    }
+
+    /// La carga que le queda a una tarea guardada, para volver a colocarla. Sus bloques futuros
+    /// quedan como «sustituidos»: si luego se quita de la propuesta, se conservan.
+    private static func workload(replanning task: PlanTask, id: UUID = UUID(), now: Date) -> PlanDraft.Workload? {
+        let remaining = task.estimatedMinutes - startedMinutes(of: task, now: now)
+        guard remaining > 0, task.deadline > now else { return nil }
+        return PlanDraft.Workload(
+            id: id, title: task.title, mode: task.mode, deadline: task.deadline,
+            estimatedMinutes: remaining, priority: task.priority, difficulty: task.difficulty,
+            notes: task.notes, existing: task.persistentModelID, statedMinutes: remaining,
+            replacedBlocks: task.blocks.filter { $0.start > now }.map(\.persistentModelID)
+        )
+    }
+
+    // MARK: - Editar una propuesta
+
+    /// Vuelve a colocar los bloques de una propuesta ya editada: solo los de `affected` y los que
+    /// han dejado de encajar. Lo guardado no se toca; si una cita nueva pisa bloques guardados,
+    /// esa tarea entra en la propuesta para moverlos (al aceptar, nunca antes).
+    static func replan(
+        _ draft: PlanDraft, affected: Set<UUID>, reorganizeAll: Bool = false, context: ModelContext, now: Date = .now
+    ) -> PlanDraft {
+        let personal = PersonalProfile.shared
+        personal.refresh(context: context, now: now)
+        var draft = draft
+        var affected = affected
+
+        let pending = pendingTasks(context: context)
+        let inDraft = Set(draft.tasks.compactMap(\.existing))
+        let horizon = max(draft.tasks.map(\.deadline).max() ?? now, now.addingTimeInterval(21 * 24 * 3600))
+        let range = DateInterval(start: now, end: horizon)
+        let taken = draft.newEvents.filter(\.isIncluded).flatMap { $0.occurrences(in: range) }
+        for task in pending where !inDraft.contains(task.persistentModelID) {
+            let future = task.blocks.filter { $0.start > now && !draft.removals.contains($0.persistentModelID) }
+            let clashes = future.contains { block in taken.contains { $0.start < block.end && block.start < $0.end } }
+            guard reorganizeAll || clashes, let workload = workload(replanning: task, now: now) else { continue }
+            draft.tasks.append(workload)
+            draft.removals += workload.replacedBlocks.filter { !draft.removals.contains($0) }
+            affected.insert(workload.id)
+        }
+        if reorganizeAll { affected.formUnion(draft.tasks.map(\.id)) }
+        draft.assignRefs()
+
+        let removed = Set(draft.removals)
+        let existing = ((try? context.fetch(FetchDescriptor<CalendarEvent>())) ?? [])
+            .filter { !removed.contains($0.persistentModelID) }
+        let busy = existing.flatMap { $0.occurrences(in: range) } + ExternalCalendars.shared.busyIntervals(in: range)
+        let placement = ProposalPlacement(
+            busy: busy, planner: personal.planner(), availability: { ModeController.shared.availability(for: $0) },
+            adjust: { personal.adjustedEstimate($0) }, now: now, blockReminder: blockReminder
+        )
+        let result = placement.replan(draft, affected: affected)
+        draft = result.draft
+
+        var warnings: [String] = []
+        for task in draft.tasks {
+            if task.deadline <= now {
+                warnings.append("La fecha límite de «\(task.title)» ya ha pasado.")
+            } else if let missing = result.shortfalls[task.id] {
+                warnings.append("«\(task.title)»: faltan \(FocusStats.format(TimeInterval(missing * 60))) por colocar antes de la fecha límite.")
+            }
+        }
+        // Una cita nueva que coincide con otra cita guardada o de Outlook/Teams: se avisa, no se mueve.
+        let fixedEvents = existing.filter { $0.kind != .workBlock }.flatMap { $0.occurrences(in: range) }
+            + ExternalCalendars.shared.busyIntervals(in: range)
+        for event in draft.newEvents where event.isIncluded {
+            let slots = event.occurrences(in: range)
+            if slots.contains(where: { slot in fixedEvents.contains { $0.start < slot.end && slot.start < $0.end } }) {
+                warnings.append("«\(event.title)» coincide con otra cita de tu calendario.")
+            }
+        }
+        if let latest = draft.constraints.latestEndMinute, !result.shortfalls.isEmpty {
+            warnings.append("Terminando antes de las \(ProposalFormat.clock(latest)) no cabe todo. Puedes mover la fecha límite, reducir horas o quitar esa condición.")
+        }
+        draft.warnings = warnings
+
+        let blocks = draft.blocks.compactMap { item in item.taskID.map { PlannedBlock(itemID: $0, start: item.start, end: item.end) } }
+        draft.summary = summary(events: draft.newEvents, tasks: draft.tasks, blocks: blocks)
+        let otherBlocks = pending.contains { task in
+            !draft.tasks.contains { $0.existing == task.persistentModelID } && task.blocks.contains { $0.start > now }
+        }
+        draft.canMakeRoom = !result.shortfalls.isEmpty && otherBlocks
+        return draft
     }
 
     private static func build(
