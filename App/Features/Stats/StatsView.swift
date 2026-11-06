@@ -36,6 +36,8 @@ struct StatsView: View {
                 VStack(spacing: Space.m) {
                     TodayCard(stats: stats, goal: goal)
 
+                    DaySummaryCard()
+
                     HStack(spacing: Space.m) {
                         StatTile(
                             title: "Racha", value: stats.streak == 1 ? "1 día" : "\(stats.streak) días",

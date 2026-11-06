@@ -74,7 +74,7 @@ enum MessageTriage {
     }
 
     static func classify(source: MessageSource, sender: String, subject: String, body: String) async -> (MessageCategory, String) {
-        let rules = rules
+        let rules = Self.rules
         let fallbackSummary = String((subject.isEmpty ? body : subject).prefix(120))
         // Lo que la persona ya decidió para este remitente manda sobre la IA.
         if let chosen = rules.override(for: sender) { return (chosen, fallbackSummary) }

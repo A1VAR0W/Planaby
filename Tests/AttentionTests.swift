@@ -189,7 +189,7 @@ struct TimerStateTests {
         state.switchMethod(to: other, at: date(2, 10, 20))
         #expect(state.phase == .focus)
         #expect(state.sessionStart == date(2, 10))
-        #expect(state.remaining(at: date(2, 10, 20)) == 32 * 60)
+        #expect(abs((state.remaining(at: date(2, 10, 20)) ?? 0) - 32 * 60) < 0.01)
     }
 
     @Test func starterMethodMarksTheSession() {

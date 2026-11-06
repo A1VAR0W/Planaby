@@ -135,7 +135,7 @@ struct PersonalProfileView: View {
         } header: {
             Text("Lo aprendido")
         } footer: {
-            Text(coordinator.resetDate.map { "Desde el \($0.formatted(date: .long, time: .omitted)). " } ?? ""
+            Text((coordinator.resetDate.map { "Desde el \($0.formatted(date: .long, time: .omitted)). " } ?? "")
                  + "Solo mira los últimos 45 días. Trabajo y Normal se aprenden por separado; una sesión larga no cuenta como buena si se interrumpe mucho.")
         }
     }

@@ -57,7 +57,7 @@ final class NotificationService {
         }
     }
 
-    static func isPhaseAlert(_ identifier: String) -> Bool { identifier.hasPrefix("phase-") }
+    nonisolated static func isPhaseAlert(_ identifier: String) -> Bool { identifier.hasPrefix("phase-") }
 
     private static func minutes(_ seconds: TimeInterval) -> Int {
         Int((seconds / 60).rounded())

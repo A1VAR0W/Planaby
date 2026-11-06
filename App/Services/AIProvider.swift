@@ -28,7 +28,10 @@ final class AIProvider {
 
     private init() {}
 
-    static var isAvailable: Bool { SystemLanguageModel.default.availability == .available }
+    static var isAvailable: Bool {
+        if case .available = SystemLanguageModel.default.availability { return true }
+        return false
+    }
 
     /// nil si está disponible; si no, el motivo para mostrarlo.
     static var unavailableReason: String? {
