@@ -365,10 +365,13 @@ private struct ActivityControls: View {
 
     var body: some View {
         if look.isFinished {
-            Link(destination: PlanabyLinks.desk) {
-                capsule("Abrir", systemImage: "arrow.up.forward.app")
+            // Toda la actividad ya abre Planaby (`widgetURL`); el botón lo hace evidente.
+            if let url = PlanabyLinks.desk {
+                Link(destination: url) {
+                    capsule("Abrir", systemImage: "arrow.up.forward.app")
+                }
+                .accessibilityLabel("Abrir Planaby")
             }
-            .accessibilityLabel("Abrir Planaby")
         } else if look.isCompleted {
             Button(intent: RefreshFocusIntent()) {
                 capsule("Continuar", systemImage: "arrow.right")
