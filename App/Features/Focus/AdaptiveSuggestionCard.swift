@@ -16,7 +16,7 @@ struct AdaptiveSuggestionCard: View {
         ) {
             VStack(alignment: .leading, spacing: Space.s) {
                 Button {
-                    withAnimation(.easeOut(duration: 0.2)) { showsReason.toggle() }
+                    withAnimation(Motion.quick) { showsReason.toggle() }
                 } label: {
                     HStack(spacing: Space.s) {
                         Image(systemName: "sparkles")
@@ -48,13 +48,13 @@ struct AdaptiveSuggestionCard: View {
 
                 HStack(spacing: Space.s) {
                     Button(recommendation.isActionable ? "Probar" : "Entendido") {
-                        withAnimation(.easeOut(duration: 0.2)) { coordinator.accept(recommendation) }
+                        withAnimation(Motion.quick) { coordinator.accept(recommendation) }
                     }
                     .buttonStyle(.glassProminent)
                     .tint(Theme.orange)
                     .foregroundStyle(.black)
                     Button("Ahora no") {
-                        withAnimation(.easeOut(duration: 0.2)) { coordinator.dismiss(recommendation) }
+                        withAnimation(Motion.quick) { coordinator.dismiss(recommendation) }
                     }
                     .buttonStyle(.glass)
                     Spacer(minLength: 0)

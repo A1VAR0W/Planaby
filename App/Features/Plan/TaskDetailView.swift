@@ -149,7 +149,7 @@ struct TaskDetailView: View {
                 title: task.title, notes: task.notes, deadline: task.deadline,
                 attachmentTexts: task.attachments.map(\.extractedText)
             )
-            withAnimation(.smooth) {
+            withAnimation(Motion.standard) {
                 estimate = result
                 task.estimatedMinutes = max(15, Int((Double(result.estimatedMinutes) / 15).rounded()) * 15)
                 task.difficulty = result.difficulty

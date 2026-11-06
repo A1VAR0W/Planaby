@@ -206,7 +206,7 @@ struct VoiceTaskPanel: View {
         }
         .padding(Space.l)
         .frame(maxWidth: .infinity)
-        .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: flow.phase)
+        .animation(reduceMotion ? nil : Motion.standard, value: flow.phase)
         .sensoryFeedback(.success, trigger: flow.phase == .saved)
         .task { await flow.start(context: context) }
         // Al cerrar la hoja deslizando, el micrófono se apaga.

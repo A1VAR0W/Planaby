@@ -40,19 +40,9 @@ final class SystemVolume {
         }
     }
 
-    var symbol: String { Self.symbol(for: level) }
-
-    /// Silenciado, bajo, medio o alto.
-    nonisolated static func symbol(for level: Float) -> String {
-        switch level {
-        case ..<0.01: "speaker.slash.fill"
-        case ..<0.34: "speaker.wave.1.fill"
-        case ..<0.67: "speaker.wave.2.fill"
-        default: "speaker.wave.3.fill"
-        }
-    }
-
-    var percentText: String { "\(Int((level * 100).rounded())) %" }
+    var symbol: String { VolumeLevel.symbol(for: level) }
+    var percentText: String { VolumeLevel.text(for: level) }
+    var isMuted: Bool { VolumeLevel.isMuted(level) }
 }
 
 // MARK: - Horizontal (Ahora suena, en vertical)
@@ -82,8 +72,10 @@ struct VolumeSlider: View {
 
 // MARK: - Vertical (modo escritorio)
 
-/// Botón del altavoz del modo escritorio. Al tocarlo nace hacia arriba, desde el propio botón,
-/// una cápsula vertical con el volumen real; otro toque (o tocar fuera) la recoge.
+/// Botón del altavoz del modo escritorio: un círculo de cristal oscuro con un arco naranja que
+/// enseña el nivel. Al tocarlo, el icono hace un pequeño gesto y nace hacia arriba, desde el
+/// propio botón, una cápsula vertical con el volumen real; otro toque (o tocar fuera) la recoge
+/// con el mismo movimiento al revés. No mueve nada de lo que hay alrededor: va superpuesta.
 struct DeskVolumeControl: View {
     @Binding var isOpen: Bool
     let tint: Color
@@ -101,64 +93,126 @@ struct DeskVolumeControl: View {
             if !isOpen { volume.start() }
             withAnimation(Self.animation(reduceMotion: reduceMotion)) { isOpen.toggle() }
         } label: {
-            Image(systemName: volume.symbol)
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(isOpen ? tint : ink.opacity(0.9))
-                .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
+            VolumeButtonFace(level: volume.level, symbol: volume.symbol, isOpen: isOpen, tint: tint, ink: ink, reduceMotion: reduceMotion)
                 .frame(width: Self.buttonSize, height: Self.buttonSize)
         }
-        .buttonStyle(.glass)
-        .buttonBorderShape(.circle)
+        .buttonStyle(PressableButtonStyle(scale: 0.9))
         .accessibilityLabel(isOpen ? "Ocultar el volumen" : "Volumen")
-        .accessibilityValue(volume.percentText)
+        .accessibilityValue(VolumeLevel.spokenText(for: volume.level))
+        .accessibilityHint(isOpen ? "" : "Muestra el volumen del iPhone")
+        .sensoryFeedback(.selection, trigger: isOpen)
         // La cápsula se apoya justo encima del botón y crece desde él.
         .overlay(alignment: .bottom) {
             if isOpen {
-                VolumeCapsule(tint: tint, ink: ink, volume: volume)
+                VolumeCapsule(tint: tint, ink: ink, volume: volume, reduceMotion: reduceMotion)
                     .padding(.bottom, Self.buttonSize + Space.s)
-                    .transition(
-                        reduceMotion
-                            ? .opacity
-                            : .scale(scale: 0.2, anchor: .bottom).combined(with: .opacity)
-                    )
+                    .transition(Self.capsuleTransition(reduceMotion: reduceMotion))
             }
         }
         .onAppear { volume.start() }
     }
 
     static func animation(reduceMotion: Bool) -> Animation {
-        reduceMotion ? .easeInOut(duration: 0.2) : .spring(duration: 0.35, bounce: 0.18)
+        Motion.adaptive(.spring(duration: 0.38, bounce: 0.16), reduceMotion: reduceMotion)
+    }
+
+    /// Crece desde el botón (abajo) y se recoge hacia él. Con «Reducir movimiento», fundido.
+    private static func capsuleTransition(reduceMotion: Bool) -> AnyTransition {
+        guard !reduceMotion else { return .opacity }
+        return .asymmetric(
+            insertion: .scale(scale: 0.15, anchor: .bottom).combined(with: .opacity).combined(with: .offset(y: 12)),
+            removal: .scale(scale: 0.15, anchor: .bottom).combined(with: .opacity).combined(with: .offset(y: 12))
+                .animation(.spring(duration: 0.28, bounce: 0))
+        )
     }
 }
 
-/// Cápsula flotante: cristal oscuro, el porcentaje arriba y el control vertical del sistema.
+/// La cara del botón: fondo oscuro translúcido, borde fino, el altavoz y un arco naranja con el
+/// nivel (gris si no hay sonido). Abierta, el borde se tiñe.
+private struct VolumeButtonFace: View {
+    let level: Float
+    let symbol: String
+    let isOpen: Bool
+    let tint: Color
+    let ink: Color
+    let reduceMotion: Bool
+
+    var body: some View {
+        let muted = VolumeLevel.isMuted(level)
+        ZStack {
+            Circle()
+                .fill(Color.black.opacity(0.55))
+                .background(.ultraThinMaterial, in: .circle)
+            Circle()
+                .strokeBorder(isOpen ? tint.opacity(0.7) : ink.opacity(0.14), lineWidth: 1)
+            // El nivel, como un arco que empieza abajo a la izquierda.
+            Circle()
+                .trim(from: 0, to: CGFloat(VolumeLevel.clamped(level)) * 0.75)
+                .stroke(muted ? ink.opacity(0.25) : tint, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                .rotationEffect(.degrees(135))
+                .padding(3)
+                .animation(Motion.adaptive(Motion.quick, reduceMotion: reduceMotion), value: level)
+            Image(systemName: symbol)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(isOpen ? tint : ink.opacity(muted ? 0.55 : 0.9))
+                .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
+                .symbolEffect(.bounce.up, options: .nonRepeating, value: isOpen)
+        }
+        .compositingGroup()
+        .shadow(color: .black.opacity(0.35), radius: 6, y: 2)
+    }
+}
+
+/// Cápsula flotante: cristal negro translúcido, el porcentaje discreto arriba, el control
+/// vertical del sistema en el centro (relleno naranja desde abajo) y el altavoz abajo.
 private struct VolumeCapsule: View {
     let tint: Color
     let ink: Color
     let volume: SystemVolume
+    let reduceMotion: Bool
+    @State private var shown = false
 
     var body: some View {
+        let muted = volume.isMuted
         VStack(spacing: Space.s) {
             Text(volume.percentText)
                 .font(.caption2.weight(.semibold).monospacedDigit())
-                .foregroundStyle(ink.opacity(0.75))
+                .foregroundStyle(ink.opacity(muted ? 0.5 : 0.75))
                 .contentTransition(.numericText())
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .animation(Motion.adaptive(Motion.quick, reduceMotion: reduceMotion), value: volume.percentText)
                 .accessibilityHidden(true)
-            SystemVolumeView(tint: UIColor(tint), track: UIColor(ink.opacity(0.16)), vertical: true)
-                .frame(width: 44)
-                .frame(maxHeight: .infinity)
+            SystemVolumeView(
+                tint: UIColor(muted ? ink.opacity(0.3) : tint), track: UIColor(ink.opacity(0.12)),
+                vertical: true, thumb: UIColor(white: 1, alpha: 0.95)
+            )
+            .frame(width: 44)
+            .frame(maxHeight: .infinity)
+            Image(systemName: volume.symbol)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(muted ? ink.opacity(0.45) : tint)
+                .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
+                .frame(height: 18)
+                .accessibilityHidden(true)
         }
+        // El nivel aparece un instante después de que la cápsula empiece a crecer.
+        .opacity(shown ? 1 : 0)
         .padding(.vertical, Space.m)
-        .frame(width: 56, height: 196)
-        .background(Color.black.opacity(0.55), in: .capsule)
-        .glassEffect(.regular, in: .capsule)
+        .frame(width: 60, height: 216)
+        .background(Color.black.opacity(0.6), in: .capsule)
+        .background(.ultraThinMaterial, in: .capsule)
         .overlay(Capsule().strokeBorder(ink.opacity(0.12)))
-        .shadow(color: .black.opacity(0.45), radius: 16, y: 6)
+        .shadow(color: .black.opacity(0.5), radius: 18, y: 8)
         // Un toque dentro no cuenta como «tocar fuera» (que la cierra).
         .contentShape(.capsule)
         .onTapGesture {}
+        .onAppear {
+            withAnimation(reduceMotion ? Motion.reduced : Motion.quick.delay(0.08)) { shown = true }
+        }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Volumen")
+        .accessibilityValue(VolumeLevel.spokenText(for: volume.level))
     }
 }
 
@@ -170,6 +224,8 @@ private struct SystemVolumeView: UIViewRepresentable {
     let tint: UIColor
     let track: UIColor
     let vertical: Bool
+    /// En vertical, el tirador es una barrita blanca de lado a lado de la pista.
+    var thumb: UIColor? = nil
 
     func makeUIView(context: Context) -> VolumeHost {
         VolumeHost(vertical: vertical)
@@ -178,10 +234,26 @@ private struct SystemVolumeView: UIViewRepresentable {
     func updateUIView(_ host: VolumeHost, context: Context) {
         let view = host.volume
         view.tintColor = tint
-        let thickness: CGFloat = vertical ? 6 : 4
+        // En vertical, una pista gruesa que se rellena desde abajo, como una cápsula.
+        let thickness: CGFloat = vertical ? 22 : 4
         view.setMinimumVolumeSliderImage(Self.capsule(tint, thickness: thickness), for: .normal)
         view.setMaximumVolumeSliderImage(Self.capsule(track, thickness: thickness), for: .normal)
-        view.setVolumeThumbImage(Self.thumb(vertical ? .white : tint, size: vertical ? 22 : 18), for: .normal)
+        if vertical {
+            view.setVolumeThumbImage(Self.handle(thumb ?? .white, across: thickness + 6), for: .normal)
+        } else {
+            view.setVolumeThumbImage(Self.thumb(tint, size: 18), for: .normal)
+        }
+    }
+
+    /// Tirador de la versión vertical: en coordenadas del control (que va girado) es estrecho a
+    /// lo largo de la pista y ancho a través de ella, así queda como una barrita horizontal.
+    private static func handle(_ color: UIColor, across: CGFloat) -> UIImage {
+        let size = CGSize(width: 12, height: across + 4)
+        return UIGraphicsImageRenderer(size: size).image { context in
+            context.cgContext.setShadow(offset: .zero, blur: 3, color: UIColor.black.withAlphaComponent(0.4).cgColor)
+            color.setFill()
+            UIBezierPath(roundedRect: CGRect(x: 3, y: 2, width: 6, height: across), cornerRadius: 3).fill()
+        }
     }
 
     /// Pista redondeada y estirable.

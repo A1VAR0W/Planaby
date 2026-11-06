@@ -176,7 +176,7 @@ struct RootView: View {
             guard new.endedStarter || AlertPreferences.alerts(intoBreak: intoBreak) else { return }
             if Preferences.phaseAlertsEnabled { PhaseAlertPlayer.shared.play(intoBreak: intoBreak) }
             if AlertPreferences.showsOverlay || new.endedStarter {
-                withAnimation(reduceMotion ? .easeOut(duration: 0.2) : .spring(duration: 0.3, bounce: 0.15)) {
+                withAnimation(Motion.adaptive(Motion.emphasized, reduceMotion: reduceMotion)) {
                     transition = new
                 }
             }

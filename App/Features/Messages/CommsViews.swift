@@ -17,7 +17,7 @@ struct WorkCommsPill: View {
         if !items.isEmpty, !comms.phaseCardVisible {
             VStack(spacing: Space.xs) {
                 Button {
-                    withAnimation(.smooth(duration: 0.25)) { expanded.toggle() }
+                    withAnimation(Motion.quick) { expanded.toggle() }
                     if away != nil { comms.dismissAway() }
                 } label: {
                     HStack(spacing: Space.s) {
@@ -147,7 +147,7 @@ struct AwayDigestCard: View {
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
                 if showsClose {
-                    Button("Cerrar", systemImage: "xmark") { withAnimation(.easeOut(duration: 0.2)) { comms.dismissAway() } }
+                    Button("Cerrar", systemImage: "xmark") { withAnimation(Motion.quick) { comms.dismissAway() } }
                         .labelStyle(.iconOnly)
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(Theme.secondaryText)
@@ -184,7 +184,7 @@ struct AwayDigestCard: View {
             }
             for index in digest.items.indices {
                 try? await Task.sleep(for: .milliseconds(index == 0 ? 150 : 110))
-                withAnimation(.spring(duration: 0.35, bounce: 0.1)) { shown = index + 1 }
+                withAnimation(Motion.emphasized) { shown = index + 1 }
             }
         }
     }

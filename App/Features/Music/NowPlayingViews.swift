@@ -116,6 +116,9 @@ struct DeskNowPlaying: View {
     let night: Bool
     var compact = false
     private let spotify = SpotifyController.shared
+    /// La carátula, la canción y los controles son los mismos en las dos disposiciones: al
+    /// cambiar, se mueven y cambian de tamaño en vez de aparecer de nuevo.
+    @Namespace private var layout
 
     var body: some View {
         Group {
@@ -134,6 +137,7 @@ struct DeskNowPlaying: View {
             stackedClock
             HStack(spacing: Space.m) {
                 ArtworkView(url: spotify.track?.artworkURL, image: spotify.artwork, night: night, cornerRadius: 14)
+                    .matchedGeometryEffect(id: "artwork", in: layout)
                     .frame(width: 68, height: 68)
                     .shadow(color: .black.opacity(0.45), radius: 12, y: 5)
                 VStack(alignment: .leading, spacing: 2) {
@@ -151,6 +155,7 @@ struct DeskNowPlaying: View {
             if let track = spotify.track {
                 TrackProgress(position: spotify.position(at: date), duration: track.duration, tint: tint, ink: ink)
                 PlaybackControls(tint: tint, ink: ink)
+                    .matchedGeometryEffect(id: "controls", in: layout)
                     .frame(maxWidth: .infinity)
             } else if spotify.isConnected {
                 Button("Poner música", systemImage: "play.fill") { spotify.wakeSpotify() }
@@ -202,6 +207,7 @@ struct DeskNowPlaying: View {
     private var wide: some View {
         HStack(spacing: Space.xl) {
             ArtworkView(url: spotify.track?.artworkURL, image: spotify.artwork, night: night, cornerRadius: 24)
+                .matchedGeometryEffect(id: "artwork", in: layout)
                 .frame(maxHeight: .infinity)
                 .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
 
@@ -222,6 +228,7 @@ struct DeskNowPlaying: View {
                     }
                     TrackProgress(position: spotify.position(at: date), duration: track.duration, tint: tint, ink: ink)
                     PlaybackControls(tint: tint, ink: ink, large: true)
+                        .matchedGeometryEffect(id: "controls", in: layout)
                         .frame(maxWidth: .infinity)
                 } else {
                     Text(spotify.isConnected ? "Nada sonando en Spotify" : "Conecta Spotify en Ajustes › Música")
@@ -307,7 +314,7 @@ struct NowPlayingView: View {
                 ArtworkView(url: spotify.track?.artworkURL, image: spotify.artwork, cornerRadius: 24)
                     .padding(.horizontal, Space.m)
                     .shadow(color: .black.opacity(0.5), radius: 24, y: 10)
-                    .animation(.smooth, value: spotify.track?.artworkURL)
+                    .animation(Motion.standard, value: spotify.track?.artworkURL)
 
                 VStack(alignment: .leading, spacing: Space.xs) {
                     Text(spotify.track?.title ?? "Nada sonando")

@@ -45,6 +45,7 @@ Recuerda refrescar la app en SideStore cada 7 días.
   - icono nuevo.
 
   Guía y pruebas en [docs/HORIZONTAL.md](docs/HORIZONTAL.md).
+- [x] Planificación fiable con Apple Intelligence: todos los elementos pedidos con su nombre y su fecha exactos, nada inventado, preguntas solo por lo que falta (con respuestas rápidas), cambiar y borrar también lo ya guardado (con confirmación y sin tocar calendarios externos), Descartar, Reintentar y Cancelar. Además, un sistema de movimiento común, el panel de tareas animado en horizontal y el nuevo botón de volumen. Detalles en [docs/IA.md](docs/IA.md).
 
 ## Atajos útiles
 

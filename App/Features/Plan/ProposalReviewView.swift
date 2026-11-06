@@ -14,6 +14,7 @@ struct ProposalReviewView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \CalendarEvent.start) private var existing: [CalendarEvent]
     @State private var editing: Editing?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     enum Editing: Identifiable {
         case event(UUID), task(UUID), block(UUID)
@@ -42,7 +43,7 @@ struct ProposalReviewView: View {
                 }
                 if draft.canMakeRoom {
                     Button {
-                        withAnimation(.smooth) { draft = PlanBuilder.makeRoom(for: draft, context: context) }
+                        withAnimation(Motion.standard) { draft = PlanBuilder.makeRoom(for: draft, context: context) }
                     } label: {
                         Label("Hacer hueco moviendo otros bloques", systemImage: "arrow.left.and.right")
                     }
@@ -54,11 +55,55 @@ struct ProposalReviewView: View {
                 }
             }
 
-            if !draft.newEvents.isEmpty {
-                Section("Citas") {
-                    ForEach(draft.newEvents) { event in
+            if !draft.createdEvents.isEmpty {
+                Section("Citas nuevas") {
+                    ForEach(draft.createdEvents) { event in
                         ProposalEventRow(event: event, code: draft.ref(event.id)) { editing = .event(event.id) }
                     }
+                }
+            }
+
+            if !draft.editedEvents.isEmpty {
+                Section {
+                    ForEach(draft.editedEvents) { event in
+                        ProposalEventRow(event: event, code: draft.ref(event.id)) { editing = .event(event.id) }
+                    }
+                } header: {
+                    Text("Cambios en tu calendario")
+                } footer: {
+                    Text("Se modifica el evento guardado; no se crea otro.")
+                }
+            }
+
+            if !draft.deletions.isEmpty {
+                Section {
+                    ForEach(draft.deletions) { deletion in
+                        HStack(spacing: Space.m) {
+                            Image(systemName: "trash")
+                                .foregroundStyle(ProposalColors.deleted)
+                                .frame(width: 28)
+                                .accessibilityHidden(true)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(deletion.title)
+                                    .font(.body.weight(.medium))
+                                    .strikethrough()
+                                Text((deletion.isTask ? "Tarea · " : "") + deletion.detail + (deletion.isSeries ? " · toda la serie" : ""))
+                                    .font(.caption)
+                                    .foregroundStyle(Theme.secondaryText)
+                            }
+                            Spacer()
+                            Button("Conservar") { keep(deletion) }
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(Theme.orange)
+                                .buttonStyle(.borderless)
+                                .accessibilityHint("No borrar «\(deletion.title)»")
+                        }
+                        .accessibilityElement(children: .combine)
+                    }
+                } header: {
+                    Text("Se borrará al aceptar")
+                } footer: {
+                    Text("Nada se borra hasta que pulses «Aceptar propuesta».")
                 }
             }
 
@@ -104,6 +149,7 @@ struct ProposalReviewView: View {
                 }
             }
         }
+        .animation(Motion.adaptive(Motion.standard, reduceMotion: reduceMotion), value: draft)
         .navigationTitle("Propuesta")
         .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .bottom) {
@@ -121,7 +167,7 @@ struct ProposalReviewView: View {
             .buttonStyle(.glassProminent)
             .tint(Theme.orange)
             .controlSize(.large)
-            .disabled(draft.includedItems.isEmpty && draft.tasks.isEmpty)
+            .disabled(draft.includedItems.isEmpty && draft.tasks.isEmpty && draft.deletions.isEmpty)
             .accessibilityHint(draft.includedItems.count == 1 ? "Guarda 1 elemento en tu calendario" : "Guarda \(draft.includedItems.count) elementos en tu calendario")
             .padding(.horizontal, Space.m)
             .padding(.bottom, Space.s)
@@ -165,7 +211,17 @@ struct ProposalReviewView: View {
     private func update(event edited: PlanDraft.Item) {
         guard let index = draft.items.firstIndex(where: { $0.id == edited.id }) else { return }
         var next = draft
+        var edited = edited
+        // Lo que se ha visto y guardado a mano ya no está por confirmar.
+        edited.unconfirmed = nil
         next.items[index] = edited
+        draft = PlanBuilder.replan(next, affected: [], context: context)
+    }
+
+    /// «Conservar»: ya no se borra.
+    private func keep(_ deletion: SavedDeletion) {
+        var next = draft
+        next.deletions.removeAll { $0.id == deletion.id }
         draft = PlanBuilder.replan(next, affected: [], context: context)
     }
 
@@ -185,8 +241,9 @@ struct ProposalReviewView: View {
     private func existingEntries(on day: Date) -> [AgendaEntry] {
         guard let end = Calendar.current.date(byAdding: .day, value: 1, to: day) else { return [] }
         let range = DateInterval(start: day, end: end)
-        // Los bloques que se recolocan ya aparecen como nuevos.
-        let removed = Set(draft.removals)
+        // Los bloques que se recolocan y los eventos que se cambian ya aparecen en la propuesta;
+        // lo que se borra está en su propia sección.
+        let removed = draft.replacedSavedIDs
         return existing
             .filter { !removed.contains($0.persistentModelID) }
             .flatMap { event in event.occurrences(in: range).map { AgendaEntry(event: event, interval: $0) } }
@@ -226,6 +283,11 @@ private struct ProposalEventRow: View {
                     Text(detail)
                         .font(.caption)
                         .foregroundStyle(Theme.secondaryText)
+                    if event.unconfirmed?.isEmpty == false {
+                        Label("Provisional: tócalo para ajustarlo", systemImage: "questionmark.circle")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(ProposalColors.pending)
+                    }
                 }
                 Spacer()
                 Image(systemName: "chevron.right")
@@ -242,8 +304,9 @@ private struct ProposalEventRow: View {
 
     private var detail: String {
         var parts = [
-            event.start.formatted(.dateTime.weekday(.wide).day().hour().minute()),
-            ProposalFormat.minutes(event.durationMinutes),
+            event.isUnconfirmed(.day) ? "día por confirmar" : event.start.formatted(.dateTime.weekday(.wide).day().month()),
+            event.isUnconfirmed(.time) ? "hora por confirmar" : event.start.formatted(.dateTime.hour().minute()),
+            event.isUnconfirmed(.duration) ? "duración por confirmar" : ProposalFormat.minutes(event.durationMinutes),
             event.recurrence == .none ? event.mode.title : event.recurrence.title,
         ]
         if !event.isIncluded { parts.append("sin incluir") }

@@ -16,7 +16,11 @@ struct PlanChatView: View {
     @State private var showsPhotos = false
     @State private var showsFiles = false
     @State private var importing = 0
+    @State private var confirmingDiscard = false
+    /// La petición en curso, para poder cancelarla.
+    @State private var sending: Task<Void, Never>?
     @FocusState private var inputFocused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let suggestions = [
         "Entregar el informe el viernes, unas 6 horas",
@@ -56,6 +60,11 @@ struct PlanChatView: View {
         } message: {
             Text("Lo que ya está en tu plan no cambia.")
         }
+        .confirmationDialog("¿Descartar la propuesta?", isPresented: $confirmingDiscard, titleVisibility: .visible) {
+            Button("Descartar", role: .destructive) { assistant.discardActive() }
+        } message: {
+            Text("No se guardará nada en tu calendario.")
+        }
         .navigationDestination(isPresented: $reviewing) {
             ProposalReviewView(draft: draftBinding, onAccepted: {
                 assistant.markAccepted()
@@ -92,9 +101,13 @@ struct PlanChatView: View {
                             onUndo: { assistant.undo(context: context) },
                             onRedo: { assistant.redo(context: context) },
                             onChooseMode: { mode in assistant.chooseMode(mode, for: message.id, context: context) },
-                            onChoose: { option in assistant.choose(option, context: context) }
+                            onChoose: { option in assistant.choose(option, context: context) },
+                            onAnswer: { choice in sendQuick(choice) },
+                            onRetry: { sending = Task { await assistant.retry(context: context); sending = nil } },
+                            onDiscard: { confirmingDiscard = true }
                         )
                         .id(message.id)
+                        .transition(.rise(reduceMotion: reduceMotion))
                     }
                     if assistant.isThinking {
                         HStack(spacing: Space.s) {
@@ -102,17 +115,26 @@ struct PlanChatView: View {
                             Text("Organizando…")
                                 .font(.subheadline)
                                 .foregroundStyle(Theme.secondaryText)
+                            Spacer(minLength: Space.s)
+                            Button("Cancelar") { sending?.cancel() }
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(Theme.orange)
+                                .frame(minHeight: 44)
+                                .buttonStyle(.pressable)
                         }
                         .padding(.vertical, Space.s)
                         .id("thinking")
+                        .transition(.opacity)
                     }
                 }
                 .padding(Space.m)
+                .animation(Motion.adaptive(Motion.emphasized, reduceMotion: reduceMotion), value: assistant.messages.count)
+                .animation(Motion.adaptive(Motion.quick, reduceMotion: reduceMotion), value: assistant.isThinking)
             }
             .scrollDismissesKeyboard(.interactively)
             .onChange(of: assistant.messages.count) {
                 if let last = assistant.messages.last?.id {
-                    withAnimation(.smooth) { proxy.scrollTo(last, anchor: .bottom) }
+                    withAnimation(Motion.adaptive(Motion.standard, reduceMotion: reduceMotion)) { proxy.scrollTo(last, anchor: .bottom) }
                 }
             }
         }
@@ -133,7 +155,7 @@ struct PlanChatView: View {
             VStack(alignment: .leading, spacing: Space.s) {
                 ForEach(Self.suggestions, id: \.self) { suggestion in
                     Button {
-                        Task { await assistant.send(suggestion, context: context) }
+                        sendQuick(suggestion)
                     } label: {
                         Text(suggestion)
                             .font(.subheadline)
@@ -143,7 +165,8 @@ struct PlanChatView: View {
                             .frame(minHeight: 44)
                             .background(Theme.surface, in: .capsule)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.pressable)
+                    .staggeredAppear(Self.suggestions.firstIndex(of: suggestion) ?? 0)
                 }
             }
         }
@@ -217,13 +240,31 @@ struct PlanChatView: View {
         .background(.black)
     }
 
+    /// Envía lo escrito. Si falla (sin IA, error o cancelación), el texto y los adjuntos vuelven
+    /// al campo para no tener que escribirlo otra vez.
     private func send() {
         let text = input
         let files = attachments
         input = ""
         attachments = []
         modifying = false
-        Task { await assistant.send(text, attachments: files, context: context) }
+        sending = Task {
+            let handled = await assistant.send(text, attachments: files, context: context)
+            if !handled, input.isEmpty, attachments.isEmpty {
+                input = text
+                attachments = files
+            }
+            sending = nil
+        }
+    }
+
+    /// Una respuesta rápida o una sugerencia: se envía tal cual.
+    private func sendQuick(_ text: String) {
+        guard !assistant.isThinking else { return }
+        sending = Task {
+            await assistant.send(text, context: context)
+            sending = nil
+        }
     }
 
     /// «Modificar con IA»: la propuesta se queda y el cursor va al campo.
@@ -251,6 +292,9 @@ private struct MessageBubble: View {
     let onRedo: () -> Void
     let onChooseMode: (PlanMode) -> Void
     let onChoose: (ProposalOption) -> Void
+    let onAnswer: (String) -> Void
+    let onRetry: () -> Void
+    let onDiscard: () -> Void
 
     var body: some View {
         let isUser = message.role == .user
@@ -283,12 +327,29 @@ private struct MessageBubble: View {
                 ProposalOptionsView(options: message.options, onChoose: onChoose)
             }
 
+            if !message.choices.isEmpty {
+                DetailChoicesView(choices: message.choices, onChoose: onAnswer)
+            }
+
+            if message.canRetry, assistant.canRetry {
+                Button(action: onRetry) {
+                    Label("Reintentar", systemImage: "arrow.clockwise")
+                        .font(.subheadline.weight(.semibold))
+                        .padding(.horizontal, Space.m)
+                        .frame(minHeight: 40)
+                        .background(Theme.surface, in: .capsule)
+                }
+                .buttonStyle(.pressable)
+                .foregroundStyle(Theme.orange)
+            }
+
             if let state = message.proposal {
                 ProposalCard(
                     draft: isActive ? assistant.draft : nil, state: isActive ? .active : (state == .active ? .replaced : state),
                     isFirst: message.changes.isEmpty && !message.asksToAccept,
                     asksToAccept: message.asksToAccept, canUndo: assistant.canUndo, canRedo: assistant.canRedo,
-                    onReview: onReview, onModify: onModify, onAccept: onAccept, onUndo: onUndo, onRedo: onRedo
+                    onReview: onReview, onModify: onModify, onAccept: onAccept, onUndo: onUndo, onRedo: onRedo,
+                    onDiscard: onDiscard
                 )
             }
         }

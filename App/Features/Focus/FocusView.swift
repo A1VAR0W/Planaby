@@ -41,7 +41,7 @@ struct FocusView: View {
                     .transition(.opacity)
             }
         }
-        .animation(.smooth(duration: 0.5), value: timer.state == nil)
+        .animation(Motion.panel, value: timer.state == nil)
         // Captura rápida siempre a mano (también concentrándose, con la barra de pestañas oculta):
         // apuntar algo no pausa ni cambia la sesión. La bandeja solo con la sesión parada.
         .overlay(alignment: .topTrailing) {
@@ -106,7 +106,7 @@ struct FocusView: View {
         }
         .toolbarVisibility(.hidden, for: .navigationBar)
         .toolbarVisibility(isRunning ? .hidden : .visible, for: .tabBar)
-        .animation(.smooth(duration: 0.35), value: isRunning)
+        .animation(Motion.standard, value: isRunning)
         .dynamicTypeSize(...DynamicTypeSize.accessibility2)
         .sheet(isPresented: $showingMethods) {
             NavigationStack { MethodPickerView() }
@@ -156,7 +156,7 @@ private struct IdleFocusView: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
                 .contentTransition(.numericText())
-                .animation(.smooth, value: method.id)
+                .animation(Motion.standard, value: method.id)
                 .accessibilityLabel("Duración \(Self.preview(of: method))")
 
             MethodButton(name: method.name, detail: method.detail, action: onChangeMethod)
@@ -268,7 +268,7 @@ private struct ActiveSessionView: View {
                 }
             }
             .padding(.top, Space.xxl)
-            .animation(.smooth(duration: 0.3), value: state.phase.isBreak)
+            .animation(Motion.panel, value: state.phase.isBreak)
 
             Spacer()
 

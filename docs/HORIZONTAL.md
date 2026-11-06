@@ -5,14 +5,20 @@ de la navegación durante una sesión y del nuevo diseño de la Dynamic Island y
 
 ## Volumen vertical
 
-- En la barra del escritorio, en el borde derecho, hay un botón con el altavoz. Su icono cambia
-  según el volumen: silenciado, bajo, medio o alto.
-- Al tocarlo, una cápsula vertical nace del botón y crece hacia arriba. Es de cristal oscuro, con
-  el porcentaje arriba y la pista en el color de la fase (rojo tenue de noche).
+- En la barra del escritorio, en el borde derecho, hay un botón circular de cristal oscuro con un
+  borde fino y el altavoz. Un arco naranja alrededor enseña el nivel (gris si no hay sonido) y el
+  icono cambia: silenciado, bajo, medio o alto.
+- Al tocarlo, el botón se hunde un poco, el icono hace un pequeño salto y una cápsula vertical
+  (60 × 216 pt) nace del botón y crece hacia arriba. Lleva:
+  - el porcentaje arriba, discreto (o «Sin sonido»), que aparece un instante después;
+  - la pista gruesa con el relleno naranja desde abajo y un tirador blanco (en gris si está silenciado);
+  - el altavoz abajo.
 - Se cierra de tres maneras: otro toque en el botón, tocar fuera, o abrir la captura rápida.
-  - La animación es la misma al revés.
+  - La animación es la misma al revés, más rápida.
   - Con «Reducir movimiento» solo hay un fundido.
   - Mientras está abierta, la barra no se esconde.
+- Iconos, textos y umbral de silencio están en `VolumeLevel` (con tests); iOS no ofrece un
+  «silenciar» público, así que silenciado es volumen por debajo del 1 %.
 - **Es el volumen real del iPhone**, el de los botones laterales. Se usa `MPVolumeView`, el control
   público de Apple, girado −90° con una transformación de UIKit.
   - Su pista se centra con `volumeSliderRect(forBounds:)`, un método público pensado para subclases.
@@ -35,8 +41,24 @@ de la navegación durante una sesión y del nuevo diseño de la Dynamic Island y
   - la tarea de la sesión arriba, marcada como «Ahora · en esta sesión»;
   - las pendientes y las hechas hoy, con desplazamiento vertical;
   - el círculo para completarlas y el «+» para añadir.
-- Si solo hay una de las dos, ocupa el sitio libre.
-- Cambiar de disposición nunca reinicia el reproductor ni la sesión.
+- Si solo hay una de las dos, ocupa el sitio libre. Sin música, la lista es una columna de 320 pt
+  que nunca pasa de la mitad. Los anchos los calcula `DeskPanels.widths` (con tests).
+- Cambiar de disposición nunca reinicia el reproductor ni la sesión: la composición es siempre la
+  misma (panel principal + lista) y solo cambian los anchos. La lista sigue montada aunque esté
+  cerrada, así que al volver conserva su desplazamiento.
+- **Animación:** al abrir, el panel se abre con un muelle suave y su contenido entra escalonado
+  (cabecera, «Por organizar» y filas); la carátula y los controles se recolocan sin cortes. Al
+  cerrar, todo se va a la vez y más rápido. Con «Reducir movimiento», solo un fundido corto.
+
+## Sistema de movimiento
+
+Las animaciones de toda la app salen de los mismos tokens: `MotionTiming` (tiempos, con tests) y
+`Motion` (curvas, transiciones y el estilo de botón `.pressable`).
+
+- Pulsación 0,16 s · rápida 0,22 s · normal 0,32 s · destacada 0,42 s · panel 0,5 s.
+- Las salidas duran el 60 % de la entrada. El escalonado avanza 0,04 s por elemento, como mucho 8.
+- Con «Reducir movimiento», cualquier animación pasa a un fundido de 0,18 s.
+- Los widgets y la Live Activity no tienen animaciones continuas.
 
 ## Añadir tareas en horizontal
 
@@ -138,11 +160,14 @@ La isla y la pantalla bloqueada son dos tamaños del mismo diseño que el escrit
 1. **Escritorio y paneles**
    1. Gira el iPhone en Enfoque con una sesión en marcha y Spotify sonando.
    2. Activa música y tareas: deben verse dos mitades iguales sin nada cortado.
+   3. Abre y cierra las tareas varias veces: la canción no se corta ni vuelve a empezar, y la
+      lista conserva dónde estabas. Con «Reducir movimiento» activado, solo hay fundidos.
 2. **Volumen**
-   1. Toca el altavoz: la cápsula sube desde el botón.
-   2. Arrástrala: el volumen del iPhone cambia (mira el indicador del sistema).
-   3. Usa los botones laterales: la cápsula se mueve sola.
-   4. Toca fuera: se cierra.
+   1. Toca el altavoz: la cápsula sube desde el botón y el arco naranja coincide con el nivel.
+   2. Arrastra: el volumen del iPhone cambia (mira el indicador del sistema).
+   3. Usa los botones laterales: la cápsula y el arco se mueven solos.
+   4. Baja hasta el final: el icono pasa a silenciado y el texto, a «Sin sonido».
+   5. Toca fuera o vuelve a tocar el botón: se cierra.
 3. **Captura en horizontal**
    1. Toca «+» y escribe con el teclado abierto: Guardar sigue a la vista.
    2. Abre Detalles, elige Trabajo, Alta, mañana y 45 min, y guarda.

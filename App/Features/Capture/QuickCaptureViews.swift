@@ -153,7 +153,7 @@ struct QuickCapturePanel: View {
     /// «Detalles»: abre o cierra la fila opcional sin perder lo escrito.
     private var detailsToggle: some View {
         Button {
-            withAnimation(reduceMotion ? nil : .smooth(duration: 0.25)) {
+            withAnimation(reduceMotion ? nil : Motion.quick) {
                 details = details == nil ? CaptureDetails(mode: ModeController.shared.mode) : nil
             }
         } label: {
@@ -447,7 +447,7 @@ struct CaptureToastOverlay: ViewModifier {
                         }
                 }
             }
-            .animation(reduceMotion ? .easeOut(duration: 0.2) : .spring(duration: 0.35, bounce: 0.15), value: center.confirmation?.id)
+            .animation(Motion.adaptive(Motion.emphasized, reduceMotion: reduceMotion), value: center.confirmation?.id)
             .sensoryFeedback(.success, trigger: center.confirmation?.id) { _, new in new != nil }
     }
 }

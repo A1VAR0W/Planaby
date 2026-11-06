@@ -28,8 +28,19 @@ struct PlanDraft: Identifiable, Codable, Equatable, Sendable {
         /// Tarea a la que pertenece, si es un bloque de trabajo.
         var taskID: UUID?
         var isIncluded = true
+        /// Evento ya guardado que este elemento modifica (al aceptar se cambia ese, no se crea otro).
+        var replaces: PersistentIdentifier?
+        /// Datos que la persona no dijo y Planaby ha puesto provisionalmente (se preguntan).
+        var unconfirmed: [ItemField]?
 
         var durationMinutes: Int { Int((end.timeIntervalSince(start) / 60).rounded()) }
+
+        func isUnconfirmed(_ field: ItemField) -> Bool { unconfirmed?.contains(field) ?? false }
+
+        mutating func confirm(_ field: ItemField) {
+            unconfirmed?.removeAll { $0 == field }
+            if unconfirmed?.isEmpty == true { unconfirmed = nil }
+        }
 
         func occurrences(in interval: DateInterval) -> [DateInterval] {
             Recurrence.occurrences(start: start, duration: end.timeIntervalSince(start), recurrence: recurrence, in: interval)
@@ -53,6 +64,8 @@ struct PlanDraft: Identifiable, Codable, Equatable, Sendable {
         var statedMinutes: Int?
         /// Bloques guardados de esta tarea que la propuesta sustituye (si se quita, se conservan).
         var replacedBlocks: [PersistentIdentifier] = []
+        /// Día en que se trabaja («pasa la revisión al viernes»): sus bloques van solo a ese día.
+        var workDay: Date?
 
         /// La duración tal como se pidió.
         var requestedMinutes: Int { statedMinutes ?? estimatedMinutes }
@@ -75,6 +88,8 @@ struct PlanDraft: Identifiable, Codable, Equatable, Sendable {
     var refs: [UUID: String] = [:]
     var nextEventRef = 1
     var nextTaskRef = 1
+    /// Eventos o tareas guardados que se borrarán al aceptar (siempre a la vista en la revisión).
+    var deletions: [SavedDeletion] = []
 
     init(items: [Item], tasks: [Workload], summary: String, warnings: [String], removals: [PersistentIdentifier] = []) {
         self.items = items
@@ -86,8 +101,22 @@ struct PlanDraft: Identifiable, Codable, Equatable, Sendable {
     }
 
     var includedItems: [Item] { items.filter(\.isIncluded) }
-    /// Eventos nuevos (no bloques), para poder recalcular la propuesta.
+    /// Eventos de la propuesta (no bloques): los nuevos y los guardados que se modifican.
     var newEvents: [Item] { items.filter { $0.kind != .workBlock } }
+    /// Solo los que se crean (no los guardados que se cambian).
+    var createdEvents: [Item] { newEvents.filter { $0.replaces == nil } }
+    /// Eventos guardados que la propuesta modifica.
+    var editedEvents: [Item] { newEvents.filter { $0.replaces != nil } }
+    /// Tareas que se crean (no las guardadas que se replanifican o editan).
+    var createdTasks: [Workload] { tasks.filter { $0.existing == nil } }
+    /// Lo que está guardado y la propuesta deja fuera del calendario: bloques sustituidos,
+    /// eventos modificados (se escriben encima) y lo que se borra. Un evento modificado que se
+    /// deja sin incluir se queda como estaba, así que sigue ocupando su hueco.
+    var replacedSavedIDs: Set<PersistentIdentifier> {
+        Set(removals + items.filter(\.isIncluded).compactMap(\.replaces) + deletions.map(\.id))
+    }
+    /// Datos provisionales pendientes de confirmar.
+    var hasUnconfirmed: Bool { newEvents.contains { $0.isIncluded && $0.unconfirmed?.isEmpty == false } }
     /// Bloques de trabajo de la propuesta.
     var blocks: [Item] { items.filter { $0.kind == .workBlock } }
 
@@ -113,8 +142,15 @@ struct PlanDraft: Identifiable, Codable, Equatable, Sendable {
         for event in newEvents {
             var line = "\(ref(event.id)) evento «\(event.title)» \(formatter.string(from: event.start)), \(event.durationMinutes) min, \(event.mode.rawValue)"
             if event.recurrence != .none { line += ", \(event.recurrence.rawValue)" }
+            if event.replaces != nil { line += ", cambio de un evento guardado" }
+            if let missing = event.unconfirmed, !missing.isEmpty {
+                line += ", falta confirmar " + missing.map(\.spanish).joined(separator: " y ")
+            }
             if !event.isIncluded { line += ", quitado" }
             lines.append(line)
+        }
+        for deletion in deletions {
+            lines.append("se borrará \(deletion.isTask ? "la tarea" : "el evento") guardado «\(deletion.title)» (\(deletion.detail))")
         }
         let ordered = orderedTasks
         for (index, task) in ordered.enumerated() {
@@ -136,8 +172,58 @@ struct PlanDraft: Identifiable, Codable, Equatable, Sendable {
 
     // Codable: `refs` como lista para que el JSON sea legible y estable.
     private enum CodingKeys: String, CodingKey {
-        case id, items, tasks, summary, warnings, removals, canMakeRoom, order, constraints, refs, nextEventRef, nextTaskRef
+        case id, items, tasks, summary, warnings, removals, canMakeRoom, order, constraints, refs, nextEventRef, nextTaskRef, deletions
     }
+}
+
+extension PlanDraft {
+    /// Lectura tolerante: una propuesta guardada por una versión anterior de Planaby (sin los
+    /// campos nuevos) se sigue pudiendo abrir y aceptar.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            items: try container.decode([Item].self, forKey: .items),
+            tasks: try container.decode([Workload].self, forKey: .tasks),
+            summary: try container.decodeIfPresent(String.self, forKey: .summary) ?? "",
+            warnings: try container.decodeIfPresent([String].self, forKey: .warnings) ?? [],
+            removals: try container.decodeIfPresent([PersistentIdentifier].self, forKey: .removals) ?? []
+        )
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        canMakeRoom = try container.decodeIfPresent(Bool.self, forKey: .canMakeRoom) ?? false
+        order = try container.decodeIfPresent([UUID].self, forKey: .order) ?? []
+        constraints = try container.decodeIfPresent(PlanConstraints.self, forKey: .constraints) ?? PlanConstraints()
+        if let stored = try container.decodeIfPresent([UUID: String].self, forKey: .refs) {
+            refs = stored
+            nextEventRef = try container.decodeIfPresent(Int.self, forKey: .nextEventRef) ?? nextEventRef
+            nextTaskRef = try container.decodeIfPresent(Int.self, forKey: .nextTaskRef) ?? nextTaskRef
+        }
+        deletions = try container.decodeIfPresent([SavedDeletion].self, forKey: .deletions) ?? []
+        assignRefs()
+    }
+}
+
+/// Un dato de un evento que se puede dejar provisional y preguntar después.
+enum ItemField: String, Codable, Sendable, CaseIterable {
+    case day, time, duration
+
+    var spanish: String {
+        switch self {
+        case .day: "el día"
+        case .time: "la hora"
+        case .duration: "la duración"
+        }
+    }
+}
+
+/// Un evento o una tarea guardados que la propuesta borrará al aceptarla.
+struct SavedDeletion: Codable, Equatable, Sendable, Identifiable {
+    let id: PersistentIdentifier
+    var title: String
+    /// «jueves 10:00», «entrega viernes 20:00».
+    var detail: String
+    var isTask: Bool
+    /// Es una serie que se repite: se borra entera.
+    var isSeries = false
 }
 
 /// Condiciones generales sobre toda la propuesta. Se aplican con el planificador de siempre

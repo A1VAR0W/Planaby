@@ -54,6 +54,8 @@ struct WorkItem: Sendable {
     var difficulty = 3
     /// Orden elegido al reorganizar (0 primero). Si hay orden, manda sobre la fecha límite.
     var rank: Int?
+    /// No se trabaja en ella antes de este momento («pásala al viernes»).
+    var notBefore: Date?
 }
 
 struct PlannedBlock: Equatable, Sendable {
@@ -104,7 +106,8 @@ struct WorkloadPlanner {
 
         for item in ordered {
             var remaining = item.minutes
-            let days = dayStarts(from: earliest, to: item.deadline)
+            let itemEarliest = max(earliest, item.notBefore.map(roundUp) ?? earliest)
+            let days = dayStarts(from: itemEarliest, to: item.deadline)
             let rules = item.availability
             let preference = preference(for: item)
             let padding = TimeInterval(rules.breakMinutes * 60)
@@ -124,7 +127,7 @@ struct WorkloadPlanner {
                     guard quota > 0,
                           let windowStart = calendar.date(byAdding: .minute, value: hours.startMinute, to: day),
                           let windowEnd = calendar.date(byAdding: .minute, value: hours.endMinute, to: day) else { continue }
-                    let start = max(windowStart, earliest)
+                    let start = max(windowStart, itemEarliest)
                     let end = min(windowEnd, item.deadline)
                     guard start < end else { continue }
 

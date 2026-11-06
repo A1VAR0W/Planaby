@@ -7,8 +7,11 @@ import SwiftUI
 struct DeskTaskList: View {
     let tint: Color
     let ink: Color
+    /// Abierta en el escritorio: al abrirse, el contenido entra escalonado; al cerrarse, se va a la vez.
+    var isOpen = true
     /// Se llama en cada toque para que la barra no se esconda mientras se usa la lista.
     let onInteract: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.modelContext) private var context
     @Environment(ModeController.self) private var modes
     @Environment(FocusTimer.self) private var timer
@@ -54,6 +57,7 @@ struct DeskTaskList: View {
                 .accessibilityHint("Captura rápida sin salir de la sesión")
             }
             .padding(.leading, Space.s)
+            .modifier(OpenStagger(isOpen: isOpen, index: 0, reduceMotion: reduceMotion))
 
             // Lo apuntado con la captura rápida: se organiza después, sin salir del escritorio.
             let unsorted = captures.count { CaptureRules.isPending($0.entry, now: .now) }
@@ -81,6 +85,7 @@ struct DeskTaskList: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityHint("Abre «Por organizar»")
+                .modifier(OpenStagger(isOpen: isOpen, index: 1, reduceMotion: reduceMotion))
             }
 
             if ordered.isEmpty {
@@ -92,8 +97,10 @@ struct DeskTaskList: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: Space.xs) {
-                        ForEach(ordered) { task in
+                        ForEach(Array(ordered.enumerated()), id: \.element.id) { index, task in
                             row(task, isCurrent: isCurrent(task))
+                                .modifier(OpenStagger(isOpen: isOpen, index: index + 2, reduceMotion: reduceMotion))
+                                .transition(.rise(reduceMotion: reduceMotion))
                         }
                     }
                 }
@@ -102,7 +109,9 @@ struct DeskTaskList: View {
         }
         .padding(Space.s)
         .background(Color.white.opacity(0.05), in: .rect(cornerRadius: Theme.cardRadius))
-        .animation(.smooth(duration: 0.3), value: ordered.map(\.isDone))
+        // Completar o reabrir recoloca la fila con un muelle suave (sin saltos).
+        .animation(Motion.adaptive(Motion.emphasized, reduceMotion: reduceMotion), value: ordered.map(\.id))
+        .animation(Motion.adaptive(Motion.standard, reduceMotion: reduceMotion), value: ordered.map(\.isDone))
         .sensoryFeedback(.success, trigger: tasks.count { $0.isDone })
         .confirmationDialog(
             "¿Borrar «\(deleting?.title ?? "")»?",
@@ -176,5 +185,20 @@ struct DeskTaskList: View {
         .contextMenu {
             Button("Borrar", systemImage: "trash", role: .destructive) { deleting = task }
         }
+    }
+}
+
+/// Al abrir la lista, cada fila entra un poco después de la anterior; al cerrarla, todas se van
+/// a la vez y más rápido. Con «Reducir movimiento», solo un fundido.
+private struct OpenStagger: ViewModifier {
+    let isOpen: Bool
+    let index: Int
+    let reduceMotion: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(isOpen ? 1 : 0)
+            .offset(x: isOpen || reduceMotion ? 0 : 18)
+            .animation(isOpen ? Motion.stagger(index, reduceMotion: reduceMotion) : Motion.adaptive(Motion.exit, reduceMotion: reduceMotion), value: isOpen)
     }
 }

@@ -52,7 +52,7 @@ struct FocusProfileTestView: View {
         HStack(spacing: Space.m) {
             if step > 0 {
                 Button {
-                    withAnimation(.smooth) { step -= 1 }
+                    withAnimation(Motion.standard) { step -= 1 }
                 } label: {
                     Image(systemName: "chevron.left")
                         .font(.body.weight(.semibold))
@@ -85,7 +85,7 @@ struct FocusProfileTestView: View {
                 if step == Self.lastStep {
                     finish()
                 } else {
-                    withAnimation(.smooth) { step += 1 }
+                    withAnimation(Motion.standard) { step += 1 }
                 }
             } label: {
                 Text(primaryTitle)

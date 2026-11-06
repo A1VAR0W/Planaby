@@ -272,7 +272,7 @@ struct TaskForm: View {
             let result = try await PlanningAssistant.estimate(
                 title: cleanTitle, notes: notes, deadline: deadline, attachmentTexts: attachments.map(\.text)
             )
-            withAnimation(.smooth) {
+            withAnimation(Motion.standard) {
                 estimate = result
                 estimatedMinutes = max(15, Int((Double(result.estimatedMinutes) / 15).rounded()) * 15)
                 difficulty = result.difficulty

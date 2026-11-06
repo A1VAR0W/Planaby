@@ -197,7 +197,7 @@ struct StandBySetupView: View {
     private func stepCard(_ step: SetupStep) -> some View {
         VStack(alignment: .leading, spacing: Space.s) {
             Button {
-                withAnimation(.smooth(duration: 0.25)) { expanded = expanded == step.id ? nil : step.id }
+                withAnimation(Motion.quick) { expanded = expanded == step.id ? nil : step.id }
             } label: {
                 HStack(alignment: .top, spacing: Space.m) {
                     ZStack {

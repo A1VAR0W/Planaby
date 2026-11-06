@@ -105,7 +105,7 @@ struct ModeScheduleView: View {
                         }
                         Spacer()
                         Button("Quitar", systemImage: "minus.circle.fill") {
-                            withAnimation(.smooth) { setHours(nil, for: day.id) }
+                            withAnimation(Motion.standard) { setHours(nil, for: day.id) }
                         }
                         .labelStyle(.iconOnly)
                         .foregroundStyle(Theme.secondaryText)
@@ -126,7 +126,7 @@ struct ModeScheduleView: View {
                 Menu {
                     ForEach(candidates, id: \.id) { day in
                         Button(Self.fullName(day.id)) {
-                            withAnimation(.smooth) {
+                            withAnimation(Motion.standard) {
                                 setHours(.init(startMinute: availability.startMinute, endMinute: availability.endMinute), for: day.id)
                             }
                         }

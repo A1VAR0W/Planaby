@@ -124,7 +124,7 @@ struct PlanView: View {
             ToolbarItem(placement: .topBarLeading) {
                 if !Calendar.current.isDateInToday(selectedDay) {
                     Button("Hoy") {
-                        withAnimation(.smooth) { selectedDay = Calendar.current.startOfDay(for: .now) }
+                        withAnimation(Motion.standard) { selectedDay = Calendar.current.startOfDay(for: .now) }
                     }
                 }
             }
@@ -384,7 +384,7 @@ private struct CalendarHeader: View {
         VStack(spacing: Space.s) {
             HStack {
                 Button {
-                    withAnimation(reduceMotion ? nil : .smooth(duration: 0.3)) { showsMonth.toggle() }
+                    withAnimation(reduceMotion ? nil : Motion.standard) { showsMonth.toggle() }
                 } label: {
                     HStack(spacing: Space.xs) {
                         Text(selectedDay.formatted(.dateTime.month(.wide).year()).capitalized)
@@ -461,7 +461,7 @@ private struct CalendarHeader: View {
                     showsWeekday: showsWeekday,
                     markers: markers(day)
                 ) {
-                    withAnimation(.smooth(duration: 0.25)) { selectedDay = day }
+                    withAnimation(Motion.quick) { selectedDay = day }
                 }
                 .frame(maxWidth: .infinity)
             }
@@ -500,7 +500,7 @@ private struct CalendarHeader: View {
             target = calendar.date(byAdding: .day, value: 7 * step, to: selectedDay)
         }
         guard let target else { return }
-        withAnimation(.smooth(duration: 0.25)) { selectedDay = target }
+        withAnimation(Motion.quick) { selectedDay = target }
     }
 }
 

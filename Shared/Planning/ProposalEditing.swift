@@ -32,11 +32,13 @@ struct ProposalChanges: Codable, Equatable, Sendable {
     var reminderMinutes: Int?
     var notes: String?
     var included: Bool?
+    /// Día en que se trabaja una tarea («pásala al viernes»), sin tocar su entrega si da tiempo.
+    var workDay: Date?
 
     var isEmpty: Bool { self == ProposalChanges() }
 
     /// Es un cambio de horario (para preguntar «¿cuál quieres mover?»).
-    var isReschedule: Bool { day != nil || startMinute != nil || deadline != nil }
+    var isReschedule: Bool { day != nil || startMinute != nil || deadline != nil || workDay != nil }
 }
 
 /// Una modificación concreta de la propuesta. Se aplica de forma determinista: la IA solo dice
@@ -45,7 +47,10 @@ enum ProposalEdit: Codable, Equatable, Sendable {
     case addEvent(PlanDraft.Item)
     case addTask(PlanDraft.Workload)
     case update(ProposalTarget, ProposalChanges)
+    /// Quitar de la propuesta (lo guardado no se toca).
     case remove(ProposalTarget)
+    /// Borrar del calendario algo guardado (se ve en la propuesta y solo ocurre al aceptarla).
+    case delete(ProposalTarget)
     /// Esa tarea se planifica la primera.
     case moveFirst(ProposalTarget)
     /// Primero lo urgente (prioridad y fecha límite).
@@ -54,7 +59,7 @@ enum ProposalEdit: Codable, Equatable, Sendable {
 
     var target: ProposalTarget? {
         switch self {
-        case .update(let target, _), .remove(let target), .moveFirst(let target): target
+        case .update(let target, _), .remove(let target), .delete(let target), .moveFirst(let target): target
         default: nil
         }
     }
@@ -63,6 +68,7 @@ enum ProposalEdit: Codable, Equatable, Sendable {
         switch self {
         case .update(_, let changes): .update(target, changes)
         case .remove: .remove(target)
+        case .delete: .delete(target)
         case .moveFirst: .moveFirst(target)
         default: self
         }
@@ -152,8 +158,17 @@ enum ProposalText {
 
     /// Un código de la propuesta dentro del texto («E1», «t2»).
     static func code(in text: String) -> String? {
+        code(in: text, prefixes: ["e", "t"])
+    }
+
+    /// Un código de algo guardado («C3» = cita del calendario, «P2» = tarea pendiente).
+    static func savedCode(in text: String) -> String? {
+        code(in: text, prefixes: ["c", "p"])
+    }
+
+    private static func code(in text: String, prefixes: Set<Character>) -> String? {
         for word in words(text) {
-            guard let first = word.first, first == "e" || first == "t", word.count >= 2,
+            guard let first = word.first, prefixes.contains(first), word.count >= 2,
                   word.dropFirst().allSatisfy(\.isNumber) else { continue }
             return word.uppercased()
         }
@@ -250,7 +265,7 @@ enum ProposalEditor {
                     var changes = ProposalChanges()
                     changes.deadline = task.deadline
                     changes.minutes = task.requestedMinutes
-                    update(task: twin.id, with: changes, in: &result, affected: &affected, calendar: calendar)
+                    update(task: twin.id, with: changes, in: &result, affected: &affected, problems: &problems, calendar: calendar)
                 } else {
                     result.tasks.append(task)
                     affected.insert(task.id)
@@ -260,13 +275,17 @@ enum ProposalEditor {
                 if changes.isEmpty {
                     problems.append("No sé qué cambiar de «\(title(of: id, in: result))». Dime, por ejemplo, la hora o la duración.")
                 } else if result.tasks.contains(where: { $0.id == id }) {
-                    update(task: id, with: changes, in: &result, affected: &affected, calendar: calendar)
+                    update(task: id, with: changes, in: &result, affected: &affected, problems: &problems, calendar: calendar)
                 } else {
                     update(event: id, with: changes, in: &result, problems: &problems, calendar: calendar)
                 }
             case .remove:
                 guard let id = resolved[index] else { continue }
                 remove(id, from: &result)
+                affected.remove(id)
+            case .delete:
+                guard let id = resolved[index] else { continue }
+                delete(id, from: &result)
                 affected.remove(id)
             case .moveFirst:
                 guard let id = resolved[index] else { continue }
@@ -299,6 +318,16 @@ enum ProposalEditor {
         var item = draft.items[index]
         let length = item.end.timeIntervalSince(item.start)
         if let title = changes.title?.trimmingCharacters(in: .whitespaces), !title.isEmpty { item.title = title }
+        // Lo que se dice ahora deja de ser provisional.
+        if changes.day != nil || changes.deadline != nil { item.confirm(.day) }
+        if changes.startMinute != nil || changes.deadline != nil { item.confirm(.time) }
+        if changes.minutes != nil || changes.deltaMinutes != nil || changes.endMinute != nil { item.confirm(.duration) }
+        // Un evento no tiene «día de trabajo»: es su día.
+        var changes = changes
+        if changes.day == nil, let workDay = changes.workDay {
+            changes.day = workDay
+            item.confirm(.day)
+        }
 
         var start = item.start
         if let day = changes.day { start = combine(day: day, timeOf: start, calendar: calendar) }
@@ -334,7 +363,10 @@ enum ProposalEditor {
         draft.items[index] = item
     }
 
-    private static func update(task id: UUID, with changes: ProposalChanges, in draft: inout PlanDraft, affected: inout Set<UUID>, calendar: Calendar) {
+    private static func update(
+        task id: UUID, with changes: ProposalChanges, in draft: inout PlanDraft, affected: inout Set<UUID>,
+        problems: inout [String], calendar: Calendar
+    ) {
         guard let index = draft.tasks.firstIndex(where: { $0.id == id }) else { return }
         var task = draft.tasks[index]
         var replan = false
@@ -348,6 +380,17 @@ enum ProposalEditor {
         if let exact = changes.deadline { deadline = exact }
         if deadline != task.deadline {
             task.deadline = deadline
+            replan = true
+        }
+        if let workDay = changes.workDay {
+            let day = calendar.startOfDay(for: workDay)
+            task.workDay = day
+            if task.deadline < day.addingTimeInterval(3600) {
+                // Si se pide trabajarla un día después de su entrega, la entrega pasa a ese día.
+                let newDeadline = at(minute: 23 * 60 + 59, on: day, calendar: calendar)
+                problems.append("«\(task.title)» se entregaba \(ProposalFormat.dayName(task.deadline)); ahora se entrega \(ProposalFormat.dayName(newDeadline)).")
+                task.deadline = newDeadline
+            }
             replan = true
         }
         if let minutes = changes.minutes, minutes > 0 {
@@ -396,6 +439,26 @@ enum ProposalEditor {
         draft.refs[id] = nil
     }
 
+    /// Borra algo guardado: queda apuntado en la propuesta y desaparece del calendario solo al
+    /// aceptarla. Si no estaba guardado (solo era una propuesta), basta con quitarlo.
+    static func delete(_ id: UUID, from draft: inout PlanDraft) {
+        if let task = draft.tasks.first(where: { $0.id == id }), let saved = task.existing {
+            if !draft.deletions.contains(where: { $0.id == saved }) {
+                draft.deletions.append(SavedDeletion(
+                    id: saved, title: task.title, detail: "entrega " + ProposalFormat.dayTime.string(from: task.deadline), isTask: true
+                ))
+            }
+        } else if let item = draft.items.first(where: { $0.id == id }), let saved = item.replaces {
+            if !draft.deletions.contains(where: { $0.id == saved }) {
+                draft.deletions.append(SavedDeletion(
+                    id: saved, title: item.title, detail: ProposalFormat.dayTime.string(from: item.start),
+                    isTask: false, isSeries: item.recurrence != .none
+                ))
+            }
+        }
+        remove(id, from: &draft)
+    }
+
     private static func merge(_ new: PlanConstraints, into current: inout PlanConstraints) {
         if let latest = new.latestEndMinute { current.latestEndMinute = latest }
         if let earliest = new.earliestStartMinute { current.earliestStartMinute = earliest }
@@ -417,6 +480,7 @@ enum ProposalEditor {
     private static func question(for edit: ProposalEdit, draft: PlanDraft) -> String {
         switch edit {
         case .remove: "¿Cuál quieres quitar?"
+        case .delete: "¿Cuál quieres borrar?"
         case .moveFirst: "¿Cuál va primero?"
         case .update(_, let changes): changes.isReschedule ? "¿Cuál quieres mover?" : "¿Cuál quieres cambiar?"
         default: "¿A cuál te refieres?"
@@ -471,12 +535,15 @@ struct ProposalEditFields: Equatable, Sendable {
     var mode = ""
     var repeats = ""
     var reminderMinutes = -1
+    /// Día en que se trabaja una tarea (no su entrega).
+    var workDay = ""
 
     /// nil si la acción es «deshacer» (se atiende aparte) o no dice nada.
     func makeEdit(calendar: Calendar = .current) -> ProposalEdit? {
         let target = ProposalTarget(text: self.target, kind: inferredKind)
         switch action {
         case "remove": return .remove(target)
+        case "delete": return .delete(target)
         case "first": return .moveFirst(target)
         case "undo": return nil
         default:
@@ -493,6 +560,7 @@ struct ProposalEditFields: Equatable, Sendable {
             changes.mode = PlanMode(rawValue: mode)
             changes.recurrence = repeats.isEmpty ? nil : Recurrence(rawValue: repeats)
             if reminderMinutes >= 0 { changes.reminderMinutes = reminderMinutes }
+            changes.workDay = ProposalFormat.day(workDay, calendar: calendar)
             return .update(target, changes)
         }
     }
@@ -503,7 +571,8 @@ struct ProposalEditFields: Equatable, Sendable {
     /// dificultad, de una tarea. Si no, vale cualquiera (y el código, si lo hay, manda).
     private var inferredKind: ProposalTarget.Kind {
         if let code = ProposalText.code(in: target) { return code.hasPrefix("E") ? .event : .task }
-        if !deadline.isEmpty || priority >= 0 || difficulty > 0 { return .task }
+        if let code = ProposalText.savedCode(in: target) { return code.hasPrefix("C") ? .event : .task }
+        if !deadline.isEmpty || priority >= 0 || difficulty > 0 || !workDay.isEmpty { return .task }
         if !time.isEmpty || !endTime.isEmpty || !repeats.isEmpty { return .event }
         return .any
     }
@@ -632,12 +701,15 @@ struct ActiveProposal: Codable, Equatable, Sendable {
     var messageID: UUID
     var clarification: ProposalClarification?
     var updated: Date = .now
+    /// Pregunta pendiente sobre un dato que falta (día, hora o duración), con respuestas rápidas.
+    var detail: DetailQuestion?
 }
 
 // MARK: - Qué ha cambiado
 
 struct ProposalChange: Codable, Equatable, Sendable, Identifiable {
-    enum Kind: String, Codable, Sendable { case added, modified, removed, moved }
+    /// `deleted`: algo guardado que se borrará al aceptar; `kept`: ya no se borra.
+    enum Kind: String, Codable, Sendable { case added, modified, removed, moved, deleted, kept }
     enum Field: String, Codable, Sendable {
         case title, day, time, duration, deadline, minutes, priority, difficulty, mode, recurrence, reminder, notes, included, order
     }
@@ -660,6 +732,8 @@ struct ProposalChange: Codable, Equatable, Sendable, Identifiable {
         switch kind {
         case .added: return "Nuevo: \(title)"
         case .removed: return "Quitado: \(title)"
+        case .deleted: return "Se borrará: \(title)"
+        case .kept: return "Se conserva: \(title)"
         case .moved: return title
         case .modified:
             let parts = details.map { detail in
@@ -689,7 +763,10 @@ enum ProposalDiff {
             let details = eventDetails(before, event)
             if !details.isEmpty { result.append(ProposalChange(kind: .modified, title: event.title, details: details)) }
         }
+        let deleted = Set(new.deletions.map(\.id))
         for event in old.newEvents where newEvents[event.id] == nil {
+            // Un evento guardado que se borra ya sale como «Se borrará».
+            if let saved = event.replaces, deleted.contains(saved) { continue }
             result.append(ProposalChange(kind: .removed, title: event.title))
         }
 
@@ -709,7 +786,15 @@ enum ProposalDiff {
             if !details.isEmpty { result.append(ProposalChange(kind: .modified, title: task.title, details: details)) }
         }
         for task in old.tasks where !newIDs.contains(task.id) {
+            if let saved = task.existing, deleted.contains(saved) { continue }
             result.append(ProposalChange(kind: .removed, title: task.title))
+        }
+        let wasDeleted = Set(old.deletions.map(\.id))
+        for deletion in new.deletions where !wasDeleted.contains(deletion.id) {
+            result.append(ProposalChange(kind: .deleted, title: deletion.title))
+        }
+        for deletion in old.deletions where !deleted.contains(deletion.id) {
+            result.append(ProposalChange(kind: .kept, title: deletion.title))
         }
 
         // Bloques de tareas que siguen en la propuesta y han cambiado de sitio.
@@ -771,6 +856,9 @@ enum ProposalDiff {
         }
         if a.mode != b.mode { details.append(.init(field: .mode, before: a.mode.title, after: b.mode.title)) }
         if a.notes != b.notes { details.append(.init(field: .notes, before: "", after: "")) }
+        if a.workDay != b.workDay, let day = b.workDay {
+            details.append(.init(field: .day, before: a.workDay.map { ProposalFormat.dayName($0) } ?? "", after: ProposalFormat.dayName(day)))
+        }
         return details
     }
 
@@ -907,10 +995,12 @@ struct ProposalPlacement {
         for index in draft.tasks.indices where replan.contains(draft.tasks[index].id) {
             if let stated = draft.tasks[index].statedMinutes { draft.tasks[index].estimatedMinutes = adjust(stated) }
             let task = draft.tasks[index]
+            let window = workWindow(task)
             work.append(WorkItem(
-                id: task.id, deadline: task.deadline, minutes: task.estimatedMinutes, priority: task.priority,
+                id: task.id, deadline: window.end, minutes: task.estimatedMinutes, priority: task.priority,
                 availability: draft.constraints.apply(to: availability(task.mode)), capGroup: task.mode.rawValue,
-                difficulty: task.difficulty, rank: draft.order.isEmpty ? nil : ranked.firstIndex(of: task.id)
+                difficulty: task.difficulty, rank: draft.order.isEmpty ? nil : ranked.firstIndex(of: task.id),
+                notBefore: window.start
             ))
         }
 
@@ -941,8 +1031,17 @@ struct ProposalPlacement {
 
     /// Un bloque sigue valiendo si no ha empezado, acaba antes de la fecha límite, no pisa nada
     /// fijo y respeta las condiciones de horario.
+    /// Cuándo se puede trabajar una tarea: hasta su entrega o, si tiene día de trabajo, solo ese día.
+    func workWindow(_ task: PlanDraft.Workload) -> (start: Date?, end: Date) {
+        guard let day = task.workDay.map({ calendar.startOfDay(for: $0) }),
+              let next = calendar.date(byAdding: .day, value: 1, to: day) else { return (nil, task.deadline) }
+        return (day, min(task.deadline, next))
+    }
+
     private func fits(_ block: PlanDraft.Item, task: PlanDraft.Workload, fixed: [DateInterval], constraints: PlanConstraints) -> Bool {
-        guard block.start >= now, block.end <= task.deadline else { return false }
+        let window = workWindow(task)
+        guard block.start >= now, block.end <= window.end else { return false }
+        if let start = window.start, block.start < start { return false }
         if fixed.contains(where: { $0.start < block.end && block.start < $0.end }) { return false }
         if let latest = constraints.latestEndMinute, endMinute(of: block) > latest { return false }
         if let earliest = constraints.earliestStartMinute, ProposalEditor.minuteOfDay(block.start, calendar: calendar) < earliest { return false }

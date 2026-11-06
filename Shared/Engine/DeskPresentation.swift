@@ -118,6 +118,22 @@ enum DeskPanels: Equatable, Sendable {
     static func halfWidth(total: Double, spacing: Double) -> Double {
         max(0, (total - spacing) / 2)
     }
+
+    /// Ancho de la lista de tareas junto a la cifra.
+    static let taskColumn: Double = 320
+
+    /// Anchos del panel principal (cifra o música) y de las tareas (0 si están cerradas). La
+    /// composición es siempre la misma (principal + tareas), así abrir, cerrar o cambiar de
+    /// disposición solo cambia anchos: nada se vuelve a crear y la animación es continua.
+    static func widths(total: Double, spacing: Double, music: Bool, tasks: Bool) -> (main: Double, tasks: Double) {
+        let total = max(0, total)
+        guard tasks else { return (total, 0) }
+        let half = halfWidth(total: total, spacing: spacing)
+        // Con música, mitad y mitad; sin ella, una columna fija que nunca pasa de la mitad
+        // (la cifra sigue mandando).
+        let side = music ? half : min(taskColumn, half)
+        return (max(0, total - spacing - side), side)
+    }
 }
 
 /// Textos del aviso de cambio de fase (la tarjeta dentro de la app): «¡Sesión completada! Has

@@ -91,7 +91,7 @@ struct DeskView: View {
                 }
                 .padding(.horizontal, Space.l)
                 .padding(.vertical, Space.s)
-                .animation(.smooth(duration: 0.4), value: showControls)
+                .animation(Motion.adaptive(Motion.standard, reduceMotion: reduceMotion), value: showControls)
                 .animation(layoutAnimation, value: showsTasks)
                 .animation(layoutAnimation, value: musicVisible)
 
@@ -154,7 +154,7 @@ struct DeskView: View {
                 .transition(.opacity)
             }
         }
-        .animation(.smooth(duration: 0.3), value: capture.composer?.id)
+        .animation(Motion.adaptive(Motion.emphasized, reduceMotion: reduceMotion), value: capture.composer?.id)
         .confirmationDialog("¿Terminar la sesión?", isPresented: $confirmingStop, titleVisibility: .visible) {
             Button("Terminar", role: .destructive) { timer.stop() }
         } message: {
@@ -178,57 +178,57 @@ struct DeskView: View {
     // MARK: - Partes
 
     /// Solo música, solo tareas o las dos a la vez (mitad y mitad del sitio que queda sobre la
-    /// barra). Cambiar de disposición no toca la sesión ni el reproductor.
-    @ViewBuilder
+    /// barra). Siempre la misma composición —panel principal y lista de tareas— y solo cambian
+    /// los anchos: el reproductor no se vuelve a crear, la lista conserva su desplazamiento y el
+    /// temporizador no se toca.
     private func panels(state: TimerState?, presentation: DeskPresentation, date: Date, tint: Color, ink: Color, night: Bool) -> some View {
-        let layout = DeskPanels(music: musicVisible, tasks: showsTasks)
         let music = musicVisible
-        if layout == .musicAndTasks {
-            GeometryReader { proxy in
-                let half = DeskPanels.halfWidth(total: proxy.size.width, spacing: Space.m)
-                HStack(spacing: Space.m) {
-                    DeskNowPlaying(state: state, date: date, tint: tint, ink: ink, night: night, compact: true)
-                        .frame(width: half)
-                        .transition(panelTransition(edge: .leading))
-                    DeskTaskList(tint: tint, ink: ink, onInteract: reveal)
-                        .frame(width: half)
-                        .transition(panelTransition(edge: .trailing))
-                }
-            }
-            .padding(.top, Space.s)
-        } else {
-            HStack(spacing: Space.l) {
-                if music {
-                    // Modo carátula: lo que suena en Spotify, como en StandBy.
-                    DeskNowPlaying(state: state, date: date, tint: tint, ink: ink, night: night)
-                        .transition(panelTransition(edge: .leading))
-                } else {
-                    VStack(spacing: 0) {
-                        Spacer(minLength: 0)
-                        face(state: state, date: date, tint: tint, ink: ink)
-                        details(presentation, date: date, tint: tint, ink: ink)
-                            .padding(.top, Space.s)
-                        Spacer(minLength: 0)
+        let tasks = showsTasks
+        return GeometryReader { proxy in
+            let widths = DeskPanels.widths(total: proxy.size.width, spacing: Space.m, music: music, tasks: tasks)
+            let openWidth = DeskPanels.widths(total: proxy.size.width, spacing: Space.m, music: music, tasks: true).tasks
+            HStack(alignment: .top, spacing: tasks ? Space.m : 0) {
+                ZStack {
+                    if music {
+                        // Modo carátula: lo que suena en Spotify, como en StandBy. Con las tareas
+                        // al lado pasa a columna (carátula y controles se recolocan sin cortes).
+                        DeskNowPlaying(state: state, date: date, tint: tint, ink: ink, night: night, compact: tasks)
+                            .padding(.top, tasks ? Space.s : 0)
+                            .transition(panelTransition(edge: .leading))
+                    } else {
+                        VStack(spacing: 0) {
+                            Spacer(minLength: 0)
+                            face(state: state, date: date, tint: tint, ink: ink)
+                            details(presentation, date: date, tint: tint, ink: ink)
+                                .padding(.top, Space.s)
+                            Spacer(minLength: 0)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .transition(.opacity)
                     }
-                    .frame(maxWidth: .infinity)
-                    .transition(.opacity)
                 }
-                if showsTasks {
-                    DeskTaskList(tint: tint, ink: ink, onInteract: reveal)
-                        .frame(width: 320)
-                        .padding(.top, Space.s)
-                        .transition(panelTransition(edge: .trailing))
-                }
+                .frame(width: widths.main, height: proxy.size.height)
+
+                // La lista se queda montada aunque esté cerrada: se recoge hacia la derecha y
+                // vuelve con lo que tenía (desplazamiento incluido).
+                DeskTaskList(tint: tint, ink: ink, isOpen: tasks, onInteract: reveal)
+                    .frame(width: openWidth)
+                    .padding(.top, Space.s)
+                    .frame(width: widths.tasks, height: proxy.size.height, alignment: .leading)
+                    .clipped()
+                    .opacity(tasks ? 1 : 0)
+                    .allowsHitTesting(tasks)
+                    .accessibilityHidden(!tasks)
             }
         }
     }
 
     private var layoutAnimation: Animation {
-        reduceMotion ? .easeInOut(duration: 0.2) : .smooth(duration: 0.4)
+        Motion.adaptive(Motion.panel, reduceMotion: reduceMotion)
     }
 
     private func panelTransition(edge: Edge) -> AnyTransition {
-        reduceMotion ? .opacity : .move(edge: edge).combined(with: .opacity)
+        .panel(from: edge, reduceMotion: reduceMotion)
     }
 
     /// Debajo de la cifra: la tarea y lo siguiente, y el recuento de comunicaciones (sin textos).
@@ -428,6 +428,7 @@ struct DeskView: View {
             Image(systemName: musicVisible ? "music.note.list" : "music.note")
                 .font(.system(size: 16, weight: .medium))
                 .frame(width: 44, height: 44)
+                .contentTransition(.symbolEffect(.replace))
         }
         .buttonStyle(.glass)
         .buttonBorderShape(.circle)
@@ -442,6 +443,7 @@ struct DeskView: View {
             Image(systemName: showsTasks ? "checklist.checked" : "checklist")
                 .font(.system(size: 16, weight: .medium))
                 .frame(width: 44, height: 44)
+                .contentTransition(.symbolEffect(.replace))
         }
         .buttonStyle(.glass)
         .buttonBorderShape(.circle)
@@ -456,6 +458,7 @@ struct DeskView: View {
             Image(systemName: dimmed ? "sun.max.fill" : "moon.fill")
                 .font(.system(size: 16, weight: .medium))
                 .frame(width: 44, height: 44)
+                .contentTransition(.symbolEffect(.replace))
         }
         .buttonStyle(.glass)
         .buttonBorderShape(.circle)

@@ -78,15 +78,36 @@ enum PlanBuilder {
     }
 
     static func accept(_ draft: PlanDraft, context: ModelContext) {
+        // Se busca cada cosa guardada entre lo que existe de verdad: si algo se borró mientras
+        // tanto, no se recrea ni se toca otro elemento.
+        let savedEvents = Dictionary(
+            ((try? context.fetch(FetchDescriptor<CalendarEvent>())) ?? []).map { ($0.persistentModelID, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let savedTasks = Dictionary(
+            ((try? context.fetch(FetchDescriptor<PlanTask>())) ?? []).map { ($0.persistentModelID, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
         for id in draft.removals {
-            if let event = context.model(for: id) as? CalendarEvent {
+            if let event = savedEvents[id], !event.isDeleted {
+                context.delete(event)
+            }
+        }
+        // Lo que la persona pidió borrar (y vio en la propuesta antes de aceptar).
+        for deletion in draft.deletions {
+            if deletion.isTask, let task = savedTasks[deletion.id], !task.isDeleted {
+                task.attachments.forEach { AttachmentStore.delete($0.fileName) }
+                context.delete(task)
+            } else if !deletion.isTask, let event = savedEvents[deletion.id], !event.isDeleted {
                 context.delete(event)
             }
         }
 
         var tasks: [UUID: PlanTask] = [:]
         for workload in draft.tasks {
-            if let existing = workload.existing, let task = context.model(for: existing) as? PlanTask {
+            if let existing = workload.existing {
+                // Una tarea guardada que ya no existe no se vuelve a crear.
+                guard let task = savedTasks[existing], !task.isDeleted else { continue }
                 // Solo cambia lo que se cambió en la propuesta (la carga salió de esta misma tarea).
                 if task.title != workload.title { task.title = workload.title }
                 if task.deadline != workload.deadline { task.deadline = workload.deadline }
@@ -118,6 +139,21 @@ enum PlanBuilder {
         }
 
         for item in draft.includedItems {
+            if let saved = item.replaces {
+                // Un evento guardado que se ha cambiado: se modifica ese, no se crea otro.
+                guard let event = savedEvents[saved], !event.isDeleted else { continue }
+                if event.title != item.title { event.title = item.title }
+                if event.start != item.start { event.start = item.start }
+                if event.end != item.end { event.end = item.end }
+                if event.mode != item.mode { event.mode = item.mode }
+                if event.recurrence != item.recurrence { event.recurrence = item.recurrence }
+                if event.reminderMinutes != item.reminderMinutes { event.reminderMinutes = item.reminderMinutes }
+                continue
+            }
+            if let taskID = item.taskID, tasks[taskID] == nil, draft.tasks.contains(where: { $0.id == taskID }) {
+                // Bloque de una tarea que ya no existe.
+                continue
+            }
             let event = CalendarEvent(
                 title: item.title, start: item.start, end: item.end, mode: item.mode,
                 kind: item.kind, recurrence: item.recurrence, reminderMinutes: item.reminderMinutes
@@ -159,6 +195,13 @@ enum PlanBuilder {
     private static func workload(replanning task: PlanTask, id: UUID = UUID(), now: Date) -> PlanDraft.Workload? {
         let remaining = task.estimatedMinutes - startedMinutes(of: task, now: now)
         guard remaining > 0, task.deadline > now else { return nil }
+        return editableWorkload(task, id: id, now: now)
+    }
+
+    /// Una tarea guardada para editarla desde el chat (cambiar su nombre, moverla, borrarla),
+    /// aunque ya no le quede tiempo por colocar.
+    static func editableWorkload(_ task: PlanTask, id: UUID = UUID(), now: Date = .now) -> PlanDraft.Workload {
+        let remaining = max(15, task.estimatedMinutes - startedMinutes(of: task, now: now))
         return PlanDraft.Workload(
             id: id, title: task.title, mode: task.mode, deadline: task.deadline,
             estimatedMinutes: remaining, priority: task.priority, difficulty: task.difficulty,
@@ -184,8 +227,10 @@ enum PlanBuilder {
         let inDraft = Set(draft.tasks.compactMap(\.existing))
         let horizon = max(draft.tasks.map(\.deadline).max() ?? now, now.addingTimeInterval(21 * 24 * 3600))
         let range = DateInterval(start: now, end: horizon)
-        let taken = draft.newEvents.filter(\.isIncluded).flatMap { $0.occurrences(in: range) }
-        for task in pending where !inDraft.contains(task.persistentModelID) {
+        // Lo nuevo y las franjas que se piden libres: los bloques guardados que caen ahí se mueven.
+        let taken = draft.newEvents.filter(\.isIncluded).flatMap { $0.occurrences(in: range) } + draft.constraints.freeIntervals
+        let deletedTasks = Set(draft.deletions.filter(\.isTask).map(\.id))
+        for task in pending where !inDraft.contains(task.persistentModelID) && !deletedTasks.contains(task.persistentModelID) {
             let future = task.blocks.filter { $0.start > now && !draft.removals.contains($0.persistentModelID) }
             let clashes = future.contains { block in taken.contains { $0.start < block.end && block.start < $0.end } }
             guard reorganizeAll || clashes, let workload = workload(replanning: task, now: now) else { continue }
@@ -196,9 +241,10 @@ enum PlanBuilder {
         if reorganizeAll { affected.formUnion(draft.tasks.map(\.id)) }
         draft.assignRefs()
 
-        let removed = Set(draft.removals)
+        // Lo que la propuesta sustituye, cambia o borra deja de ocupar su hueco actual.
+        let removed = draft.replacedSavedIDs
         let existing = ((try? context.fetch(FetchDescriptor<CalendarEvent>())) ?? [])
-            .filter { !removed.contains($0.persistentModelID) }
+            .filter { event in !removed.contains(event.persistentModelID) && !(event.task.map { deletedTasks.contains($0.persistentModelID) } ?? false) }
         let busy = existing.flatMap { $0.occurrences(in: range) } + ExternalCalendars.shared.busyIntervals(in: range)
         let placement = ProposalPlacement(
             busy: busy, planner: personal.planner(), availability: { ModeController.shared.availability(for: $0) },
@@ -230,7 +276,10 @@ enum PlanBuilder {
         draft.warnings = warnings
 
         let blocks = draft.blocks.compactMap { item in item.taskID.map { PlannedBlock(itemID: $0, start: item.start, end: item.end) } }
-        draft.summary = summary(events: draft.newEvents, tasks: draft.tasks, blocks: blocks)
+        draft.summary = summary(
+            events: draft.createdEvents, tasks: draft.tasks, blocks: blocks,
+            edited: draft.editedEvents.count, deleted: draft.deletions.count
+        )
         let otherBlocks = pending.contains { task in
             !draft.tasks.contains { $0.existing == task.persistentModelID } && task.blocks.contains { $0.start > now }
         }
@@ -302,7 +351,12 @@ enum PlanBuilder {
         )
     }
 
-    private static func summary(events: [PlanDraft.Item], tasks: [PlanDraft.Workload], blocks: [PlannedBlock]) -> String {
+    private static func summary(
+        events: [PlanDraft.Item], tasks: [PlanDraft.Workload], blocks: [PlannedBlock], edited: Int = 0, deleted: Int = 0
+    ) -> String {
+        var extra: [String] = []
+        if edited > 0 { extra.append(edited == 1 ? "cambio 1 evento guardado" : "cambio \(edited) eventos guardados") }
+        if deleted > 0 { extra.append(deleted == 1 ? "borro 1 elemento guardado" : "borro \(deleted) elementos guardados") }
         var parts: [String] = []
         if !events.isEmpty {
             parts.append(events.count == 1 ? "1 evento" : "\(events.count) eventos")
@@ -313,8 +367,12 @@ enum PlanBuilder {
             parts.append("\(blocks.count) bloques de trabajo (\(FocusStats.format(TimeInterval(minutes * 60)))) en \(days == 1 ? "1 día" : "\(days) días")")
         }
         guard !parts.isEmpty else {
+            if !extra.isEmpty {
+                let text = extra.joined(separator: " y ")
+                return text.prefix(1).uppercased() + text.dropFirst() + "."
+            }
             return tasks.isEmpty ? "No hay nada que añadir." : "No he encontrado huecos libres para estas tareas."
         }
-        return "Propongo " + parts.joined(separator: " y ") + "."
+        return "Propongo " + parts.joined(separator: " y ") + (extra.isEmpty ? "" : "; " + extra.joined(separator: " y ")) + "."
     }
 }
