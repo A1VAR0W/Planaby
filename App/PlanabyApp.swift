@@ -10,6 +10,8 @@ struct PlanabyApp: App {
     @State private var library = MethodLibrary.shared
     @State private var modes = ModeController.shared
     @State private var inbox = PlanInbox.shared
+    /// Desde el arranque, para atender los atajos y controles de captura rápida.
+    @State private var capture = CaptureCenter.shared
 
     var body: some Scene {
         WindowGroup {
@@ -25,6 +27,9 @@ struct PlanabyApp: App {
                     if url.scheme == "planaby" {
                         switch url.host() {
                         case "inbox": CommsCenter.shared.inboxRequested = true
+                        // Captura rápida (widget, control) y «Por organizar».
+                        case "capture": capture.open()
+                        case "captures": capture.inboxRequested = true
                         default: DeskLauncher.shared.requestDesk()
                         }
                     } else {

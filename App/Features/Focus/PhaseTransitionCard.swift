@@ -31,6 +31,7 @@ struct PhaseTransitionCard: View {
                 Spacer(minLength: 0)
             }
             commsSummary
+            captureSummary
             actions
         }
         .padding(Space.m)
@@ -125,6 +126,43 @@ struct PhaseTransitionCard: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityHint("Abre la bandeja")
+            }
+        }
+    }
+
+    // MARK: - Capturas
+
+    /// Lo apuntado con la captura rápida durante el bloque, en la misma tarjeta. Al tocarlo se
+    /// abre «Por organizar»; si no, la línea vuelve a salir en el descanso al cerrarse la tarjeta.
+    @ViewBuilder
+    private var captureSummary: some View {
+        if intoBreak, !transition.endedStarter, let state = timer.state {
+            let center = CaptureCenter.shared
+            let _ = center.revision
+            let captures = center.toSummarize(sessionStart: state.sessionStart)
+            if !captures.isEmpty {
+                Button {
+                    center.markPresented(captures)
+                    onClose()
+                    center.inboxRequested = true
+                } label: {
+                    HStack(spacing: Space.s) {
+                        Image(systemName: "square.and.pencil")
+                            .foregroundStyle(Theme.orange)
+                            .accessibilityHidden(true)
+                        Text(CaptureRules.summary(count: captures.count))
+                            .font(.subheadline.weight(.semibold))
+                        Spacer(minLength: 0)
+                        Text("Organizarlas")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Theme.orange)
+                    }
+                    .padding(Space.s)
+                    .background(Color.white.opacity(0.06), in: .rect(cornerRadius: 16))
+                    .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Abre «Por organizar»")
             }
         }
     }

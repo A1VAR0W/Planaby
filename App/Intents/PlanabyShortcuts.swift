@@ -112,6 +112,13 @@ struct PlanabyShortcuts: AppShortcutsProvider {
             shortTitle: "Escritorio si toca",
             systemImageName: "bolt.horizontal.fill"
         )
+        // La décima (el máximo de iOS): apuntar sin interrumpir la sesión.
+        AppShortcut(
+            intent: CaptureTaskIntent(),
+            phrases: ["Captura una tarea en \(.applicationName)", "Apunta algo en \(.applicationName)", "Capturar tarea en \(.applicationName)"],
+            shortTitle: "Captura rápida",
+            systemImageName: "square.and.pencil"
+        )
         AppShortcut(
             intent: FilterNotificationIntent(),
             phrases: ["Filtrar notificación con \(.applicationName)"],

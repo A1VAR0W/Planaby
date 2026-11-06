@@ -144,6 +144,8 @@ enum PlanBuilder {
                 estimatedMinutes: workload.estimatedMinutes, priority: workload.priority,
                 difficulty: workload.difficulty, notes: workload.notes
             )
+            // El mismo identificador que en la propuesta: así se puede enlazar (p. ej. una captura).
+            task.uid = workload.id
             context.insert(task)
             for file in workload.attachments {
                 let attachment = TaskAttachment(name: file.name, kind: file.kind, fileName: file.fileName, extractedText: file.text)

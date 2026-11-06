@@ -6,7 +6,6 @@ import SwiftUI
 struct FocusView: View {
     @Environment(FocusTimer.self) private var timer
     @State private var showingMethods = false
-    @State private var voice: VoiceTaskFlow?
     @State private var comms = CommsCenter.shared
     @State private var showsPlayer = false
     @State private var showsStartNow = false
@@ -42,10 +41,11 @@ struct FocusView: View {
             }
         }
         .animation(.smooth(duration: 0.5), value: timer.state == nil)
-        // Apuntar algo por voz sin salir de Enfoque (oculto mientras la sesión corre).
+        // Captura rápida siempre a mano (también concentrándose, con la barra de pestañas oculta):
+        // apuntar algo no pausa ni cambia la sesión. La bandeja solo con la sesión parada.
         .overlay(alignment: .topTrailing) {
-            if !isRunning {
-                HStack(spacing: Space.s) {
+            HStack(spacing: Space.s) {
+                if !isRunning {
                     let pending = comms.items(for: .idle, from: unread).count
                     if !unread.isEmpty {
                         Button { comms.inboxRequested = true } label: {
@@ -69,12 +69,12 @@ struct FocusView: View {
                         }
                         .accessibilityLabel("Bandeja de mensajes")
                         .accessibilityValue(pending == 1 ? "1 pendiente" : "\(pending) pendientes")
+                        .transition(.opacity)
                     }
-                    VoiceButton { voice = VoiceTaskFlow() }
                 }
-                .padding(Space.m)
-                .transition(.opacity)
+                QuickCaptureButton()
             }
+            .padding(Space.m)
         }
         // Música de la fase actual, si hay un enlace en Ajustes › Música.
         .overlay(alignment: .topLeading) {
@@ -95,7 +95,6 @@ struct FocusView: View {
                 .accessibilityLabel(phase.isBreak ? "Música de descanso" : "Música para concentrarte")
             }
         }
-        .voiceTaskSheet($voice)
         .sheet(isPresented: $showsPlayer) {
             NavigationStack { NowPlayingView() }
                 .presentationDetents([.large])
@@ -139,6 +138,7 @@ private struct IdleFocusView: View {
     @Query(filter: #Predicate<PlanTask> { !$0.isDone }, sort: \PlanTask.deadline) private var tasks: [PlanTask]
     @Query private var events: [CalendarEvent]
     @State private var comms = CommsCenter.shared
+    @State private var capture = CaptureCenter.shared
 
     var body: some View {
         let method = library.selected
@@ -159,9 +159,21 @@ private struct IdleFocusView: View {
 
             Spacer()
 
+            // Una sola tarjeta: «Mientras estabas fuera» > lo apuntado en la sesión > sugerencia.
             if let away = comms.away, !comms.phaseCardVisible {
                 AwayDigestCard(digest: away)
                     .padding(.bottom, Space.m)
+            } else if let summary = capture.sessionSummary {
+                CaptureSummaryCard(
+                    title: summary.title,
+                    primary: "Organizar ahora",
+                    onPrimary: {
+                        capture.dismissSessionSummary()
+                        capture.inboxRequested = true
+                    },
+                    onLater: { capture.dismissSessionSummary() }
+                )
+                .padding(.bottom, Space.m)
             } else {
                 AdaptiveSuggestionCard()
                     .padding(.bottom, Space.m)
@@ -242,7 +254,10 @@ private struct ActiveSessionView: View {
         VStack(spacing: 0) {
             Group {
                 if state.phase.isBreak {
-                    BreakCommsStrip()
+                    VStack(spacing: Space.s) {
+                        BreakCommsStrip()
+                        CaptureBreakStrip(sessionStart: state.sessionStart)
+                    }
                 } else {
                     WorkCommsPill()
                 }

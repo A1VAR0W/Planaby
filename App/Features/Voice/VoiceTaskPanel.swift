@@ -22,16 +22,35 @@ final class VoiceTaskFlow {
     /// Lo entendido mientras se espera la respuesta a «¿Trabajo o Normal?».
     @ObservationIgnored private var pending: Interpretation?
     @ObservationIgnored private var cancelled = false
+    /// Texto ya apuntado (una captura rápida): se organiza sin volver a escuchar.
+    let presetText: String?
+    /// Plan que ya se sabe (el de la captura): no se pregunta «¿Trabajo o Normal?».
+    let preferredMode: PlanMode?
+    /// Se llama con la propuesta aceptada (desde la tarjeta o desde la revisión completa).
+    @ObservationIgnored var onAccepted: ((PlanDraft) -> Void)?
+
+    init(presetText: String? = nil, preferredMode: PlanMode? = nil, onAccepted: ((PlanDraft) -> Void)? = nil) {
+        self.presetText = presetText
+        self.preferredMode = preferredMode
+        self.onAccepted = onAccepted
+    }
+
+    var title: String { presetText == nil ? "Añadir por voz" : "Organizar" }
 
     func start(context: ModelContext) async {
         cancelled = false
-        phase = .listening
+        phase = presetText == nil ? .listening : .thinking
         draft = nil
         note = nil
         pending = nil
-        heard = ""
+        heard = presetText ?? ""
         do {
-            let text = try await speech.listen()
+            let text: String
+            if let presetText {
+                text = presetText
+            } else {
+                text = try await speech.listen()
+            }
             guard !cancelled else { return }
             guard !text.isEmpty else {
                 phase = .failed("No te he oído. Toca el micrófono y prueba otra vez.")
@@ -56,9 +75,10 @@ final class VoiceTaskFlow {
     }
 
     func accept(context: ModelContext) {
-        guard let draft else { return }
+        guard let draft, phase != .saved else { return }
         PlanBuilder.accept(draft, context: context)
         phase = .saved
+        onAccepted?(draft)
         Task { await NotificationAccess.requestIfNeeded() }
     }
 
@@ -72,7 +92,11 @@ final class VoiceTaskFlow {
     }
 
     /// Lo marca como guardado cuando se acepta desde la revisión completa.
-    func markSaved() { phase = .saved }
+    func markSaved() {
+        guard phase != .saved else { return }
+        phase = .saved
+        if let draft { onAccepted?(draft) }
+    }
 
     private func makeDraft(from text: String, context: ModelContext) async throws -> PlanDraft? {
         if PlanningAssistant.unavailableReason == nil {
@@ -96,13 +120,17 @@ final class VoiceTaskFlow {
             id: UUID(), title: String(title), mode: ModeController.shared.mode, deadline: deadline,
             estimatedMinutes: 30, priority: 1, difficulty: 2
         )
-        note = "La apunto para mañana, unos 30 min. Puedes cambiarlo en su ficha."
+        note = presetText == nil
+            ? "La apunto para mañana, unos 30 min. Puedes cambiarlo en su ficha."
+            : "Sin fecha dicha: propongo mañana, unos 30 min. Cámbialo en «Revisar» antes de añadirla."
         // Sin IA no se sabe en qué plan va: se pregunta.
         return ask(Interpretation(tasks: [task], undecidedTasks: [task.id]), context: context)
     }
 
     /// Si falta saber el plan, pregunta y devuelve nil; si no, la propuesta.
     private func ask(_ result: Interpretation, context: ModelContext) -> PlanDraft? {
+        var result = result
+        if result.needsMode, let preferredMode { result.assign(preferredMode) }
         guard result.needsMode else { return result.makeDraft(context: context) }
         pending = result
         phase = .askingMode(result.modeQuestion)
@@ -381,7 +409,7 @@ private struct VoiceTaskSheet: View {
                 VoiceTaskPanel(flow: flow, allowsReview: true, onClose: onClose)
             }
             .scrollBounceBehavior(.basedOnSize)
-            .navigationTitle("Añadir por voz")
+            .navigationTitle(flow.title)
             .navigationBarTitleDisplayMode(.inline)
         }
         .presentationDetents([.medium, .large], selection: $detent)

@@ -20,6 +20,7 @@ struct RootView: View {
     @State private var pendingInbox = false
     @State private var comms = CommsCenter.shared
     @State private var desk = DeskLauncher.shared
+    @State private var capture = CaptureCenter.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// En horizontal, desde Enfoque, el iPhone pasa a modo escritorio a pantalla completa.
@@ -86,11 +87,29 @@ struct RootView: View {
         }
         // Bandeja de comunicaciones: desde la píldora, la tarjeta de fase, el escritorio o un widget.
         .sheet(isPresented: Binding(
-            get: { comms.inboxRequested && leaveGuard.returned == nil && !showsStuck && friction.request == nil },
+            get: { comms.inboxRequested && !otherSheet(except: .comms) },
             set: { comms.inboxRequested = $0 }
         )) {
             NavigationStack { InboxView() }
         }
+        // «Por organizar»: desde el descanso, el fin de sesión, el escritorio o un atajo.
+        .sheet(isPresented: Binding(
+            get: { capture.inboxRequested && !otherSheet(except: .captures) },
+            set: { capture.inboxRequested = $0 }
+        )) {
+            NavigationStack {
+                CaptureInboxView()
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Listo") { capture.inboxRequested = false }
+                        }
+                    }
+            }
+        }
+        // Captura rápida: hoja baja en vertical; en el modo escritorio va flotando dentro de él.
+        .quickCaptureSheet(isEnabled: !isDesk && !otherSheet(except: .composer))
+        // «✓ Apuntado …» abajo, sin tapar el temporizador ni la tarjeta de fase (que va arriba).
+        .modifier(CaptureToastOverlay(bottomPadding: isDesk ? 84 : 150))
         .sensoryFeedback(.warning, trigger: leaveGuard.returned?.id)
         // Cambio de fase con la app delante: tarjeta, sonido y vibración según «Avisos de concentración».
         .overlay(alignment: .top) {
@@ -128,14 +147,21 @@ struct RootView: View {
             // Al terminar: resumen de los mensajes que llegaron durante la sesión.
             if let old, new == nil {
                 MessageTriage.summarize(since: old, context: PlanabyStore.container.mainContext)
+                // «Has apuntado 4 tareas durante tu sesión».
+                capture.sessionEnded(start: old)
             }
         }
         // Lo dictado a Siri ("Planifica con Planaby") se abre en el chat del plan.
         .onChange(of: inbox.pending, initial: true) { _, pending in
             if pending != nil { tab = .plan }
         }
+        // El control del Centro de Control deja la petición en el App Group si no estaba la app.
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { capture.consumePendingRequest() }
+        }
         .task {
             PlanabyStore.backfillIdentifiers()
+            capture.consumePendingRequest()
             // Las fases avanzan solas aunque no se toque nada.
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
@@ -144,4 +170,14 @@ struct RootView: View {
         }
     }
 
+    private enum SheetKind { case comms, captures, composer }
+
+    /// Hay otra hoja a la vista o esperando: nunca se abren dos a la vez.
+    private func otherSheet(except kind: SheetKind) -> Bool {
+        if leaveGuard.returned != nil || showsStuck || friction.request != nil { return true }
+        if kind != .comms, comms.inboxRequested { return true }
+        if kind != .captures, capture.inboxRequested { return true }
+        if kind != .composer, capture.composer != nil, !isDesk { return true }
+        return false
+    }
 }

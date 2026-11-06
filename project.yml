@@ -120,6 +120,8 @@ targets:
       - Shared/Engine/DeskPresentation.swift
       - Shared/Planning/AgendaSnapshot.swift
       - Shared/Models/PlanModels.swift
+      - Shared/Models/CapturedTask.swift
+      - Shared/Engine/QuickCapture.swift
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES

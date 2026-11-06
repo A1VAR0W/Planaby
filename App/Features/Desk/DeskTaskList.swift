@@ -12,6 +12,7 @@ struct DeskTaskList: View {
     @Environment(ModeController.self) private var modes
     @Query(sort: \PlanTask.deadline) private var tasks: [PlanTask]
     @State private var deleting: PlanTask?
+    @Query(filter: #Predicate<CapturedTask> { $0.statusRaw == "pending" }) private var captures: [CapturedTask]
 
     var body: some View {
         let visible = modes.mode.visibleModes
@@ -36,6 +37,34 @@ struct DeskTaskList: View {
                     .foregroundStyle(ink.opacity(0.64))
             }
             .padding(.horizontal, Space.s)
+
+            // Lo apuntado con la captura rápida: se organiza después, sin salir del escritorio.
+            let unsorted = captures.count { CaptureRules.isPending($0.entry, now: .now) }
+            if unsorted > 0 {
+                Button {
+                    onInteract()
+                    CaptureCenter.shared.inboxRequested = true
+                } label: {
+                    HStack(spacing: Space.s) {
+                        Image(systemName: "square.and.pencil")
+                            .foregroundStyle(tint)
+                            .accessibilityHidden(true)
+                        Text("\(unsorted) por organizar")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(ink.opacity(0.85))
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(ink.opacity(0.45))
+                            .accessibilityHidden(true)
+                    }
+                    .padding(.horizontal, Space.s)
+                    .frame(minHeight: 44)
+                    .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Abre «Por organizar»")
+            }
 
             if ordered.isEmpty {
                 Text("Sin tareas en \(modes.mode.title.lowercased()).")

@@ -19,6 +19,22 @@ struct TimerEntry: TimelineEntry {
 /// Al tocar un widget o la Live Activity se vuelve a Planaby, a Enfoque (en horizontal, el escritorio).
 enum PlanabyLinks {
     static let desk = URL(string: "planaby://desk")
+    /// Captura rápida: abre Planaby con el panel, sin tocar la sesión.
+    static let capture = URL(string: "planaby://capture")!
+}
+
+/// Botón de captura rápida en el widget mediano (los pequeños solo admiten un toque).
+private struct CaptureLink: View {
+    var body: some View {
+        Link(destination: PlanabyLinks.capture) {
+            Image(systemName: "square.and.pencil")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Theme.orange)
+                .frame(width: 30, height: 30)
+                .background(Color.white.opacity(0.12), in: .circle)
+        }
+        .accessibilityLabel("Captura rápida")
+    }
 }
 
 /// El widget calcula de antemano las próximas fases, así cambia de fase solo aunque la app esté cerrada.
@@ -195,6 +211,7 @@ struct FocusWidgetView: View {
                                 Image(systemName: "forward.end.fill")
                             }
                             .buttonStyle(.bordered)
+                            CaptureLink()
                         }
                         Spacer(minLength: 0)
                         Text(state.method.name)
@@ -216,14 +233,20 @@ struct FocusWidgetView: View {
                     .font(.caption)
                     .foregroundStyle(Theme.secondaryText)
                 Spacer(minLength: 0)
-                Button(intent: StartFocusIntent()) {
-                    Label("Empezar", systemImage: "play.fill")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.black)
+                HStack(spacing: 8) {
+                    Button(intent: StartFocusIntent()) {
+                        Label("Empezar", systemImage: "play.fill")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.black)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
+                    .tint(Theme.orange)
+                    if family != .systemSmall {
+                        Spacer(minLength: 0)
+                        CaptureLink()
+                    }
                 }
-                .buttonStyle(.borderedProminent)
-                .buttonBorderShape(.capsule)
-                .tint(Theme.orange)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)

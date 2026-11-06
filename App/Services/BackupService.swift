@@ -19,6 +19,8 @@ struct PlanabyBackup: Codable {
     var chat: Data?
     /// Pausas conscientes (copias desde la 0.1.23).
     var distractions: [Distraction]?
+    /// Capturas rápidas por organizar (copias desde la 1.0.46).
+    var captures: [CaptureBackup]?
 
     struct Session: Codable {
         var start: Date, end: Date, methodName: String, focusedSeconds: Double, completedCycles: Int, taskTitle: String?
@@ -91,6 +93,7 @@ enum BackupService {
         let events = (try? context.fetch(FetchDescriptor<CalendarEvent>())) ?? []
         let attachments = (try? context.fetch(FetchDescriptor<TaskAttachment>())) ?? []
         let distractions = (try? context.fetch(FetchDescriptor<DistractionRecord>())) ?? []
+        let captures = (try? context.fetch(FetchDescriptor<CapturedTask>())) ?? []
 
         return PlanabyBackup(
             created: .now,
@@ -126,7 +129,8 @@ enum BackupService {
             distractions: distractions.map {
                 PlanabyBackup.Distraction(date: $0.date, app: $0.app, reason: $0.reason, resisted: $0.resisted, duringFocus: $0.duringFocus,
                       kindRaw: $0.kindRaw, motiveRaw: $0.motiveRaw, awaySeconds: $0.awaySeconds)
-            }
+            },
+            captures: captures.map { CaptureBackup($0) }
         )
     }
 
@@ -206,6 +210,11 @@ enum BackupService {
         for task in (try? context.fetch(FetchDescriptor<PlanTask>())) ?? [] { context.delete(task) }
         for session in (try? context.fetch(FetchDescriptor<FocusSessionRecord>())) ?? [] { context.delete(session) }
         for record in (try? context.fetch(FetchDescriptor<DistractionRecord>())) ?? [] { context.delete(record) }
+        // Las capturas solo se sustituyen si la copia las trae: una copia anterior a la captura
+        // rápida no borra lo apuntado desde entonces.
+        if backup.captures != nil {
+            for capture in (try? context.fetch(FetchDescriptor<CapturedTask>())) ?? [] { context.delete(capture) }
+        }
 
         var tasks: [Int: PlanTask] = [:]
         for item in backup.tasks {
@@ -263,6 +272,7 @@ enum BackupService {
                 motive: DistractionMotive(rawValue: item.motiveRaw ?? ""), awaySeconds: item.awaySeconds ?? 0
             ))
         }
+        for item in backup.captures ?? [] { context.insert(item.makeModel()) }
         try context.save()
 
         apply(backup.groupSettings, to: AppGroup.defaults)

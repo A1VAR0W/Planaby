@@ -11,6 +11,8 @@ struct PlanView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \CalendarEvent.start) private var events: [CalendarEvent]
     @Query(filter: #Predicate<PlanTask> { !$0.isDone }, sort: \PlanTask.deadline) private var tasks: [PlanTask]
+    @Query(filter: #Predicate<CapturedTask> { $0.statusRaw == "pending" }, sort: \CapturedTask.created, order: .reverse)
+    private var captures: [CapturedTask]
 
     @State private var selectedDay = Calendar.current.startOfDay(for: .now)
     @State private var form: PlanForm?
@@ -64,6 +66,30 @@ struct PlanView: View {
                 }
             } header: {
                 DayHeader(day: selectedDay, mode: modes.mode)
+            }
+
+            // Lo apuntado con la captura rápida, de los dos planes (cada una dice el suyo).
+            let unsorted = captures.filter { CaptureRules.isPending($0.entry, now: .now) }
+            if !unsorted.isEmpty || captures.contains(where: { $0.status == .pending }) {
+                Section {
+                    ForEach(unsorted.prefix(5)) { capture in
+                        Button { voice = CaptureCenter.planningFlow(for: capture) } label: {
+                            CaptureRow(capture: capture)
+                        }
+                        .buttonStyle(.plain)
+                        .modifier(CaptureActions(capture: capture) { voice = CaptureCenter.planningFlow(for: $0) })
+                    }
+                    NavigationLink {
+                        CaptureInboxView()
+                    } label: {
+                        Text(unsorted.count > 5 ? "Ver las \(unsorted.count)" : "Ver todo lo apuntado")
+                            .font(.subheadline)
+                    }
+                } header: {
+                    Text(unsorted.isEmpty ? "Por organizar" : "Por organizar · \(unsorted.count)")
+                } footer: {
+                    Text("Toca una para planificarla. Nada entra en el calendario sin que lo confirmes.")
+                }
             }
 
             if !pendingTasks.isEmpty {

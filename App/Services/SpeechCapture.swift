@@ -40,6 +40,8 @@ final class SpeechCapture {
     /// Último resultado parcial del reconocedor (sin lo ya fijado).
     @ObservationIgnored private var partial = ""
     @ObservationIgnored private var onDevice = false
+    /// Cómo estaba el audio antes de escuchar, para dejarlo igual al terminar.
+    @ObservationIgnored private var previousAudio: (category: AVAudioSession.Category, mode: AVAudioSession.Mode, options: AVAudioSession.CategoryOptions)?
 
     /// Pausa con la que se da por terminado: deja pensar a media frase.
     private static let silence: TimeInterval = 2.6
@@ -55,7 +57,11 @@ final class SpeechCapture {
     ]
 
     /// Escucha hasta el silencio y devuelve lo dictado (vacío si no se dijo nada o se canceló).
-    func listen() async throws -> String {
+    /// `keepingMusic`: la música de otras apps (Spotify) sigue sonando, más baja, en vez de
+    /// pararse; al terminar se deja el audio como estaba. Lo usa la captura rápida para no romper
+    /// la sesión de concentración.
+    func listen(keepingMusic: Bool = false) async throws -> String {
+        guard !isListening else { return "" }
         guard await Self.authorize() else { throw Failure.denied }
         guard let recognizer = Self.makeRecognizer(), recognizer.isAvailable else { throw Failure.unavailable }
         self.recognizer = recognizer
@@ -65,7 +71,12 @@ final class SpeechCapture {
 
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.record, mode: .measurement, options: .duckOthers)
+            previousAudio = (session.category, session.mode, session.categoryOptions)
+            if keepingMusic {
+                try session.setCategory(.playAndRecord, mode: .default, options: [.duckOthers, .defaultToSpeaker, .allowBluetoothA2DP])
+            } else {
+                try session.setCategory(.record, mode: .measurement, options: .duckOthers)
+            }
             try session.setActive(true, options: .notifyOthersOnDeactivation)
             Self.installTap(on: engine.inputNode, sink: sink) { [weak self] level in
                 Task { @MainActor in self?.level = level }
@@ -174,7 +185,13 @@ final class SpeechCapture {
     private func stopAudio() {
         engine.stop()
         engine.inputNode.removeTap(onBus: 0)
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        let session = AVAudioSession.sharedInstance()
+        try? session.setActive(false, options: .notifyOthersOnDeactivation)
+        // El micrófono queda libre y el audio vuelve a como estaba (p. ej. los avisos de fase).
+        if let previous = previousAudio {
+            try? session.setCategory(previous.category, mode: previous.mode, options: previous.options)
+            previousAudio = nil
+        }
     }
 
     // Lo que corre en los hilos de audio y de voz va fuera del actor principal.

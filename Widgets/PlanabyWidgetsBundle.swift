@@ -8,5 +8,6 @@ struct PlanabyWidgetsBundle: WidgetBundle {
         AgendaWidget()
         FocusLiveActivity()
         FocusControl()
+        CaptureControl()
     }
 }
