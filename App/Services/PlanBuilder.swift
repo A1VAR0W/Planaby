@@ -167,6 +167,43 @@ enum PlanBuilder {
         ReminderScheduler.shared.reschedule()
     }
 
+    // MARK: - Coincidencias
+
+    /// Citas guardadas y de otros calendarios como franjas con nombre, para avisar de coincidencias.
+    static func conflictCandidates(saved: [CalendarEvent], range: DateInterval, excluding: Set<PersistentIdentifier> = []) -> [EventConflict] {
+        let local = saved.filter { !excluding.contains($0.persistentModelID) }.flatMap { event in
+            event.occurrences(in: range).map { EventConflict(title: event.title, interval: $0) }
+        }
+        let external = ExternalCalendars.shared.events(in: range)
+            .filter { $0.isBusy && !$0.isAllDay }
+            .map { EventConflict(title: $0.title, interval: $0.interval) }
+        return local + external
+    }
+
+    /// «Subida PRE coincide con «Comité» (10:00–11:00).»
+    static func conflictWarnings(in draft: PlanDraft, saved: [CalendarEvent], range: DateInterval) -> [String] {
+        let outside = conflictCandidates(saved: saved, range: range)
+        let events = draft.newEvents.filter { $0.isIncluded && !$0.isUnconfirmed(.time) && !$0.isUnconfirmed(.day) }
+        var warnings: [String] = []
+        for (index, event) in events.enumerated() {
+            let others = events.enumerated().filter { $0.offset != index }.flatMap { other in
+                other.element.occurrences(in: range).map { EventConflict(title: other.element.title, interval: $0) }
+            }
+            for slot in event.occurrences(in: range) {
+                let times = EventTimes(start: slot.start, end: slot.end)
+                guard let first = EventSchedule.conflicts(times, with: outside + others).first else { continue }
+                let when = EventSchedule.rangeText(EventTimes(start: first.interval.start, end: first.interval.end))
+                warnings.append("«\(event.title)» coincide con «\(first.title)» (\(ProposalFormat.dayName(first.interval.start)) \(when)).")
+                break
+            }
+        }
+        for task in draft.tasks {
+            guard let slot = task.workSlot(), let first = EventSchedule.conflicts(slot, with: outside).first else { continue }
+            warnings.append("La franja de «\(task.title)» coincide con «\(first.title)» (\(EventSchedule.rangeText(EventTimes(start: first.interval.start, end: first.interval.end)))).")
+        }
+        return warnings
+    }
+
     // MARK: - Núcleo
 
     /// Algún evento nuevo pisa bloques de trabajo ya guardados que aún no han empezado:
@@ -257,19 +294,16 @@ enum PlanBuilder {
         for task in draft.tasks {
             if task.deadline <= now {
                 warnings.append("La fecha límite de «\(task.title)» ya ha pasado.")
+            } else if let missing = result.shortfalls[task.id], let slot = task.workSlot() {
+                warnings.append("«\(task.title)»: de \(EventSchedule.rangeText(slot)) caben \(ProposalFormat.minutes(slot.minutes)); faltan \(FocusStats.format(TimeInterval(missing * 60))). Amplía la franja o quítala para repartir el resto.")
             } else if let missing = result.shortfalls[task.id] {
                 warnings.append("«\(task.title)»: faltan \(FocusStats.format(TimeInterval(missing * 60))) por colocar antes de la fecha límite.")
             }
         }
-        // Una cita nueva que coincide con otra cita guardada o de Outlook/Teams: se avisa, no se mueve.
-        let fixedEvents = existing.filter { $0.kind != .workBlock }.flatMap { $0.occurrences(in: range) }
-            + ExternalCalendars.shared.busyIntervals(in: range)
-        for event in draft.newEvents where event.isIncluded {
-            let slots = event.occurrences(in: range)
-            if slots.contains(where: { slot in fixedEvents.contains { $0.start < slot.end && slot.start < $0.end } }) {
-                warnings.append("«\(event.title)» coincide con otra cita de tu calendario.")
-            }
-        }
+        // Una cita nueva (o una franja de trabajo pedida) que coincide con otra cita guardada, de
+        // Outlook/Teams o de la propia propuesta: se avisa diciendo con cuál, no se mueve. Lo que
+        // aún tiene la hora por confirmar no cuenta.
+        warnings += conflictWarnings(in: draft, saved: existing.filter { $0.kind != .workBlock }, range: range)
         if let latest = draft.constraints.latestEndMinute, !result.shortfalls.isEmpty {
             warnings.append("Terminando antes de las \(ProposalFormat.clock(latest)) no cabe todo. Puedes mover la fecha límite, reducir horas o quitar esa condición.")
         }

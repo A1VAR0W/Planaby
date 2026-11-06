@@ -37,12 +37,17 @@ determinista y tiene tests.
      («Subida PRE», no «Subida pre»).
    - `RequestDates` lee las fechas escritas («25 de noviembre», «el día 24», «mañana», «el jueves»),
      y esas mandan sobre lo que diga el modelo. Sin año, se toma la próxima que no haya pasado.
-4. **Lo que falta.** El día, la hora o la duración que no dijiste quedan como provisionales
-   (`unconfirmed`), y Planaby pregunta solo eso, con respuestas rápidas.
-   - Por ejemplo: «Me falta un dato: ¿cuánto duran «Subida PRE» y «Subida PRO»?», con las
-     opciones 30 min · 1 h · 2 h · Duración diferente para cada evento.
-   - Las respuestas cortas («1 h», «hora y media», «a las 10», «5 de la tarde») se entienden sin
-     la IA (`AnswerParsing`). «Diferente para cada evento» pregunta de uno en uno.
+4. **Lo que falta.** El día, la hora de inicio o la de fin que no dijiste quedan como
+   provisionales (`unconfirmed`), y Planaby pregunta solo eso, con respuestas rápidas. Los
+   eventos tienen inicio y fin; la duración sale de ahí (ver [HORAS.md](HORAS.md)).
+   - Sin ninguna de las dos horas: «He preparado los dos eventos. ¿A qué hora quieres que
+     comiencen y terminen «Subida PRE» y «Subida PRO»?», con 9:00–10:00 · 10:00–12:00 ·
+     16:00–17:00 · Horario diferente para cada evento.
+   - Si solo das una duración («2 h»), después pregunta a qué hora empiezan y calcula el fin.
+     Si ya se sabe el inicio, pregunta solo a qué hora terminan.
+   - Las respuestas cortas («de 9:00 a 11:30», «1 h», «a las 10», «hasta las 12», «5 de la
+     tarde») se entienden sin la IA (`AnswerParsing`). «Diferente para cada evento» pregunta de
+     uno en uno. Mientras pregunta no se pierde ningún elemento.
 5. **Referencias.**
    - Lo que hay en la propuesta tiene los códigos E1, E2… (eventos) y T1, T2… (tareas).
    - Lo guardado tiene C1… (citas de los próximos 21 días) y P1… (tareas pendientes).
@@ -105,7 +110,10 @@ determinista y tiene tests.
 ello:
 
 - el caso PRE/PRO: dos eventos, nombres exactos, 25 y 26 de noviembre, fuera la «Comida», y la
-  pregunta de la duración con sus cuatro opciones;
+  pregunta del inicio y el fin con sus opciones;
+- `Tests/EventTimesTests.swift`: inicio y fin (solo el fin, solo el inicio, conservar el fin,
+  varios días, medianoche, cambio de hora), franjas escritas, cambios de la IA, franjas de
+  tareas y compatibilidad con lo guardado;
 - las respuestas cortas;
 - elegir el elemento guardado correcto (día, código, duplicado, ambigüedad);
 - borrar frente a quitar de la propuesta;
@@ -120,7 +128,7 @@ ello:
 Con Apple Intelligence activado:
 
 1. Escribe la petición de PRE/PRO. Deben salir los dos eventos con su fecha y una sola pregunta,
-   la de la duración. Toca «2 h» y después «Dejar a las 09:00».
+   a qué hora comienzan y terminan. Escribe «de 9:00 a 11:30»: los dos quedan de 9:00 a 11:30.
 2. «Está bien, pero cambia la Subida PRE al día 24 y deja la Subida PRO el 26»: solo cambia la PRE.
 3. Acepta. Después escribe «Borra la Subida PRO»: la tarjeta dice «1 elemento guardado se borrará».
    Revísala, pulsa «Conservar» y luego vuelve a pedirlo y acepta.

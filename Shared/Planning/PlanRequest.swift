@@ -323,8 +323,87 @@ enum AnswerParsing {
     /// «Así está bien», «déjalo»: se acepta lo provisional.
     static func keepsAsIs(_ text: String) -> Bool {
         let joined = ProposalText.words(text).joined(separator: " ")
-        return ["asi esta bien", "dejalo", "dejala", "dejalos", "dejalas", "vale asi", "me vale", "esta bien asi", "dejar a las"]
+        return ["asi esta bien", "dejalo", "dejala", "dejalos", "dejalas", "vale asi", "me vale", "esta bien asi", "dejar a las", "dejar de", "dejar hasta"]
             .contains(where: joined.contains)
+    }
+
+    /// Una franja con inicio y fin: «de 10 a 12», «de 9:00 a 11:30», «10:00–12:00», «entre las 4 y
+    /// las 6», «de 22:00 a 1:00 del día siguiente». Minutos desde medianoche. `nextDay` solo si el
+    /// fin queda antes del inicio y se dice que es del día siguiente (o de madrugada).
+    static func range(_ text: String) -> (start: Int, end: Int, nextDay: Bool)? {
+        let value = normalize(text)
+        let hour = #"(\d{1,2})(?:[:.h](\d{2}))?"#
+        let notLength = #"(?![\d/])(?!\s*(?:horas?\b|hrs?\b|h\b|min))"#
+        let patterns = [
+            #"(?:\bde|\bdesde)\s+(?:las?\s+)?"# + hour + #"\s+(?:a|hasta)\s+(?:las?\s+)?"# + hour + notLength,
+            #"\bentre\s+(?:las?\s+)?"# + hour + #"\s+y\s+(?:las?\s+)?"# + hour + notLength,
+            #"(?<![\d/])"# + hour + #"\s*[-–—]\s*"# + hour + notLength,
+        ]
+        for pattern in patterns {
+            guard let match = groups(pattern, in: value),
+                  var startHour = match[1].flatMap({ Int($0) }), var endHour = match[3].flatMap({ Int($0) }),
+                  (0...23).contains(startHour), (0...24).contains(endHour) else { continue }
+            let startMinute = match[2].flatMap { Int($0) } ?? 0
+            let endMinute = match[4].flatMap { Int($0) } ?? 0
+            guard (0...59).contains(startMinute), (0...59).contains(endMinute) else { continue }
+            let morning = value.contains("de la manana") || value.contains("madrugada") || value.contains(" am")
+            let afternoon = value.contains("tarde") || value.contains("noche") || value.contains(" pm")
+            let saysNextDay = value.contains("dia siguiente") || value.contains("madrugada") || value.contains("manana siguiente")
+            if !morning {
+                // «De 3 a 5»: por la tarde. «De 10 a 2»: hasta las 14:00. «De 7 a 9»: por la mañana.
+                if endHour < 12, afternoon || (1...7).contains(endHour) { endHour += 12 }
+                if (1...7).contains(startHour), startHour + 12 < endHour { startHour += 12 }
+                if afternoon, startHour < 12, startHour + 12 < endHour { startHour += 12 }
+            }
+            if saysNextDay, endHour >= 12, endHour - 12 < startHour, !morning {
+                // «De 22 a 1 del día siguiente»: la 1 de la madrugada, no las 13:00.
+                endHour -= 12
+            }
+            let start = startHour * 60 + startMinute
+            let end = endHour * 60 + endMinute
+            return (start, end, saysNextDay && end <= start)
+        }
+        return nil
+    }
+
+    /// La hora de fin dicha sola: «hasta las 12», «que termine a las 17:00», «acaba a la 1 y media».
+    static func endTime(_ text: String) -> Int? {
+        let value = normalize(text)
+        guard let regex = try? NSRegularExpression(pattern: #"\b(?:hasta|termin\w*|acab\w*|fin|final|finalice|finaliza)\b"#),
+              let match = regex.firstMatch(in: value, range: NSRange(value.startIndex..., in: value)),
+              let range = Range(match.range, in: value) else { return nil }
+        return time(String(value[range.upperBound...]))
+    }
+
+    /// Cuánto se mueve solo el comienzo: «adelanta el comienzo media hora» −30, «que empiece una
+    /// hora más tarde» +60. nil si no se habla del comienzo o no se dice cuánto.
+    static func startShift(_ text: String) -> Int? {
+        let words = Set(ProposalText.words(text))
+        let aboutStart = !words.isDisjoint(with: [
+            "comienzo", "inicio", "empiece", "empieza", "empezar", "comience", "comienza", "comenzar", "empiecen", "comiencen",
+        ])
+        guard aboutStart, let minutes = duration(text), minutes > 0 else { return nil }
+        let earlier = !words.isDisjoint(with: ["adelanta", "adelantar", "adelantalo", "adelantala", "adelantando", "antes"])
+        let later = !words.isDisjoint(with: ["retrasa", "retrasar", "retrasalo", "retrasala", "atrasa", "atrasar", "despues", "tarde"])
+        guard earlier != later else { return nil }
+        return earlier ? -minutes : minutes
+    }
+
+    /// «Conserva la hora de fin», «manteniendo el final», «que termine a la misma hora».
+    static func keepsEnd(_ text: String) -> Bool {
+        let words = Set(ProposalText.words(text))
+        let keep: Set<String> = [
+            "conserva", "conservar", "conservando", "conserves", "manten", "mantener", "manteniendo", "mantengas",
+            "misma", "mismo", "igual", "sin",
+        ]
+        let end: Set<String> = ["fin", "final", "termina", "termine", "terminar", "terminando", "acaba", "acabe", "acabar"]
+        return !words.isDisjoint(with: keep) && !words.isDisjoint(with: end)
+    }
+
+    /// El fin es del día siguiente: «del día siguiente», «de madrugada».
+    static func endsNextDay(_ text: String) -> Bool {
+        let value = normalize(text)
+        return value.contains("dia siguiente") || value.contains("madrugada") || value.contains("manana siguiente")
     }
 
     private static func groups(_ pattern: String, in text: String) -> [String?]? {
@@ -357,15 +436,21 @@ struct DetailQuestion: Codable, Equatable, Sendable {
         case unknown
     }
 
-    /// La primera pregunta pendiente: el día, después la duración y por último la hora.
+    /// La primera pregunta pendiente: el día, después cuándo empieza (y termina, si tampoco se
+    /// sabe) y por último cuándo termina.
     static func next(in draft: PlanDraft, among ids: Set<UUID>? = nil) -> DetailQuestion? {
-        for field in [ItemField.day, .duration, .time] {
+        for field in [ItemField.day, .time, .duration] {
             let items = draft.newEvents.filter { item in
                 item.isIncluded && item.isUnconfirmed(field) && (ids?.contains(item.id) ?? true)
             }
             if !items.isEmpty { return make(field, items: items) }
         }
         return nil
+    }
+
+    /// Se pregunta a la vez por el inicio y el fin (ninguno de los dos se sabe).
+    static func asksBoth(_ items: [PlanDraft.Item]) -> Bool {
+        !items.isEmpty && items.allSatisfy { $0.isUnconfirmed(.time) && $0.isUnconfirmed(.duration) }
     }
 
     static func make(_ field: ItemField, items: [PlanDraft.Item]) -> DetailQuestion {
@@ -379,44 +464,90 @@ struct DetailQuestion: Codable, Equatable, Sendable {
             question = many ? "Me falta un dato: ¿qué día son \(list)?" : "Me falta un dato: ¿qué día es \(list)?"
             choices = ["Hoy", "Mañana"]
             if many { choices.append("Día diferente para cada evento") }
-        case .duration:
-            question = many ? "Me falta un dato: ¿cuánto duran \(list)?" : "Me falta un dato: ¿cuánto dura \(list)?"
-            choices = ["30 min", "1 h", "2 h"]
-            if many { choices.append("Duración diferente para cada evento") }
+        case .time where asksBoth(items):
+            // Ni inicio ni fin: «¿A qué hora quieres que comiencen y terminen?».
+            question = many
+                ? "¿A qué hora quieres que comiencen y terminen \(list)?"
+                : "¿A qué hora quieres que comience y termine \(list)?"
+            choices = ["9:00–10:00", "10:00–12:00", "16:00–17:00"]
+            if many { choices.append("Horario diferente para cada evento") }
+            if let first = items.first {
+                let times = EventTimes(start: first.start, end: first.end)
+                choices.append("Dejar de \(ProposalFormat.time.string(from: times.start)) a \(ProposalFormat.time.string(from: times.end))")
+            }
         case .time:
+            // Se sabe cuánto dura (o cuándo acaba): falta el comienzo.
             let current = items.first.map { ProposalFormat.time.string(from: $0.start) } ?? "9:00"
-            question = many ? "¿A qué hora son \(list)? Por ahora están a las \(current)." : "¿A qué hora es \(list)? Por ahora está a las \(current)."
+            let length = items.first.map { ProposalFormat.minutes($0.durationMinutes) } ?? ""
+            question = many
+                ? "¿A qué hora comienzan \(list)? Duran \(length)."
+                : "¿A qué hora comienza \(list)? Dura \(length)."
             choices = ["9:00", "12:00", "17:00"]
             if many { choices.append("Hora diferente para cada evento") }
             choices.append("Dejar a las \(current)")
+        case .duration:
+            // Se sabe cuándo empieza: falta cuándo termina.
+            let starts = Set(items.map { EventSchedule.minuteOfDay($0.start) })
+            let first = items.first
+            let begins = first.map { ProposalFormat.time.string(from: $0.start) } ?? ""
+            question = many
+                ? "¿A qué hora terminan \(list)?" + (starts.count == 1 ? " Comienzan a las \(begins)." : "")
+                : "¿A qué hora termina \(list)? Comienza a las \(begins)."
+            if starts.count == 1, let first {
+                choices = [30, 60, 120].map { ProposalFormat.time.string(from: first.start.addingTimeInterval(TimeInterval($0 * 60))) }
+            } else {
+                choices = ["Dura 30 min", "Dura 1 h", "Dura 2 h"]
+            }
+            if many { choices.append("Hora de fin diferente para cada evento") }
+            if let first, starts.count == 1 { choices.append("Dejar hasta las \(ProposalFormat.time.string(from: first.end))") }
         }
         return DetailQuestion(field: field, itemIDs: items.map(\.id), question: question, choices: choices)
     }
 
     /// Convierte la respuesta en cambios para los elementos preguntados. También aprovecha otros
-    /// datos que vengan en la misma frase («a las 10, una hora»).
+    /// datos que vengan en la misma frase («de 10 a 12», «a las 10, una hora»).
     func answer(_ text: String, in draft: PlanDraft, now: Date, calendar: Calendar = .current) -> Answer {
         if AnswerParsing.wantsEachSeparately(text) { return itemIDs.count > 1 ? .eachSeparately : .unknown }
         if AnswerParsing.keepsAsIs(text) { return .keep }
         var changes = ProposalChanges()
         let words = Set(ProposalText.words(text))
-        // Solo se toma lo que se pregunta y lo que se dice de forma inequívoca: «2» en una
-        // pregunta de duración son dos horas, no las 14:00.
-        let saysTime = text.contains(":") || !words.isDisjoint(with: ["las", "mediodia", "tarde", "noche"])
-        let saysDuration = !words.isDisjoint(with: ["hora", "horas", "h", "min", "mins", "minuto", "minutos", "media", "cuarto"])
-        if field == .duration || saysDuration, let minutes = AnswerParsing.duration(text) {
-            changes.minutes = max(5, min(minutes, 12 * 60))
-        }
-        if field == .time || saysTime, let minute = AnswerParsing.time(text) {
-            changes.startMinute = minute
+        // Solo se toma lo que se pregunta y lo que se dice de forma inequívoca.
+        let saysTime = text.contains(":") || !words.isDisjoint(with: ["las", "la", "mediodia", "tarde", "noche"])
+        let saysDuration = !words.isDisjoint(with: ["hora", "horas", "h", "min", "mins", "minuto", "minutos", "media", "cuarto", "dura", "duran"])
+        if let range = AnswerParsing.range(text) {
+            changes.startMinute = range.start
+            changes.endMinute = range.end
+            if range.nextDay { changes.endsNextDay = true }
+        } else {
+            switch field {
+            case .duration:
+                // ¿Cuándo termina? «12:00», «a las 12», «hasta la 1»; o cuánto dura: «dura 2 h».
+                if saysDuration, !text.contains(":"), let minutes = AnswerParsing.duration(text) {
+                    changes.minutes = max(5, min(minutes, 12 * 60))
+                } else if let minute = AnswerParsing.time(text) {
+                    changes.endMinute = minute
+                    if AnswerParsing.endsNextDay(text) { changes.endsNextDay = true }
+                }
+            case .time:
+                // ¿Cuándo empieza? «a las 10». Si solo se dice cuánto dura, se guarda la duración
+                // y se pregunta después el comienzo.
+                let pureLength = saysDuration && !saysTime
+                if !pureLength, let minute = AnswerParsing.time(text) { changes.startMinute = minute }
+                if let end = AnswerParsing.endTime(text), changes.startMinute != nil, end != changes.startMinute { changes.endMinute = end }
+                if changes.endMinute == nil, saysDuration, let minutes = AnswerParsing.duration(text) {
+                    changes.minutes = max(5, min(minutes, 12 * 60))
+                }
+            case .day:
+                if saysTime, let minute = AnswerParsing.time(text) { changes.startMinute = minute }
+            }
         }
         if let day = RequestDates.mentions(in: text, now: now, reference: draft.items.first { itemIDs.contains($0.id) }?.start, calendar: calendar).first?.day {
             changes.day = day
         }
         let answered: Bool = switch field {
         case .day: changes.day != nil
-        case .time: changes.startMinute != nil
-        case .duration: changes.minutes != nil
+        case .time: changes.startMinute != nil || changes.minutes != nil
+        case .duration: changes.endMinute != nil || changes.minutes != nil
         }
         guard answered else { return .unknown }
         let edits = itemIDs.compactMap { id -> ProposalEdit? in
@@ -460,8 +591,13 @@ enum ProposalNarration {
         var lines = ["He preparado \(join(heads)):"]
         for event in events {
             var line = "• \(event.title) — \(ProposalFormat.dayMonth.string(from: event.start))"
-            line += event.isUnconfirmed(.time) ? " (hora por confirmar)" : ", \(ProposalFormat.time.string(from: event.start))"
-            line += event.isUnconfirmed(.duration) ? " · duración por confirmar" : " · \(ProposalFormat.minutes(event.durationMinutes))"
+            let times = EventTimes(start: event.start, end: event.end)
+            switch (event.isUnconfirmed(.time), event.isUnconfirmed(.duration)) {
+            case (true, true): line += " (horario por confirmar)"
+            case (true, false): line += " (hora de inicio por confirmar, dura \(ProposalFormat.minutes(times.minutes)))"
+            case (false, true): line += ", empieza a las \(ProposalFormat.time.string(from: event.start)) (hora de fin por confirmar)"
+            case (false, false): line += ", \(EventSchedule.summary(times))"
+            }
             lines.append(line)
         }
         for task in tasks {
@@ -549,5 +685,52 @@ enum SavedResolver {
     static func wantsWholeSeries(_ text: String) -> Bool {
         let words = Set(ProposalText.words(text))
         return !words.isDisjoint(with: ["todas", "todos", "serie", "siempre", "cada", "semanal", "semanales", "diaria", "diarias"])
+    }
+}
+
+// MARK: - Horas dichas en la petición
+
+/// Comprueba con la petición escrita lo que la IA entendió de las horas de un cambio. Solo
+/// cuando hay un único cambio (con varios no se sabe a cuál se refiere cada hora).
+enum TimeGrounding {
+    static func check(_ edits: [ProposalEdit], request: String) -> [ProposalEdit] {
+        let updates = edits.indices.filter { index in
+            if case .update = edits[index] { return true }
+            return false
+        }
+        guard updates.count == 1, let index = updates.first,
+              case .update(let target, var changes) = edits[index] else { return edits }
+        // Solo si la IA entendió que se cambian horas (un cambio de nombre no se toca).
+        let aboutTime = changes.startMinute != nil || changes.endMinute != nil || changes.minutes != nil
+            || changes.startDeltaMinutes != nil || changes.day != nil || changes.workDay != nil || changes.keepEnd == true
+        guard aboutTime else { return edits }
+
+        let keepsEnd = AnswerParsing.keepsEnd(request)
+        if let range = AnswerParsing.range(request) {
+            // «De 9:00 a 11:00»: inicio y fin, tal cual.
+            changes.startMinute = range.start
+            changes.endMinute = range.end
+            changes.endsNextDay = range.nextDay ? true : nil
+            changes.minutes = nil
+            changes.startDeltaMinutes = nil
+        } else if let shift = AnswerParsing.startShift(request) {
+            // «Adelanta el comienzo media hora»: se mueve el comienzo, no la duración.
+            changes.startDeltaMinutes = shift
+            changes.startMinute = nil
+            changes.minutes = nil
+            changes.deltaMinutes = nil
+        } else if let end = AnswerParsing.endTime(request), AnswerParsing.startShift(request) == nil {
+            // «Haz que termine a las 17:00»: la hora de fin, sin tocar el inicio.
+            changes.endMinute = end
+            if changes.startMinute == end { changes.startMinute = nil }
+            changes.minutes = nil
+        }
+        // Conservar el fin solo si se dice.
+        changes.keepEnd = keepsEnd && changes.endMinute == nil ? true : nil
+        if changes.endsNextDay == true, !AnswerParsing.endsNextDay(request) { changes.endsNextDay = nil }
+
+        var result = edits
+        result[index] = .update(target, changes)
+        return result
     }
 }

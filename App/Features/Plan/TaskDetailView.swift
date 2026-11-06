@@ -69,7 +69,8 @@ struct TaskDetailView: View {
                             Text(FocusStats.format(block.duration))
                                 .monospacedDigit()
                         } label: {
-                            Text(block.start.formatted(.dateTime.weekday(.abbreviated).day().hour().minute()))
+                            Text("\(block.start.formatted(.dateTime.weekday(.abbreviated).day())) · \(EventSchedule.rangeText(EventTimes(start: block.start, end: block.end)))")
+                                .monospacedDigit()
                         }
                     }
                 }

@@ -183,7 +183,7 @@ struct ProposalReviewView: View {
         switch target {
         case .event(let id):
             if let event = draft.items.first(where: { $0.id == id }) {
-                ProposalEventEditor(event: event) { edited in
+                ProposalEventEditor(event: event, conflicts: conflicts(for:)) { edited in
                     update(event: edited)
                 } onRemove: {
                     remove(id)
@@ -199,7 +199,7 @@ struct ProposalReviewView: View {
             }
         case .block(let id):
             if let index = draft.items.firstIndex(where: { $0.id == id }) {
-                DraftItemEditor(item: $draft.items[index])
+                DraftItemEditor(item: $draft.items[index], conflicts: conflicts(for:))
             }
         }
     }
@@ -237,6 +237,22 @@ struct ProposalReviewView: View {
     }
 
     // MARK: Agenda
+
+    /// Lo que coincide con las horas de un elemento: lo guardado (sin lo que la propuesta cambia
+    /// o borra), otros calendarios y el resto de la propuesta.
+    private func conflicts(for item: PlanDraft.Item) -> [EventConflict] {
+        let times = EventTimes(start: item.start, end: item.end)
+        guard EventSchedule.issue(times) == nil else { return [] }
+        let removed = draft.replacedSavedIDs
+        var candidates = PlanBuilder.conflictCandidates(
+            saved: existing.filter { !removed.contains($0.persistentModelID) },
+            range: DateInterval(start: item.start, end: item.end)
+        )
+        candidates += draft.items
+            .filter { $0.id != item.id && $0.isIncluded && $0.end > $0.start }
+            .map { EventConflict(title: $0.title, interval: DateInterval(start: $0.start, end: $0.end)) }
+        return EventSchedule.conflicts(times, with: candidates)
+    }
 
     private func existingEntries(on day: Date) -> [AgendaEntry] {
         guard let end = Calendar.current.date(byAdding: .day, value: 1, to: day) else { return [] }
@@ -303,10 +319,16 @@ private struct ProposalEventRow: View {
     }
 
     private var detail: String {
+        let times = EventTimes(start: event.start, end: event.end)
+        let hours = switch (event.isUnconfirmed(.time), event.isUnconfirmed(.duration)) {
+        case (true, true): "horario por confirmar"
+        case (true, false): "inicio por confirmar · dura \(ProposalFormat.minutes(times.minutes))"
+        case (false, true): "empieza \(ProposalFormat.time.string(from: event.start)) · fin por confirmar"
+        case (false, false): EventSchedule.summary(times)
+        }
         var parts = [
             event.isUnconfirmed(.day) ? "día por confirmar" : event.start.formatted(.dateTime.weekday(.wide).day().month()),
-            event.isUnconfirmed(.time) ? "hora por confirmar" : event.start.formatted(.dateTime.hour().minute()),
-            event.isUnconfirmed(.duration) ? "duración por confirmar" : ProposalFormat.minutes(event.durationMinutes),
+            hours,
             event.recurrence == .none ? event.mode.title : event.recurrence.title,
         ]
         if !event.isIncluded { parts.append("sin incluir") }
@@ -396,7 +418,7 @@ private struct DraftRow: View {
                             .font(.body.weight(.medium))
                             .strikethrough(!item.isIncluded)
                         Label {
-                            Text("\(item.start.formatted(date: .omitted, time: .shortened))–\(item.end.formatted(date: .omitted, time: .shortened)) · \(item.recurrence == .none ? item.mode.title : item.recurrence.title)")
+                            Text("\(EventSchedule.rangeText(EventTimes(start: item.start, end: item.end))) · \(item.recurrence == .none ? item.mode.title : item.recurrence.title)")
                         } icon: {
                             Image(systemName: item.kind.symbol)
                         }
@@ -412,7 +434,7 @@ private struct DraftRow: View {
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
-            .accessibilityHint(item.kind == .workBlock ? "Editar hora y duración del bloque" : "Editar la cita")
+            .accessibilityHint(item.kind == .workBlock ? "Editar el inicio y el fin del bloque" : "Editar la cita")
         }
         .opacity(item.isIncluded ? 1 : 0.6)
         .sensoryFeedback(.selection, trigger: item.isIncluded)
@@ -424,34 +446,39 @@ private struct DraftRow: View {
 /// Un bloque de trabajo suelto: moverlo a mano lo deja fijo (no se recoloca si no choca).
 private struct DraftItemEditor: View {
     @Binding var item: PlanDraft.Item
+    let conflicts: (PlanDraft.Item) -> [EventConflict]
     @Environment(\.dismiss) private var dismiss
+    /// Lo editado se aplica al pulsar «Listo» (y solo si las horas valen).
+    @State private var start = Date.now
+    @State private var end = Date.now
+    @State private var loaded = false
 
     var body: some View {
-        let duration = Binding<Int>(
-            get: { Int(item.end.timeIntervalSince(item.start) / 60) },
-            set: { item.end = item.start.addingTimeInterval(TimeInterval($0 * 60)) }
-        )
-        let start = Binding<Date>(
-            get: { item.start },
-            set: { newStart in
-                let length = item.end.timeIntervalSince(item.start)
-                item.start = newStart
-                item.end = newStart.addingTimeInterval(length)
-            }
-        )
-
-        Form {
-            DatePicker("Empieza", selection: start)
-            Stepper(value: duration, in: 5...480, step: 5) {
-                LabeledContent("Duración", value: FocusStats.format(TimeInterval(duration.wrappedValue * 60)))
+        var edited = item
+        edited.start = start
+        edited.end = end
+        return Form {
+            Section {
+                EventTimeFields(start: $start, end: $end, conflicts: loaded ? conflicts(edited) : [], allowsSeveralDays: false)
             }
             Toggle("Incluir en el plan", isOn: $item.isIncluded)
         }
         .navigationTitle("Bloque")
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            guard !loaded else { return }
+            start = item.start
+            end = item.end
+            loaded = true
+        }
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
-                Button("Listo", systemImage: "checkmark") { dismiss() }
+                Button("Listo", systemImage: "checkmark") {
+                    item.start = start
+                    item.end = end
+                    dismiss()
+                }
+                .disabled(EventSchedule.issue(EventTimes(start: start, end: end)) != nil)
             }
         }
     }
@@ -460,23 +487,12 @@ private struct DraftItemEditor: View {
 /// Una cita de la propuesta: título, día, hora, duración, repetición, plan y aviso.
 private struct ProposalEventEditor: View {
     @State var event: PlanDraft.Item
+    let conflicts: (PlanDraft.Item) -> [EventConflict]
     let onSave: (PlanDraft.Item) -> Void
     let onRemove: () -> Void
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        let duration = Binding<Int>(
-            get: { event.durationMinutes },
-            set: { event.end = event.start.addingTimeInterval(TimeInterval($0 * 60)) }
-        )
-        let start = Binding<Date>(
-            get: { event.start },
-            set: { newStart in
-                let length = event.end.timeIntervalSince(event.start)
-                event.start = newStart
-                event.end = newStart.addingTimeInterval(length)
-            }
-        )
         let reminder = Binding<Int>(
             get: { event.reminderMinutes ?? 0 },
             set: { event.reminderMinutes = $0 > 0 ? $0 : nil }
@@ -484,9 +500,8 @@ private struct ProposalEventEditor: View {
 
         Form {
             TextField("Título", text: $event.title)
-            DatePicker("Empieza", selection: start)
-            Stepper(value: duration, in: 5...720, step: 5) {
-                LabeledContent("Duración", value: ProposalFormat.minutes(duration.wrappedValue))
+            Section {
+                EventTimeFields(start: $event.start, end: $event.end, conflicts: conflicts(event))
             }
             Picker("Se repite", selection: $event.recurrence) {
                 ForEach(Recurrence.allCases) { Text($0.title).tag($0) }
@@ -517,6 +532,7 @@ private struct ProposalEventEditor: View {
                     onSave(event)
                     dismiss()
                 }
+                .disabled(EventSchedule.issue(EventTimes(start: event.start, end: event.end)) != nil)
             }
         }
     }

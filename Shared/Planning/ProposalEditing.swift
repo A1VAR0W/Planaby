@@ -34,11 +34,19 @@ struct ProposalChanges: Codable, Equatable, Sendable {
     var included: Bool?
     /// Día en que se trabaja una tarea («pásala al viernes»), sin tocar su entrega si da tiempo.
     var workDay: Date?
+    /// Mover solo el comienzo («adelanta el comienzo media hora» = −30).
+    var startDeltaMinutes: Int?
+    /// Al cambiar el comienzo, la hora de fin se queda como estaba.
+    var keepEnd: Bool?
+    /// La hora de fin es del día siguiente (cruza la medianoche, dicho expresamente).
+    var endsNextDay: Bool?
 
     var isEmpty: Bool { self == ProposalChanges() }
 
     /// Es un cambio de horario (para preguntar «¿cuál quieres mover?»).
-    var isReschedule: Bool { day != nil || startMinute != nil || deadline != nil || workDay != nil }
+    var isReschedule: Bool {
+        day != nil || startMinute != nil || deadline != nil || workDay != nil || startDeltaMinutes != nil
+    }
 }
 
 /// Una modificación concreta de la propuesta. Se aplica de forma determinista: la IA solo dice
@@ -316,11 +324,10 @@ enum ProposalEditor {
     private static func update(event id: UUID, with changes: ProposalChanges, in draft: inout PlanDraft, problems: inout [String], calendar: Calendar) {
         guard let index = draft.items.firstIndex(where: { $0.id == id }) else { return }
         var item = draft.items[index]
-        let length = item.end.timeIntervalSince(item.start)
         if let title = changes.title?.trimmingCharacters(in: .whitespaces), !title.isEmpty { item.title = title }
         // Lo que se dice ahora deja de ser provisional.
         if changes.day != nil || changes.deadline != nil { item.confirm(.day) }
-        if changes.startMinute != nil || changes.deadline != nil { item.confirm(.time) }
+        if changes.startMinute != nil || changes.deadline != nil || changes.startDeltaMinutes != nil { item.confirm(.time) }
         if changes.minutes != nil || changes.deltaMinutes != nil || changes.endMinute != nil { item.confirm(.duration) }
         // Un evento no tiene «día de trabajo»: es su día.
         var changes = changes
@@ -329,33 +336,45 @@ enum ProposalEditor {
             item.confirm(.day)
         }
 
-        var start = item.start
-        if let day = changes.day { start = combine(day: day, timeOf: start, calendar: calendar) }
-        if let minute = changes.startMinute { start = at(minute: minute, on: start, calendar: calendar) }
-        if let deadline = changes.deadline { start = deadline }
+        // Primero el día (con sus horas de reloj), luego el comienzo y por último el fin.
+        var times = EventTimes(start: item.start, end: item.end)
+        if let day = changes.day { times = EventSchedule.moving(times, toDay: day, calendar: calendar) }
+        if let deadline = changes.deadline {
+            times = EventTimes(start: deadline, end: deadline.addingTimeInterval(times.end.timeIntervalSince(times.start)))
+        }
+        // «Que empiece a las 10» mueve el evento entero; con «conserva la hora de fin», solo el
+        // comienzo. Si se dice también el fin, el fin se pone después.
+        let keepEnd = changes.keepEnd == true && changes.endMinute == nil && changes.minutes == nil
+        let originalEnd = times.end
+        if let minute = changes.startMinute {
+            times = EventSchedule.settingStart(minute, of: times, keepEnd: keepEnd, calendar: calendar)
+        }
+        if let delta = changes.startDeltaMinutes {
+            times = EventSchedule.shiftingStart(by: delta, of: times, keepEnd: keepEnd)
+        }
+        if keepEnd, times.end != originalEnd {
+            problems.append("El nuevo comienzo de «\(item.title)» queda después del fin; muevo también el fin para conservar la duración.")
+        }
 
-        var duration = length
         if let minutes = changes.minutes, minutes > 0 {
-            duration = TimeInterval(minutes * 60)
+            times.end = times.start.addingTimeInterval(TimeInterval(minutes * 60))
         } else if let delta = changes.deltaMinutes {
-            duration = max(5 * 60, length + TimeInterval(delta * 60))
+            times.end = max(times.start.addingTimeInterval(5 * 60), times.end.addingTimeInterval(TimeInterval(delta * 60)))
         }
-        var end = start.addingTimeInterval(duration)
         if let endMinute = changes.endMinute {
-            var candidate = at(minute: endMinute, on: start, calendar: calendar)
-            // «De 3 a 4» dicho en la misma parte del día: si queda antes, son 12 h más.
-            if candidate <= start, candidate.addingTimeInterval(12 * 3600) > start {
-                candidate = candidate.addingTimeInterval(12 * 3600)
-            }
-            if candidate > start {
-                end = candidate
-                // Si solo se dijo la hora de fin, se mantiene el inicio.
+            // Solo la hora de fin: el inicio se mantiene.
+            if let ended = EventSchedule.settingEnd(endMinute, of: times, nextDay: changes.endsNextDay == true, calendar: calendar) {
+                times = ended
             } else {
-                problems.append("La hora de fin de «\(item.title)» queda antes del inicio; la dejo como estaba.")
+                problems.append("La hora de fin de «\(item.title)» (\(ProposalFormat.clock(endMinute))) queda antes del inicio; la dejo como estaba. Si termina al día siguiente, dímelo.")
             }
         }
-        item.start = start
-        item.end = end
+        if EventSchedule.issue(times) == .tooLong {
+            problems.append("«\(item.title)» duraría más de 14 días; lo dejo como estaba.")
+            times = EventTimes(start: item.start, end: item.end)
+        }
+        item.start = times.start
+        item.end = times.end
         if let mode = changes.mode { item.mode = mode }
         if let recurrence = changes.recurrence { item.recurrence = recurrence }
         if let reminder = changes.reminderMinutes { item.reminderMinutes = reminder > 0 ? reminder : nil }
@@ -374,24 +393,53 @@ enum ProposalEditor {
             task.title = title
             for block in draft.items.indices where draft.items[block].taskID == id { draft.items[block].title = title }
         }
+        // «El viernes de 9:00 a 11:00»: con un día de trabajo o una hora de fin, las horas son la
+        // franja en que se trabaja, no la hora de entrega.
+        var changes = changes
+        if changes.endMinute != nil, changes.workDay == nil, let day = changes.day {
+            // «Muévela al viernes de 9 a 11» dicho como día: es el día de trabajo, no la entrega.
+            changes.workDay = day
+            changes.day = nil
+        }
+        let window = changes.endMinute != nil || (changes.workDay != nil && changes.startMinute != nil)
         var deadline = task.deadline
         if let day = changes.day { deadline = combine(day: day, timeOf: deadline, calendar: calendar) }
-        if let minute = changes.startMinute { deadline = at(minute: minute, on: deadline, calendar: calendar) }
+        if !window, let minute = changes.startMinute { deadline = at(minute: minute, on: deadline, calendar: calendar) }
         if let exact = changes.deadline { deadline = exact }
         if deadline != task.deadline {
             task.deadline = deadline
             replan = true
         }
         if let workDay = changes.workDay {
-            let day = calendar.startOfDay(for: workDay)
-            task.workDay = day
-            if task.deadline < day.addingTimeInterval(3600) {
-                // Si se pide trabajarla un día después de su entrega, la entrega pasa a ese día.
+            task.workDay = calendar.startOfDay(for: workDay)
+            if !window { task.workFrom = nil; task.workTo = nil }
+            replan = true
+        }
+        if window {
+            if let day = task.workDay {
+                let from = changes.startMinute ?? task.workFrom
+                let to = changes.endMinute ?? task.workTo
+                if let from, let to, to > from {
+                    task.workFrom = from
+                    task.workTo = to
+                } else if let from, let to {
+                    problems.append("La franja de «\(task.title)» (\(ProposalFormat.clock(from))–\(ProposalFormat.clock(to))) termina antes de empezar; la dejo como estaba.")
+                } else {
+                    problems.append("Dime a qué hora empiezas y terminas «\(task.title)» el \(ProposalFormat.dayName(day)).")
+                }
+                replan = true
+            } else {
+                problems.append("Dime qué día quieres trabajar en «\(task.title)» con ese horario.")
+            }
+        }
+        if let day = task.workDay, changes.workDay != nil || window {
+            // Si se pide trabajarla después de su entrega, la entrega pasa a ese día.
+            let needed = task.workSlot(calendar: calendar)?.end ?? day.addingTimeInterval(3600)
+            if task.deadline < needed {
                 let newDeadline = at(minute: 23 * 60 + 59, on: day, calendar: calendar)
                 problems.append("«\(task.title)» se entregaba \(ProposalFormat.dayName(task.deadline)); ahora se entrega \(ProposalFormat.dayName(newDeadline)).")
                 task.deadline = newDeadline
             }
-            replan = true
         }
         if let minutes = changes.minutes, minutes > 0 {
             task.statedMinutes = max(15, minutes)
@@ -537,6 +585,10 @@ struct ProposalEditFields: Equatable, Sendable {
     var reminderMinutes = -1
     /// Día en que se trabaja una tarea (no su entrega).
     var workDay = ""
+    /// Minutos que se mueve solo el comienzo (0 = nada).
+    var startShift = 0
+    var keepEnd = false
+    var endsNextDay = false
 
     /// nil si la acción es «deshacer» (se atiende aparte) o no dice nada.
     func makeEdit(calendar: Calendar = .current) -> ProposalEdit? {
@@ -561,6 +613,9 @@ struct ProposalEditFields: Equatable, Sendable {
             changes.recurrence = repeats.isEmpty ? nil : Recurrence(rawValue: repeats)
             if reminderMinutes >= 0 { changes.reminderMinutes = reminderMinutes }
             changes.workDay = ProposalFormat.day(workDay, calendar: calendar)
+            if startShift != 0 { changes.startDeltaMinutes = startShift }
+            if keepEnd { changes.keepEnd = true }
+            if endsNextDay { changes.endsNextDay = true }
             return .update(target, changes)
         }
     }
@@ -992,9 +1047,21 @@ struct ProposalPlacement {
         let pinned = draft.blocks.filter { block in block.taskID.map { !replan.contains($0) } ?? false }
         let ranked = draft.orderedTasks.map(\.id)
         var work: [WorkItem] = []
+        // Tareas con una franja pedida («el viernes de 9:00 a 11:00»): su bloque es esa franja.
+        var slotted: [PlanDraft.Item] = []
+        var slotShortfalls: [UUID: Int] = [:]
         for index in draft.tasks.indices where replan.contains(draft.tasks[index].id) {
             if let stated = draft.tasks[index].statedMinutes { draft.tasks[index].estimatedMinutes = adjust(stated) }
             let task = draft.tasks[index]
+            if let slot = task.workSlot(calendar: calendar), slot.end > now {
+                slotted.append(PlanDraft.Item(
+                    title: task.title, start: max(slot.start, now), end: slot.end, mode: task.mode,
+                    kind: .workBlock, reminderMinutes: blockReminder, taskID: task.id
+                ))
+                let missing = task.estimatedMinutes - slot.minutes
+                if missing > 0 { slotShortfalls[task.id] = missing }
+                continue
+            }
             let window = workWindow(task)
             work.append(WorkItem(
                 id: task.id, deadline: window.end, minutes: task.estimatedMinutes, priority: task.priority,
@@ -1011,12 +1078,10 @@ struct ProposalPlacement {
         for block in pinned where block.isIncluded {
             used[WorkloadPlanner.capKey(group: block.mode.rawValue, day: calendar.startOfDay(for: block.start)), default: 0] += block.durationMinutes
         }
-        let result = planner.plan(
-            work, busy: fixed + pinned.filter(\.isIncluded).map { DateInterval(start: $0.start, end: $0.end) },
-            from: now, used: used
-        )
+        let kept = (pinned + slotted).filter(\.isIncluded).map { DateInterval(start: $0.start, end: $0.end) }
+        let result = planner.plan(work, busy: fixed + kept, from: now, used: used)
 
-        var items = draft.newEvents + pinned
+        var items = draft.newEvents + pinned + slotted
         for block in result.blocks {
             guard let task = draft.tasks.first(where: { $0.id == block.itemID }) else { continue }
             items.append(PlanDraft.Item(
@@ -1026,7 +1091,7 @@ struct ProposalPlacement {
         }
         items.sort { $0.start < $1.start }
         draft.items = items
-        return Result(draft: draft, shortfalls: result.shortfalls, replanned: replan)
+        return Result(draft: draft, shortfalls: result.shortfalls.merging(slotShortfalls) { $0 + $1 }, replanned: replan)
     }
 
     /// Un bloque sigue valiendo si no ha empezado, acaba antes de la fecha límite, no pisa nada
@@ -1039,6 +1104,8 @@ struct ProposalPlacement {
     }
 
     private func fits(_ block: PlanDraft.Item, task: PlanDraft.Workload, fixed: [DateInterval], constraints: PlanConstraints) -> Bool {
+        // Una franja pedida manda: el bloque vale si es exactamente esa franja.
+        if let slot = task.workSlot(calendar: calendar) { return block.end == slot.end && block.start >= slot.start }
         let window = workWindow(task)
         guard block.start >= now, block.end <= window.end else { return false }
         if let start = window.start, block.start < start { return false }

@@ -162,16 +162,38 @@ struct AnswerParsingTests {
 
 @Suite("Preguntar solo lo que falta")
 struct DetailQuestionTests {
-    @Test func asksTheDurationOfBothWithQuickOptions() throws {
+    /// «He preparado los dos eventos. ¿A qué hora quieres que comiencen y terminen?»
+    @Test func asksStartAndEndOfBothWithQuickOptions() throws {
         let draft = provisionalPair()
         let question = try #require(DetailQuestion.next(in: draft))
-        #expect(question.field == .duration)
+        #expect(question.field == .time)
         #expect(question.itemIDs == draft.items.map(\.id))
+        #expect(question.question.hasPrefix("¿A qué hora quieres que comiencen y terminen"))
         #expect(question.question.contains("Subida PRE") && question.question.contains("Subida PRO"))
-        #expect(question.choices == ["30 min", "1 h", "2 h", "Duración diferente para cada evento"])
+        #expect(question.choices.prefix(4) == ["9:00–10:00", "10:00–12:00", "16:00–17:00", "Horario diferente para cada evento"])
+        #expect(question.choices.last?.hasPrefix("Dejar de ") == true)
     }
 
-    @Test func answeringUpdatesBothAndThenAsksTheTime() throws {
+    @Test func aRangeAnswerSetsStartAndEndOfBoth() throws {
+        let draft = provisionalPair()
+        let question = try #require(DetailQuestion.next(in: draft))
+        guard case .edits(let edits) = question.answer("de 9:00 a 11:30", in: draft, now: now) else {
+            Issue.record("«de 9:00 a 11:30» debería entenderse sin la IA")
+            return
+        }
+        let outcome = try applied(ProposalEditor.apply(edits, to: draft, mergeSimilar: false))
+        let events = outcome.draft.newEvents
+        #expect(events.map(\.title) == ["Subida PRE", "Subida PRO"])
+        #expect(events.map { EventSchedule.minuteOfDay($0.start) } == [9 * 60, 9 * 60])
+        #expect(events.map { EventSchedule.minuteOfDay($0.end) } == [11 * 60 + 30, 11 * 60 + 30])
+        #expect(calendar.isDate(events[0].start, inSameDayAs: day(2026, 11, 25)))
+        #expect(calendar.isDate(events[1].start, inSameDayAs: day(2026, 11, 26)))
+        #expect(!outcome.draft.hasUnconfirmed)
+        #expect(DetailQuestion.next(in: outcome.draft) == nil)
+    }
+
+    /// Solo la duración: se calcula el fin desde el inicio y después se pregunta el inicio.
+    @Test func onlyALengthThenAsksWhenItStarts() throws {
         let draft = provisionalPair()
         let question = try #require(DetailQuestion.next(in: draft))
         guard case .edits(let edits) = question.answer("2 h", in: draft, now: now) else {
@@ -180,15 +202,38 @@ struct DetailQuestionTests {
         }
         let outcome = try applied(ProposalEditor.apply(edits, to: draft, mergeSimilar: false))
         #expect(outcome.draft.newEvents.map(\.durationMinutes) == [120, 120])
-        #expect(outcome.draft.newEvents.map(\.title) == ["Subida PRE", "Subida PRO"])
-        #expect(outcome.draft.newEvents.allSatisfy { !$0.isUnconfirmed(.duration) && $0.isUnconfirmed(.time) })
-        #expect(DetailQuestion.next(in: outcome.draft)?.field == .time)
+        let next = try #require(DetailQuestion.next(in: outcome.draft))
+        #expect(next.field == .time && next.question.contains("Duran 2 h"))
+        guard case .edits(let more) = next.answer("a las 10", in: outcome.draft, now: now) else {
+            Issue.record("«a las 10» debería entenderse sin la IA")
+            return
+        }
+        let final = try applied(ProposalEditor.apply(more, to: outcome.draft, mergeSimilar: false)).draft
+        #expect(final.newEvents.map { EventSchedule.minuteOfDay($0.end) } == [12 * 60, 12 * 60])
+        #expect(!final.hasUnconfirmed)
+    }
+
+    /// Se sabe cuándo empieza: se pregunta solo el fin, con horas de fin como opciones.
+    @Test func knownStartAsksOnlyTheEnd() throws {
+        var draft = provisionalPair()
+        for index in draft.items.indices { draft.items[index].confirm(.time) }
+        let question = try #require(DetailQuestion.next(in: draft))
+        #expect(question.field == .duration)
+        #expect(question.question.hasPrefix("¿A qué hora terminan"))
+        #expect(question.choices.prefix(3) == ["09:30", "10:00", "11:00"])
+        guard case .edits(let edits) = question.answer("11:00", in: draft, now: now) else {
+            Issue.record("«11:00» es una hora de fin")
+            return
+        }
+        let outcome = try applied(ProposalEditor.apply(edits, to: draft, mergeSimilar: false)).draft
+        #expect(outcome.newEvents.map { EventSchedule.minuteOfDay($0.start) } == [9 * 60, 9 * 60])
+        #expect(outcome.newEvents.map(\.durationMinutes) == [120, 120])
     }
 
     @Test func differentForEachAndKeepingTheProvisionalTime() throws {
         let draft = provisionalPair()
-        let duration = try #require(DetailQuestion.next(in: draft))
-        #expect(duration.answer("Duración diferente para cada evento", in: draft, now: now) == .eachSeparately)
+        let hours = try #require(DetailQuestion.next(in: draft))
+        #expect(hours.answer("Horario diferente para cada evento", in: draft, now: now) == .eachSeparately)
 
         var confirmed = draft
         for index in confirmed.items.indices { confirmed.items[index].confirm(.duration) }

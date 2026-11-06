@@ -66,6 +66,20 @@ struct PlanDraft: Identifiable, Codable, Equatable, Sendable {
         var replacedBlocks: [PersistentIdentifier] = []
         /// Día en que se trabaja («pasa la revisión al viernes»): sus bloques van solo a ese día.
         var workDay: Date?
+        /// Franja de ese día, en minutos desde medianoche («el viernes de 9:00 a 11:00»): el
+        /// bloque ocupa exactamente esa franja.
+        var workFrom: Int?
+        var workTo: Int?
+
+        /// La franja pedida para trabajarla, si la hay.
+        func workSlot(calendar: Calendar = .current) -> EventTimes? {
+            guard let workDay, let workFrom, let workTo, workTo > workFrom else { return nil }
+            let times = EventTimes(
+                start: EventSchedule.at(workFrom, on: workDay, calendar: calendar),
+                end: EventSchedule.at(workTo, on: workDay, calendar: calendar)
+            )
+            return times.end > times.start ? times : nil
+        }
 
         /// La duración tal como se pidió.
         var requestedMinutes: Int { statedMinutes ?? estimatedMinutes }
@@ -140,7 +154,10 @@ struct PlanDraft: Identifiable, Codable, Equatable, Sendable {
     func describe(formatter: DateFormatter) -> String {
         var lines: [String] = []
         for event in newEvents {
-            var line = "\(ref(event.id)) evento «\(event.title)» \(formatter.string(from: event.start)), \(event.durationMinutes) min, \(event.mode.rawValue)"
+            // Inicio y fin (el fin con su día si es otro), y la duración que sale de ellos.
+            let ends = Calendar.current.isDate(event.start, inSameDayAs: event.end)
+                ? ProposalFormat.time.string(from: event.end) : formatter.string(from: event.end)
+            var line = "\(ref(event.id)) evento «\(event.title)» \(formatter.string(from: event.start))–\(ends) (\(event.durationMinutes) min), \(event.mode.rawValue)"
             if event.recurrence != .none { line += ", \(event.recurrence.rawValue)" }
             if event.replaces != nil { line += ", cambio de un evento guardado" }
             if let missing = event.unconfirmed, !missing.isEmpty {
@@ -156,6 +173,7 @@ struct PlanDraft: Identifiable, Codable, Equatable, Sendable {
         for (index, task) in ordered.enumerated() {
             let blocks = self.blocks(of: task.id).filter(\.isIncluded)
             var line = "\(ref(task.id)) tarea «\(task.title)» \(task.requestedMinutes) min, entrega \(formatter.string(from: task.deadline)), prioridad \(task.priority), dificultad \(task.difficulty), \(task.mode.rawValue), \(blocks.count) bloques"
+            if let slot = task.workSlot() { line += ", se trabaja \(formatter.string(from: slot.start))–\(ProposalFormat.time.string(from: slot.end))" }
             if !order.isEmpty { line += ", puesto \(index + 1)" }
             lines.append(line)
         }
@@ -209,8 +227,8 @@ enum ItemField: String, Codable, Sendable, CaseIterable {
     var spanish: String {
         switch self {
         case .day: "el día"
-        case .time: "la hora"
-        case .duration: "la duración"
+        case .time: "la hora de inicio"
+        case .duration: "la hora de fin"
         }
     }
 }

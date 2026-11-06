@@ -42,9 +42,15 @@ struct ParsedEdit {
     var day: String
     @Guide(description: "Hora nueva de inicio HH:mm; vacía si no cambia")
     var time: String
-    @Guide(description: "Hora nueva de fin HH:mm; vacía si no cambia")
+    @Guide(description: "Hora nueva de fin HH:mm («que termine a las 17:00», «de 9:00 a 11:00»); vacía si no cambia")
     var endTime: String
-    @Guide(description: "Duración nueva de un evento o total nuevo de una tarea, en minutos; 0 si no cambia o no dice cuánto", .range(0...12000))
+    @Guide(description: "true si el fin es del día siguiente porque lo dice («hasta la 1 de la madrugada»)")
+    var endsNextDay: Bool
+    @Guide(description: "Minutos que se mueve solo el comienzo: adelantar media hora -30, retrasar una hora 60; 0 si no", .range(-720...720))
+    var startShift: Int
+    @Guide(description: "true si pide conservar la hora de fin al cambiar el comienzo")
+    var keepEnd: Bool
+    @Guide(description: "Duración nueva de un evento o total nuevo de una tarea, en minutos, solo si da una duración y no una hora de fin; 0 si no", .range(0...12000))
     var minutes: Int
     @Guide(description: "Día yyyy-MM-dd en que se trabaja una tarea («pásala al viernes»); vacío si no cambia")
     var workDay: String
@@ -82,9 +88,11 @@ struct ParsedEvent {
     var day: String
     @Guide(description: "Hora de inicio HH:mm; vacía si el usuario no la dice")
     var time: String
-    @Guide(description: "Hora de fin HH:mm; vacía si no la dice")
+    @Guide(description: "Hora de fin HH:mm; vacía si el usuario no la dice")
     var endTime: String
-    @Guide(description: "Duración en minutos solo si el usuario la dice; 0 si no", .range(0...720))
+    @Guide(description: "true si termina al día siguiente porque lo dice")
+    var endsNextDay: Bool
+    @Guide(description: "Duración en minutos solo si dice cuánto dura y no la hora de fin; 0 si no", .range(0...720))
     var durationMinutes: Int
     @Guide(description: "work si es claramente de trabajo o estudios; personal si es claramente ocio, casa, salud, familia o recados; unknown si no se puede saber", .anyOf(["work", "personal", "unknown"]))
     var mode: String
@@ -1150,6 +1158,10 @@ final class PlanningAssistant {
         let saysWhen = RequestDates.saysWhen(request, now: now, calendar: calendar)
         let saysTime = AnswerParsing.time(request) != nil
         let saysDuration = AnswerParsing.duration(request) != nil
+        // Una franja escrita («mañana de 10:00 a 12:00») manda sobre lo que diga el modelo si solo
+        // se pide un evento (con varios no se sabe de cuál es cada una).
+        let writtenRange = parsed.events.count == 1 ? AnswerParsing.range(request) : nil
+        let saysEnd = AnswerParsing.range(request) != nil || AnswerParsing.endTime(request) != nil
         let defaultStart = ModeController.shared.availability(for: .work).startMinute
         let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now)) ?? now
 
@@ -1163,18 +1175,26 @@ final class PlanningAssistant {
             // El día escrito en la petición («Subida PRE para el 25 de noviembre») manda.
             let day = written[index] ?? ProposalFormat.day(event.day, calendar: calendar)
             if written[index] == nil, recurrence == .none, day == nil || !saysWhen { missing.append(.day) }
-            let startMinute = ProposalFormat.minute(event.time)
+            let startMinute = writtenRange?.start ?? ProposalFormat.minute(event.time)
             if startMinute == nil || !saysTime { missing.append(.time) }
-            var minutes = event.durationMinutes > 0 ? event.durationMinutes : nil
-            if let endMinute = ProposalFormat.minute(event.endTime), let startMinute {
-                var end = endMinute
-                if end <= startMinute, end + 12 * 60 > startMinute { end += 12 * 60 }
-                if end > startMinute { minutes = end - startMinute }
-            }
-            if minutes == nil || !(saysDuration || ProposalFormat.minute(event.endTime) != nil) { missing.append(.duration) }
+            let minutes = event.durationMinutes > 0 ? event.durationMinutes : nil
+            let endMinute = writtenRange?.end ?? ProposalFormat.minute(event.endTime)
             let start = ProposalEditor.at(minute: startMinute ?? defaultStart, on: day ?? tomorrow, calendar: calendar)
+            var times = EventTimes(start: start, end: start.addingTimeInterval(TimeInterval((minutes ?? 60) * 60)))
+            var hasEnd = false
+            if let endMinute, startMinute != nil, saysEnd {
+                let nextDay = (writtenRange?.nextDay ?? false) || (event.endsNextDay && AnswerParsing.endsNextDay(request))
+                if let ended = EventSchedule.settingEnd(endMinute, of: times, nextDay: nextDay, calendar: calendar) {
+                    times = ended
+                    hasEnd = true
+                } else {
+                    result.problems.append("La hora de fin de «\(title)» queda antes del inicio; dime a qué hora termina (o si es al día siguiente).")
+                }
+            }
+            // La hora de fin (o la duración) solo cuenta si la dijo la persona.
+            if !(hasEnd || (minutes != nil && saysDuration)) { missing.append(.duration) }
             var item = PlanDraft.Item(
-                title: title, start: start, end: start.addingTimeInterval(TimeInterval((minutes ?? 60) * 60)),
+                title: title, start: times.start, end: times.end,
                 mode: PlanMode(rawValue: event.mode) ?? fallbackMode, kind: .event, recurrence: recurrence,
                 reminderMinutes: event.reminderMinutes > 0 ? event.reminderMinutes : nil
             )
@@ -1218,7 +1238,8 @@ final class PlanningAssistant {
                 action: edit.action, target: edit.target, title: edit.title, day: edit.day, time: edit.time,
                 endTime: edit.endTime, minutes: edit.minutes, deadline: edit.deadline, priority: edit.priority,
                 difficulty: edit.difficulty, mode: edit.mode, repeats: edit.repeats, reminderMinutes: edit.reminderMinutes,
-                workDay: edit.workDay
+                workDay: edit.workDay, startShift: edit.startShift, keepEnd: edit.keepEnd,
+                endsNextDay: edit.endsNextDay && AnswerParsing.endsNextDay(request)
             )
             if fields.isUndo {
                 if proposal != nil { result.undo = true }
@@ -1226,6 +1247,9 @@ final class PlanningAssistant {
                 result.edits.append(operation)
             }
         }
+        // Lo que se dice de las horas («conserva la hora de fin», «adelanta el comienzo media
+        // hora», «de 9:00 a 11:00») se comprueba con la petición escrita.
+        result.edits = TimeGrounding.check(result.edits, request: request)
         for condition in parsed.conditions {
             let fields = ProposalConditionFields(kind: condition.kind, day: condition.day, from: condition.from, to: condition.to)
             if let operation = fields.makeEdit() { result.edits.append(operation) }
@@ -1298,7 +1322,7 @@ final class PlanningAssistant {
             Eres el asistente de planificación de Planaby. Solo ayudas a planificar: crear, cambiar, mover, replanificar y borrar eventos y tareas.
             - Si la petición no tiene nada que ver con planificar, offTopic true y todo vacío.
             - requestedCount: cuántos eventos y tareas nuevos pide («dos eventos» son 2).
-            - Incluye CADA elemento nuevo que pide, uno por elemento, sin omitir ninguno, aunque le falten datos. Si no dice el día, la hora o la duración, déjalos vacíos (durationMinutes 0): Planaby lo preguntará. Nunca inventes datos.
+            - Incluye CADA elemento nuevo que pide, uno por elemento, sin omitir ninguno, aunque le falten datos. Si no dice el día, la hora de inicio o la de fin, déjalos vacíos (durationMinutes 0): Planaby lo preguntará. Nunca inventes datos.
             - title es el nombre exacto que usa el usuario («Subida PRE»), sin la fecha ni la palabra evento.
             - No añadas nada que no haya pedido. Lo que ya está en el calendario o en la propuesta no se vuelve a crear.
             - Un evento tiene día y hora fijos. Una tarea es trabajo con fecha límite y duración estimada; Planaby la reparte en bloques.
@@ -1308,7 +1332,11 @@ final class PlanningAssistant {
             - Si no está claro a cuál se refiere, pon sus palabras en target; Planaby preguntará.
             - Los eventos de otros calendarios son solo de lectura: no los cambies ni los borres.
             - Condiciones sobre todo el plan («deja dos horas libres mañana por la tarde», «nada después de las 17», «menos intenso», «lo difícil por la mañana», «primero lo urgente») van en conditions. «Reorganiza todo» pone reorganize a true. Para priorizar tareas guardadas, copia sus títulos en prioritize.
-            - «De 3 a 4»: time y endTime. Si nombra varias fechas para lo mismo, un evento por fecha con el mismo título.
+            - Los eventos tienen hora de inicio y hora de fin. «De 10:00 a 12:00»: time 10:00 y endTime 12:00. Si solo dice cuánto dura, durationMinutes (o minutes en un edit) y endTime vacío. Si no dice ni inicio ni fin, déjalos vacíos: Planaby preguntará.
+            - «Cambia la hora de fin a las 14:30» o «que termine a las 17:00»: solo endTime (el inicio no cambia). «Adelanta el comienzo media hora, pero conserva la hora de fin»: startShift -30 y keepEnd true. «Mueve la reunión a las 10»: time 10:00 (se mueve entera).
+            - Solo si dice que termina al día siguiente o de madrugada, endsNextDay true.
+            - «Mueve esta tarea al viernes de 9:00 a 11:00»: edit con workDay del viernes, time 09:00 y endTime 11:00.
+            - Si nombra varias fechas para lo mismo, un evento por fecha con el mismo título.
             - Calcula fechas absolutas desde la fecha actual; sin año, la próxima que no haya pasado.
             - Si dice dónde va (trabajo, personal, casa), úsalo; si no está claro, mode unknown.
             - Si pide algo que Planaby no puede hacer (invitar, enviar mensajes, llamar), dilo en question y no lo simules.

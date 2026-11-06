@@ -7,9 +7,13 @@ struct EventForm: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
 
+    /// Para avisar si coincide con otra cita.
+    @Query(sort: \CalendarEvent.start) private var saved: [CalendarEvent]
+
     @State private var title: String
     @State private var start: Date
-    @State private var durationMinutes: Int
+    /// La hora de fin se elige directamente; la duración sale de ahí.
+    @State private var end: Date
     @State private var mode: PlanMode
     @State private var kind: EventKind
     @State private var recurrence: Recurrence
@@ -24,8 +28,9 @@ struct EventForm: View {
     init(event: CalendarEvent?, day: Date, kind: EventKind) {
         self.event = event
         _title = State(initialValue: event?.title ?? "")
-        _start = State(initialValue: event?.start ?? Self.defaultStart(on: day))
-        _durationMinutes = State(initialValue: event.map { Int($0.duration / 60) } ?? (kind == .habit ? 30 : 60))
+        let start = event?.start ?? Self.defaultStart(on: day)
+        _start = State(initialValue: start)
+        _end = State(initialValue: event?.end ?? start.addingTimeInterval(TimeInterval((kind == .habit ? 30 : 60) * 60)))
         _mode = State(initialValue: event?.mode ?? ModeController.shared.mode)
         _kind = State(initialValue: kind)
         _recurrence = State(initialValue: event?.recurrence ?? (kind == .habit ? .daily : .none))
@@ -41,10 +46,7 @@ struct EventForm: View {
             }
 
             Section {
-                DatePicker("Empieza", selection: $start)
-                Stepper(value: $durationMinutes, in: 5...720, step: durationMinutes < 30 ? 5 : 15) {
-                    LabeledContent("Duración", value: FocusStats.format(TimeInterval(durationMinutes * 60)))
-                }
+                EventTimeFields(start: $start, end: $end, conflicts: conflicts, allowsSeveralDays: kind != .workBlock)
                 if kind != .workBlock {
                     Picker("Repetir", selection: $recurrence) {
                         ForEach(Recurrence.allCases) { Text($0.title).tag($0) }
@@ -58,7 +60,7 @@ struct EventForm: View {
                 } header: {
                     Text(otherDays.isEmpty ? "Otros días" : "Otros días · \(otherDays.count)")
                 } footer: {
-                    Text("Marca más días para crear lo mismo a la misma hora en cada uno (por ejemplo, varias clases o turnos).")
+                    Text("Marca más días para crear lo mismo, con el mismo inicio y fin, en cada uno (por ejemplo, varias clases o turnos).")
                 }
             }
 
@@ -85,13 +87,25 @@ struct EventForm: View {
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button("Guardar", systemImage: "checkmark", action: save)
-                    .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty || EventSchedule.issue(times) != nil)
             }
         }
     }
 
+    private var times: EventTimes { EventTimes(start: start, end: end) }
+
+    /// Citas guardadas y de otros calendarios que coinciden con estas horas (sin contar esta).
+    private var conflicts: [EventConflict] {
+        guard EventSchedule.issue(times) == nil else { return [] }
+        let candidates = PlanBuilder.conflictCandidates(
+            saved: saved, range: DateInterval(start: start, end: end),
+            excluding: Set([event?.persistentModelID].compactMap { $0 })
+        )
+        return EventSchedule.conflicts(times, with: candidates)
+    }
+
     private func save() {
-        let end = start.addingTimeInterval(TimeInterval(durationMinutes * 60))
+        guard EventSchedule.issue(times) == nil else { return }
         let reminderMinutes = reminder >= 0 ? reminder : nil
         let cleanTitle = title.trimmingCharacters(in: .whitespaces)
         if let event {
@@ -103,9 +117,10 @@ struct EventForm: View {
             event.reminderMinutes = reminderMinutes
             event.notes = notes
         } else {
-            for day in [start] + extraStarts {
+            // Cada día marcado, con las mismas horas de inicio y fin.
+            for copy in [times] + extraDays.map({ EventSchedule.moving(times, toDay: $0) }) {
                 context.insert(CalendarEvent(
-                    title: cleanTitle, notes: notes, start: day, end: day.addingTimeInterval(end.timeIntervalSince(start)),
+                    title: cleanTitle, notes: notes, start: copy.start, end: copy.end,
                     mode: mode, kind: kind, recurrence: recurrence, reminderMinutes: reminderMinutes
                 ))
             }
@@ -118,15 +133,14 @@ struct EventForm: View {
         dismiss()
     }
 
-    /// Los otros días marcados, a la misma hora que el primero (sin repetir el primero).
-    private var extraStarts: [Date] {
+    /// Los otros días marcados (sin repetir el primero).
+    private var extraDays: [Date] {
         guard recurrence == .none else { return [] }
         let calendar = Calendar.current
-        let time = calendar.dateComponents([.hour, .minute], from: start)
         return otherDays
             .compactMap { calendar.date(from: $0) }
             .filter { !calendar.isDate($0, inSameDayAs: start) }
-            .compactMap { calendar.date(bySettingHour: time.hour ?? 9, minute: time.minute ?? 0, second: 0, of: $0) }
+            .map { calendar.startOfDay(for: $0) }
             .sorted()
     }
 

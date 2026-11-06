@@ -125,6 +125,7 @@ targets:
       - Shared/Planning/PlanDraft.swift
       - Shared/Planning/ProposalEditing.swift
       - Shared/Planning/PlanRequest.swift
+      - Shared/Planning/EventSchedule.swift
       - Shared/Design/MotionTiming.swift
       - Shared/Engine/VolumeLevel.swift
       - Shared/Engine/AlertPreferences.swift

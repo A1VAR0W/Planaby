@@ -86,6 +86,7 @@ Recuerda refrescar la app en SideStore cada 7 días.
 
 - **Modo Normal:** solo se ve y avisa el plan personal; los recordatorios de Trabajo quedan en silencio.
 - **Modo Trabajo:** se ven y suenan los dos planes.
+- **Inicio y fin:** los eventos se crean y editan con fecha, hora de inicio y hora de fin; la duración se calcula sola y se avisa de lo que coincide. Ver [docs/HORAS.md](docs/HORAS.md).
 - **Cambiar de modo:** en la pestaña Plan, en Ajustes, con Siri («Cambia de modo en Planaby») o con un filtro de Concentración: Ajustes de iOS › Concentración › Trabajo › Filtros › Planaby › Modo Trabajo. Al desactivar esa Concentración, Planaby vuelve a Normal.
 - **IA:** Apple Intelligence en el dispositivo interpreta el texto. Si no está claro si algo es de Trabajo o del plan Normal, pregunta («¿«Llamar a Juan» va en tu plan de Trabajo o en el Normal?») con dos botones, en el chat, por voz y en Reorganizar; `WorkloadPlanner` reparte las tareas en los huecos del horario de cada modo (Ajustes › Plan), primero la fecha límite más cercana. Sin Apple Intelligence quedan las plantillas.
 

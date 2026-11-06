@@ -610,6 +610,13 @@ private struct AgendaRow: View {
 
     private var caption: String {
         var parts = [entry.event.mode.title]
+        // La duración sale del inicio y el fin; si termina otro día, se dice cuál.
+        let times = EventTimes(start: entry.interval.start, end: entry.interval.end)
+        if EventSchedule.daySpan(times) > 0 {
+            parts.append("hasta \(ProposalFormat.dayTime.string(from: times.end))")
+        } else if times.minutes > 0 {
+            parts.append(ProposalFormat.minutes(times.minutes))
+        }
         switch entry.event.kind {
         case .workBlock: parts.append("bloque de trabajo")
         case .habit: parts.append("hábito")
