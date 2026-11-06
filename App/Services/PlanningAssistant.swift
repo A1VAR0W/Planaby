@@ -200,22 +200,7 @@ final class PlanningAssistant {
     }
 
     /// nil si está disponible; si no, el motivo para mostrarlo.
-    static var unavailableReason: String? {
-        switch SystemLanguageModel.default.availability {
-        case .available:
-            nil
-        case .unavailable(.deviceNotEligible):
-            "Este iPhone no es compatible con Apple Intelligence. Puedes usar las plantillas."
-        case .unavailable(.appleIntelligenceNotEnabled):
-            "Activa Apple Intelligence en Ajustes de iOS para planificar con IA. Mientras, puedes usar las plantillas."
-        case .unavailable(.modelNotReady):
-            "Apple Intelligence se está preparando. Vuelve a intentarlo en un rato o usa las plantillas."
-        case .unavailable:
-            "Apple Intelligence no está disponible ahora mismo. Puedes usar las plantillas."
-        @unknown default:
-            "Apple Intelligence no está disponible ahora mismo. Puedes usar las plantillas."
-        }
-    }
+    static var unavailableReason: String? { AIProvider.unavailableReason }
 
     var unavailableReason: String? { Self.unavailableReason }
 
@@ -378,7 +363,7 @@ final class PlanningAssistant {
 
     /// Estima tiempo y dificultad de una tarea a partir de su descripción y el texto de su material.
     static func estimate(title: String, notes: String, deadline: Date, attachmentTexts: [String]) async throws -> ComplexityEstimate {
-        let session = LanguageModelSession(instructions: """
+        let session = AIProvider.session(instructions: """
             Eres un asistente que estima tareas de trabajo y estudio. A partir del título, las notas y el material \
             adjunto (texto extraído de capturas o documentos), estima el tiempo total realista y la dificultad, \
             explica brevemente por qué y propone pasos concretos. Escribe en español.
@@ -392,7 +377,7 @@ final class PlanningAssistant {
             Entrega: \(deadline.formatted(.dateTime.weekday(.wide).day().month(.wide).hour().minute()))
             Notas: \(notes.isEmpty ? "ninguna" : notes)
             Material adjunto:
-            \(material.isEmpty ? "ninguno" : String(material))
+            \(material.isEmpty ? "ninguno" : AIProvider.wrap(String(material), limit: 5_000))
             """
         let response = try await session.respond(to: prompt, generating: ComplexityEstimate.self, options: GenerationOptions(temperature: 0.3))
         return response.content
@@ -415,7 +400,7 @@ final class PlanningAssistant {
     // MARK: Contexto para el modelo
 
     private static func makeSession() -> LanguageModelSession {
-        LanguageModelSession(instructions: """
+        AIProvider.session(instructions: """
             Eres la secretaria personal de Planaby, una app de concentración. Conviertes lo que escribe el usuario en eventos y tareas, o detectas que quiere reorganizar su plan.
             - Un evento tiene día y hora fijos. Una tarea es trabajo nuevo con fecha límite y duración estimada; Planaby la repartirá en bloques, así que no inventes los bloques.
             - Si el usuario pide priorizar o adelantar tareas que ya tiene, pon reorganize a true y copia sus títulos en prioritize; no las repitas en tasks.
@@ -459,7 +444,8 @@ final class PlanningAssistant {
             Propuesta pendiente sin aceptar: \(proposal).
             Tareas pendientes:
             \(pending.isEmpty ? "ninguna" : pending)
-            \(material.isEmpty ? "" : "Material adjunto:\n\(material)")
+            \(material.isEmpty ? "" : "Material adjunto:\n\(AIProvider.wrap(String(material), limit: 3_000))")
+            Ritmo: \(PersonalContextService.profileLine())
             Petición: \(text.isEmpty ? "Organiza el material adjunto." : text)
             """
     }

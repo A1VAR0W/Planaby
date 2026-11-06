@@ -21,6 +21,11 @@ struct MessageSettingsView: View {
                 } label: {
                     Label("Avisarme de", systemImage: "bell.badge")
                 }
+                NavigationLink {
+                    SenderRulesView()
+                } label: {
+                    Label("Remitentes prioritarios", systemImage: "person.crop.circle.badge.checkmark")
+                }
             } footer: {
                 Text("Lo importante no te avisa mientras te concentras: al terminar la sesión recibes un resumen. Lo que puede esperar y el ruido nunca avisan. Para que Mensajes y Correo no te interrumpan, en Ajustes de iOS › Concentración › (p. ej. Trabajo) silencia esas apps y permite Planaby.")
             }

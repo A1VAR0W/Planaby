@@ -84,6 +84,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
-        [.banner, .list, .sound]
+        // Los cambios de fase los enseña la propia app (tarjeta, sonido y vibración): sin banner
+        // para no avisar dos veces. Queda en el Centro de notificaciones.
+        if NotificationService.isPhaseAlert(notification.request.identifier) { return [.list] }
+        return [.banner, .list, .sound]
     }
 }

@@ -9,6 +9,11 @@ struct FocusView: View {
     @State private var voice: VoiceTaskFlow?
     @State private var showsInbox = false
     @State private var showsPlayer = false
+    @State private var showsStartNow = false
+    @State private var showsContext = false
+    @State private var showsStuck = false
+    @State private var ratingStart: Date?
+    @AppStorage("askFocusRating") private var asksRating = true
     @Query(filter: #Predicate<MessageItem> { !$0.isRead }) private var unread: [MessageItem]
     @AppStorage(MusicLinks.Keys.focus) private var focusMusic = ""
     @AppStorage(MusicLinks.Keys.rest) private var restMusic = ""
@@ -22,10 +27,17 @@ struct FocusView: View {
                 isBreak: timer.state?.phase.isBreak ?? false
             )
             if let state = timer.state {
-                ActiveSessionView(state: state, onChangeMethod: { showingMethods = true })
-                    .transition(.opacity)
+                ActiveSessionView(
+                    state: state, onChangeMethod: { showingMethods = true },
+                    onContext: { showsContext = true }, onStuck: { showsStuck = true },
+                    onStopped: { summary in
+                        // Valoración opcional, solo en sesiones de al menos 10 minutos.
+                        if asksRating, let summary, summary.focusedSeconds >= 600 { ratingStart = summary.start }
+                    }
+                )
+                .transition(.opacity)
             } else {
-                IdleFocusView(onChangeMethod: { showingMethods = true })
+                IdleFocusView(onChangeMethod: { showingMethods = true }, onStartNow: { showsStartNow = true })
                     .transition(.opacity)
             }
         }
@@ -99,15 +111,36 @@ struct FocusView: View {
             NavigationStack { MethodPickerView() }
                 .presentationDetents([.medium, .large])
         }
+        .sheet(isPresented: $showsStartNow) {
+            NavigationStack { StartNowView() }
+        }
+        .sheet(isPresented: $showsContext) {
+            NavigationStack { SessionContextSheet() }
+        }
+        .sheet(isPresented: $showsStuck) {
+            NavigationStack { StuckSheet() }
+        }
+        .sheet(item: Binding(get: { ratingStart.map(RatingTarget.init) }, set: { ratingStart = $0?.start })) { target in
+            SessionRatingSheet(sessionStart: target.start)
+        }
     }
+}
+
+private struct RatingTarget: Identifiable {
+    let start: Date
+    var id: Date { start }
 }
 
 // MARK: - Sin sesión
 
 private struct IdleFocusView: View {
     let onChangeMethod: () -> Void
+    let onStartNow: () -> Void
     @Environment(FocusTimer.self) private var timer
     @Environment(MethodLibrary.self) private var library
+    @Environment(ModeController.self) private var modes
+    @Query(filter: #Predicate<PlanTask> { !$0.isDone }, sort: \PlanTask.deadline) private var tasks: [PlanTask]
+    @Query private var events: [CalendarEvent]
 
     var body: some View {
         let method = library.selected
@@ -128,10 +161,32 @@ private struct IdleFocusView: View {
 
             Spacer()
 
+            AdaptiveSuggestionCard()
+                .padding(.bottom, Space.m)
+
+            let main = MainTask.pick(from: tasks, events: events, mode: modes.mode)
+            if let main {
+                VStack(spacing: 2) {
+                    Text(main.title)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    if let step = main.firstStep {
+                        Text(step)
+                            .font(.footnote)
+                            .foregroundStyle(Theme.secondaryText)
+                            .lineLimit(1)
+                    }
+                }
+                .multilineTextAlignment(.center)
+                .padding(.bottom, Space.s)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Lo siguiente: \(main.title)")
+            }
+
             Button {
                 Task {
                     await NotificationAccess.requestIfNeeded()
-                    timer.start(method)
+                    timer.start(method, task: main?.title, taskID: main?.stableID)
                 }
             } label: {
                 Text("Empezar")
@@ -142,6 +197,16 @@ private struct IdleFocusView: View {
             .buttonStyle(.glassProminent)
             .tint(Theme.orange)
             .controlSize(.large)
+
+            // Para cuando no apetece: cinco minutos y un primer paso.
+            Button(action: onStartNow) {
+                Label("Sin ganas: empezar 5 minutos", systemImage: "figure.walk")
+                    .font(.subheadline.weight(.medium))
+                    .frame(maxWidth: .infinity, minHeight: 32)
+            }
+            .buttonStyle(.glass)
+            .controlSize(.large)
+            .padding(.top, Space.s)
         }
         .padding(.horizontal, Space.l)
         .padding(.bottom, Space.l)
@@ -159,8 +224,16 @@ private struct IdleFocusView: View {
 private struct ActiveSessionView: View {
     let state: TimerState
     let onChangeMethod: () -> Void
+    let onContext: () -> Void
+    let onStuck: () -> Void
+    let onStopped: (CompletedSession?) -> Void
     @Environment(FocusTimer.self) private var timer
     @State private var confirmingStop = false
+
+    private var nextStep: String? {
+        let step = SessionContext.load(for: state.sessionStart)?.nextStep ?? ""
+        return step.isEmpty ? nil : step
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -173,8 +246,18 @@ private struct ActiveSessionView: View {
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, Space.l)
-                    .padding(.bottom, Space.l)
+                    .padding(.bottom, nextStep == nil ? Space.l : Space.xs)
                     .accessibilityLabel("Tarea: \(task)")
+            }
+            if let nextStep {
+                Text(nextStep)
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.secondaryText)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, Space.l)
+                    .padding(.bottom, Space.l)
+                    .accessibilityLabel("Siguiente paso: \(nextStep)")
             }
 
             TimelineView(.periodic(from: .now, by: 1)) { context in
@@ -205,6 +288,20 @@ private struct ActiveSessionView: View {
             MethodButton(name: state.method.name, action: onChangeMethod)
                 .padding(.top, Space.s)
 
+            HStack(spacing: Space.l) {
+                Button(action: onContext) {
+                    Label(nextStep == nil ? "Siguiente paso" : "Contexto", systemImage: "text.alignleft")
+                }
+                Button(action: onStuck) {
+                    Label("Me he atascado", systemImage: "questionmark.circle")
+                }
+            }
+            .font(.footnote.weight(.medium))
+            .foregroundStyle(Theme.secondaryText)
+            .buttonStyle(.plain)
+            .frame(minHeight: 44)
+            .padding(.top, Space.xs)
+
             Spacer()
 
             HStack(spacing: Space.xl) {
@@ -223,7 +320,7 @@ private struct ActiveSessionView: View {
         .padding(.bottom, Space.l)
         .sensoryFeedback(.impact(flexibility: .soft, intensity: 0.6), trigger: state.isPaused)
         .confirmationDialog("¿Terminar la sesión?", isPresented: $confirmingStop, titleVisibility: .visible) {
-            Button("Terminar", role: .destructive) { timer.stop() }
+            Button("Terminar", role: .destructive) { onStopped(timer.stop()) }
         } message: {
             Text("Se guardará en tu progreso si llevas más de un minuto concentrado.")
         }

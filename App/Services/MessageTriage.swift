@@ -21,6 +21,30 @@ struct MessageVerdict {
 enum MessageTriage {
     enum Keys {
         static let notifyLevel = "messageNotifyLevel"
+        static let prioritySenders = "prioritySenders"
+        static let overrides = "senderOverrides"
+    }
+
+    /// Remitentes prioritarios y lo aprendido de las correcciones a mano.
+    static var rules: TriageRules {
+        get {
+            TriageRules(
+                prioritySenders: UserDefaults.standard.stringArray(forKey: Keys.prioritySenders) ?? [],
+                overrides: UserDefaults.standard.dictionary(forKey: Keys.overrides) as? [String: String] ?? [:]
+            )
+        }
+        set {
+            UserDefaults.standard.set(newValue.prioritySenders, forKey: Keys.prioritySenders)
+            UserDefaults.standard.set(newValue.overrides, forKey: Keys.overrides)
+        }
+    }
+
+    /// «Mover a…» en la bandeja: los siguientes mensajes de esa persona van ahí directamente.
+    static func learn(_ item: MessageItem, category: MessageCategory) {
+        item.category = category
+        var current = rules
+        current.learn(sender: item.sender, category: category)
+        rules = current
     }
 
     /// Hasta qué categoría se avisa: 0 solo urgentes, 1 también importantes (no durante la concentración).
@@ -50,33 +74,29 @@ enum MessageTriage {
     }
 
     static func classify(source: MessageSource, sender: String, subject: String, body: String) async -> (MessageCategory, String) {
-        if PlanningAssistant.unavailableReason == nil {
-            let session = LanguageModelSession(instructions: """
+        let rules = rules
+        let fallbackSummary = String((subject.isEmpty ? body : subject).prefix(120))
+        // Lo que la persona ya decidió para este remitente manda sobre la IA.
+        if let chosen = rules.override(for: sender) { return (chosen, fallbackSummary) }
+        if AIProvider.isAvailable {
+            let session = AIProvider.session(instructions: """
                 Eres el filtro de mensajes de Planaby, una app de concentración. Decides si un mensaje merece \
-                interrumpir a la persona. Sé exigente: casi nada es urgente. Escribe en español.
+                interrumpir a la persona. Sé exigente: casi nada es urgente. La palabra «urgente» sola no basta: \
+                tiene que haber un motivo concreto o un plazo de horas. Escribe en español.
                 """)
             let prompt = """
                 Ahora: \(Date.now.formatted(.dateTime.weekday(.wide).day().month(.wide).hour().minute()))
                 Canal: \(source.title)
-                De: \(sender.isEmpty ? "desconocido" : sender)
-                \(subject.isEmpty ? "" : "Asunto: \(subject)\n")Texto: \(body.isEmpty ? "(vacío)" : String(body.prefix(1_200)))
+                Remitente prioritario: \(rules.isPriority(sender) ? "sí" : "no")
+                Mensaje:
+                \(AIProvider.wrap("De: \(sender.isEmpty ? "desconocido" : sender)\n\(subject.isEmpty ? "" : "Asunto: \(subject)\n")Texto: \(body.isEmpty ? "(vacío)" : body)", limit: 1_400))
                 """
             if let response = try? await session.respond(to: prompt, generating: MessageVerdict.self, options: GenerationOptions(temperature: 0.1)),
                let category = MessageCategory(rawValue: response.content.category) {
-                return (category, response.content.summary)
+                return (rules.adjust(category, sender: sender, text: "\(subject) \(body)"), response.content.summary)
             }
         }
-        return (heuristic(source: source, sender: sender, subject: subject, body: body), String((subject.isEmpty ? body : subject).prefix(120)))
-    }
-
-    /// Sin Apple Intelligence: unas reglas sencillas.
-    private static func heuristic(source: MessageSource, sender: String, subject: String, body: String) -> MessageCategory {
-        let text = "\(sender) \(subject) \(body)".lowercased()
-        let noise = ["noreply", "no-reply", "newsletter", "unsubscribe", "darse de baja", "oferta", "promo", "código de verificación", "verification code"]
-        if noise.contains(where: { text.contains($0) }) { return .noise }
-        let urgent = ["urgente", "urgent", "asap", "cuanto antes", "emergencia", "llámame", "llamame", "ahora mismo"]
-        if urgent.contains(where: { text.contains($0) }) { return .urgent }
-        return source == .messages ? .important : .later
+        return (rules.heuristic(fromMessages: source == .messages, sender: sender, subject: subject, body: body), fallbackSummary)
     }
 
     // MARK: Avisos

@@ -14,6 +14,10 @@ struct RootView: View {
     @State private var showsRhythmTest = PersonalProfile.shared.shouldOfferTest
     @State private var friction = FrictionGuard.shared
     @State private var leaveGuard = LeaveGuard.shared
+    @State private var transition: FocusTimer.AutomaticTransition?
+    @State private var showsStuck = false
+    @State private var pendingStuck = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// En horizontal, desde Enfoque, el iPhone pasa a modo escritorio a pantalla completa.
     private var isDesk: Bool { verticalSizeClass == .compact && tab == .focus }
@@ -60,19 +64,43 @@ struct RootView: View {
                 if resisted { tab = .focus }
             }
         }
-        // Vuelta tras salir de Planaby en mitad de un bloque.
-        .alert(
-            leaveGuard.returned.map { "Has estado fuera \(LeaveGuard.minutes($0.seconds))" } ?? "",
-            isPresented: Binding(get: { leaveGuard.returned != nil }, set: { if !$0 { leaveGuard.returned = nil } }),
-            presenting: leaveGuard.returned
-        ) { _ in
-            Button("Seguir concentrándome", role: .cancel) { tab = .focus }
-            Button("Pausar la sesión") { timer.pause() }
-        } message: { info in
-            Text(Self.returnMessage(info))
+        // Vuelta tras salir de Planaby en mitad de un bloque: «Bienvenido de nuevo».
+        .sheet(item: $leaveGuard.returned, onDismiss: {
+            tab = .focus
+            // «Me he atascado» se abre cuando ya se ha cerrado esta hoja.
+            if pendingStuck {
+                pendingStuck = false
+                showsStuck = true
+            }
+        }) { info in
+            RecoveryView(info: info) { pendingStuck = true }
+        }
+        .sheet(isPresented: $showsStuck) {
+            NavigationStack { StuckSheet() }
         }
         .sensoryFeedback(.warning, trigger: leaveGuard.returned?.id)
-        .sensoryFeedback(.impact(flexibility: .soft, intensity: 0.7), trigger: timer.state?.phase)
+        // Cambio de fase con la app delante: tarjeta, sonido y vibración según «Avisos de concentración».
+        .overlay(alignment: .top) {
+            if let transition {
+                PhaseTransitionCard(transition: transition) {
+                    withAnimation(.easeIn(duration: 0.18)) { self.transition = nil }
+                }
+                .padding(.top, Space.s)
+                .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+                .zIndex(1)
+            }
+        }
+        .onChange(of: timer.lastTransition) { _, new in
+            guard let new, scenePhase == .active else { return }
+            let intoBreak = new.next.isBreak
+            guard new.endedStarter || AlertPreferences.alerts(intoBreak: intoBreak) else { return }
+            if Preferences.phaseAlertsEnabled { PhaseAlertPlayer.shared.play(intoBreak: intoBreak) }
+            if AlertPreferences.showsOverlay || new.endedStarter {
+                withAnimation(reduceMotion ? .easeOut(duration: 0.2) : .spring(duration: 0.3, bounce: 0.15)) {
+                    transition = new
+                }
+            }
+        }
         // Música de concentración o de descanso, si está configurada (solo con la app delante).
         .onChange(of: timer.state?.phase) { old, new in
             if scenePhase == .active { MusicLinks.phaseChanged(to: new, from: old) }
@@ -99,10 +127,4 @@ struct RootView: View {
         }
     }
 
-    private static func returnMessage(_ info: LeaveGuard.Return) -> String {
-        let rest = info.remaining.map { " Te quedan \(LeaveGuard.minutes($0)) de concentración." } ?? ""
-        return info.strict
-            ? "Ese rato no ha contado: el bloque sigue donde lo dejaste." + rest
-            : "Saliste de Planaby en mitad del bloque." + rest
-    }
 }

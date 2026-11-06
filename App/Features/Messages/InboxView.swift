@@ -41,7 +41,7 @@ struct InboxView: View {
                                     // Mantener pulsado para corregir a la IA.
                                     .contextMenu {
                                         ForEach(MessageCategory.allCases.filter { $0 != item.category }) { other in
-                                            Button("Mover a \(other.title)", systemImage: other.symbol) { item.category = other }
+                                            Button("Mover a \(other.title)", systemImage: other.symbol) { MessageTriage.learn(item, category: other) }
                                         }
                                     }
                             }

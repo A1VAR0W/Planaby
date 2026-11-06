@@ -58,8 +58,7 @@ enum BackupService {
     private static let groupKeys = [
         "dailyGoalMinutes", "phaseAlerts", "planMode", "planModeSource", "planSchedule.work", "planSchedule.personal",
         "customMethods", "selectedMethodID", "focusProfile",
-        "alertSounds", "alertBreakStart", "alertBreakEnd", "alertHaptics", "alertVisualOnly", "alertSilent",
-        "alertSoundSet", "alertRespectMusic", "alertReduceMotion", "sessionContext",
+        "alertStyle", "alertSoundSet", "alertBreakStart", "alertBreakEnd", "alertRespectMusic", "alertOverlay",
     ]
     private static let localKeys = [
         "deskDimmed", "deskNightMode", "deskNightStart", "deskNightEnd", "deskKeepAwake", "deskShowsTasks", "deskShowsMusic", "frictionApps", "deskAutoMusic", "planShowsMonth", "spotifyClientID",

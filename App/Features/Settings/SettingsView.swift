@@ -189,6 +189,12 @@ struct SettingsView: View {
                 Label("Avisar al cambiar de fase", systemImage: "bell.badge")
             }
             .disabled(notificationStatus == .denied)
+            NavigationLink {
+                AlertSettingsView()
+            } label: {
+                Label("Avisos de concentración", systemImage: "speaker.wave.2")
+            }
+            .disabled(!phaseAlerts)
         } header: {
             Text("Notificaciones")
         } footer: {

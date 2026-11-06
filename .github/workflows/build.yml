@@ -136,5 +136,5 @@ jobs:
           set -o pipefail
           UDID=$(xcrun simctl list devices available -j | jq -r '[.devices | to_entries[] | select(.key | test("iOS")) | .value[] | select(.name | startswith("iPhone"))] | last | .udid')
           echo "Simulador: $UDID"
-          xcodebuild test -project Planaby.xcodeproj -scheme PlanabyTests -destination "id=$UDID" CODE_SIGNING_ALLOWED=NO > test.log 2>&1 || { tail -80 test.log; exit 1; }
+          xcodebuild test -project Planaby.xcodeproj -scheme PlanabyTests -destination "id=$UDID" CODE_SIGNING_ALLOWED=NO > test.log 2>&1 || { grep -E "✘|recorded an issue|Expectation failed|error:" test.log | head -80; tail -30 test.log; exit 1; }
           grep -E "Test run with|✘|passed after|failed after" test.log || tail -40 test.log

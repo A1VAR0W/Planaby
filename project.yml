@@ -108,6 +108,8 @@ targets:
       - Shared/Engine/PassBook.swift
       - Shared/Engine/FrictionPolicy.swift
       - Shared/Engine/AttentionEngine.swift
+      - Shared/Engine/TriageRules.swift
+      - Shared/Models/MessageItem.swift
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES

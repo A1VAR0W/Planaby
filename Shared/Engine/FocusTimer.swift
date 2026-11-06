@@ -12,6 +12,18 @@ final class FocusTimer {
 
     private(set) var state: TimerState?
 
+    /// Cambio de fase que ha ocurrido solo (no al pulsar «Saltar»), para el aviso dentro de la app.
+    struct AutomaticTransition: Equatable {
+        let id = UUID()
+        let finished: PhaseKind
+        let next: PhaseKind
+        let nextDuration: TimeInterval?
+        /// La concentración que terminó era la de «Empezar ahora».
+        let endedStarter: Bool
+    }
+
+    private(set) var lastTransition: AutomaticTransition?
+
     @ObservationIgnored private let notifications = NotificationService()
     @ObservationIgnored private let liveActivity = LiveActivityService()
 
@@ -105,7 +117,16 @@ final class FocusTimer {
     /// Avanza las fases que hayan terminado mientras la app estaba en segundo plano.
     func reconcile(now: Date = .now) {
         guard var updated = state else { return }
+        let before = updated.phase
         if updated.catchUp(to: now) > 0 {
+            // Solo si acaba de pasar: al abrir la app horas después no se enseña un aviso viejo.
+            if now.timeIntervalSince(updated.phaseStart) < 5 {
+                lastTransition = AutomaticTransition(
+                    finished: before, next: updated.phase,
+                    nextDuration: updated.phaseEnd.map { $0.timeIntervalSince(updated.phaseStart) },
+                    endedStarter: before == .focus && updated.method.id == FocusMethod.starter.id
+                )
+            }
             commit(updated)
         }
     }
