@@ -2,7 +2,8 @@ import SwiftData
 import SwiftUI
 
 /// Pestaña Enfoque. Una sola acción principal por pantalla: la cifra manda y todo lo demás calla.
-/// Mientras la sesión corre se oculta la barra de pestañas; al pausar vuelve.
+/// Mientras la sesión corre se oculta la barra de pestañas (al pausar vuelve); el menú de
+/// secciones lleva a Plan, Progreso o Ajustes sin parar el temporizador.
 struct FocusView: View {
     @Environment(FocusTimer.self) private var timer
     @State private var showingMethods = false
@@ -71,6 +72,10 @@ struct FocusView: View {
                         .accessibilityValue(pending == 1 ? "1 pendiente" : "\(pending) pendientes")
                         .transition(.opacity)
                     }
+                }
+                if timer.state != nil, isRunning {
+                    SectionsMenu()
+                        .transition(.opacity)
                 }
                 QuickCaptureButton()
             }

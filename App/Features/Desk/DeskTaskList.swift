@@ -2,7 +2,8 @@ import SwiftData
 import SwiftUI
 
 /// Lista de tareas del modo escritorio: un toque en el círculo la marca como hecha (y otro la
-/// recupera); las hechas hoy se quedan tachadas con una papelera para borrarlas.
+/// recupera); las hechas hoy se quedan tachadas con una papelera para borrarlas. La tarea de la
+/// sesión va arriba marcada como «Ahora», y el lápiz apunta una nueva sin salir.
 struct DeskTaskList: View {
     let tint: Color
     let ink: Color
@@ -10,6 +11,7 @@ struct DeskTaskList: View {
     let onInteract: () -> Void
     @Environment(\.modelContext) private var context
     @Environment(ModeController.self) private var modes
+    @Environment(FocusTimer.self) private var timer
     @Query(sort: \PlanTask.deadline) private var tasks: [PlanTask]
     @State private var deleting: PlanTask?
     @Query(filter: #Predicate<CapturedTask> { $0.statusRaw == "pending" }) private var captures: [CapturedTask]
@@ -22,8 +24,10 @@ struct DeskTaskList: View {
             guard task.isDone else { return true }
             return task.completedAt.map { calendar.isDateInToday($0) } ?? false
         }
-        // Pendientes primero; las hechas, al final.
-        let ordered = shown.filter { !$0.isDone } + shown.filter(\.isDone)
+        // La de la sesión arriba; luego pendientes, y las hechas al final.
+        let current = timer.state?.taskID
+        let isCurrent = { (task: PlanTask) in current != nil && task.uid == current && !task.isDone }
+        let ordered = shown.filter(isCurrent) + shown.filter { !$0.isDone && !isCurrent($0) } + shown.filter(\.isDone)
         let pending = shown.count { !$0.isDone }
 
         VStack(alignment: .leading, spacing: Space.s) {
@@ -35,8 +39,21 @@ struct DeskTaskList: View {
                 Text(pending == 0 ? "Todo hecho" : "\(pending) pendientes")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(ink.opacity(0.64))
+                Button {
+                    onInteract()
+                    CaptureCenter.shared.open()
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(tint)
+                        .frame(width: 44, height: 44)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Añadir tarea")
+                .accessibilityHint("Captura rápida sin salir de la sesión")
             }
-            .padding(.horizontal, Space.s)
+            .padding(.leading, Space.s)
 
             // Lo apuntado con la captura rápida: se organiza después, sin salir del escritorio.
             let unsorted = captures.count { CaptureRules.isPending($0.entry, now: .now) }
@@ -76,7 +93,7 @@ struct DeskTaskList: View {
                 ScrollView {
                     LazyVStack(spacing: Space.xs) {
                         ForEach(ordered) { task in
-                            row(task)
+                            row(task, isCurrent: isCurrent(task))
                         }
                     }
                 }
@@ -99,7 +116,7 @@ struct DeskTaskList: View {
         }
     }
 
-    private func row(_ task: PlanTask) -> some View {
+    private func row(_ task: PlanTask, isCurrent: Bool) -> some View {
         HStack(spacing: Space.xs) {
             Button {
                 onInteract()
@@ -120,7 +137,11 @@ struct DeskTaskList: View {
                             .foregroundStyle(ink.opacity(task.isDone ? 0.45 : 0.95))
                             .strikethrough(task.isDone, color: ink.opacity(0.45))
                             .lineLimit(2)
-                        if !task.isDone {
+                        if isCurrent {
+                            Text("Ahora · en esta sesión")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(tint)
+                        } else if !task.isDone {
                             Text(task.deadline.formatted(.relative(presentation: .named)))
                                 .font(.caption)
                                 .foregroundStyle(task.deadline < .now ? tint : ink.opacity(0.55))
@@ -151,6 +172,7 @@ struct DeskTaskList: View {
             }
         }
         .padding(.horizontal, Space.s)
+        .background(isCurrent ? tint.opacity(0.12) : .clear, in: .rect(cornerRadius: 14))
         .contextMenu {
             Button("Borrar", systemImage: "trash", role: .destructive) { deleting = task }
         }

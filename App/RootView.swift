@@ -5,6 +5,43 @@ enum AppTab: Hashable {
     case focus, plan, stats, settings
 }
 
+private struct OpenTabKey: EnvironmentKey {
+    static let defaultValue: @MainActor @Sendable (AppTab) -> Void = { _ in }
+}
+
+extension EnvironmentValues {
+    /// Cambia de pestaña sin tocar la sesión (el menú de secciones de Enfoque y del escritorio).
+    var openTab: @MainActor @Sendable (AppTab) -> Void {
+        get { self[OpenTabKey.self] }
+        set { self[OpenTabKey.self] = newValue }
+    }
+}
+
+/// Plan, Progreso y Ajustes durante una sesión, sin pausarla: la barra de pestañas está oculta
+/// mientras corre el temporizador y esto es la puerta discreta. Para volver, la pestaña Enfoque.
+struct SectionsMenu: View {
+    var tint: Color = .white
+    @Environment(\.openTab) private var openTab
+
+    var body: some View {
+        Menu {
+            Button("Plan", systemImage: "calendar") { openTab(.plan) }
+            Button("Progreso", systemImage: "chart.bar.fill") { openTab(.stats) }
+            Button("Ajustes", systemImage: "gearshape.fill") { openTab(.settings) }
+        } label: {
+            Image(systemName: "square.grid.2x2")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 44, height: 44)
+        }
+        .menuStyle(.button)
+        .buttonStyle(.glass)
+        .buttonBorderShape(.circle)
+        .accessibilityLabel("Ir a otra sección")
+        .accessibilityHint("Plan, Progreso o Ajustes. La sesión sigue en marcha.")
+    }
+}
+
 struct RootView: View {
     @Environment(FocusTimer.self) private var timer
     @Environment(PlanInbox.self) private var inbox
@@ -32,6 +69,7 @@ struct RootView: View {
                 DeskView()
                     .statusBarHidden()
                     .persistentSystemOverlays(.hidden)
+                    .environment(\.openTab) { tab = $0 }
             } else {
                 TabView(selection: $tab) {
                     Tab("Enfoque", systemImage: "timer", value: AppTab.focus) {
@@ -56,6 +94,7 @@ struct RootView: View {
                     }
                 }
                 .tabBarMinimizeBehavior(.onScrollDown)
+                .environment(\.openTab) { tab = $0 }
             }
         }
         // La primera vez se ofrece el test de ritmo para personalizar el plan.
@@ -112,12 +151,17 @@ struct RootView: View {
         .modifier(CaptureToastOverlay(bottomPadding: isDesk ? 84 : 150))
         .sensoryFeedback(.warning, trigger: leaveGuard.returned?.id)
         // Cambio de fase con la app delante: tarjeta, sonido y vibración según «Avisos de concentración».
-        .overlay(alignment: .top) {
-            if let transition {
+        // En el modo escritorio va arriba a la izquierda, encima del panel de música (sin
+        // reconstruirlo) y sin tapar la lista de tareas; se va sola. Con la captura rápida abierta
+        // espera a que se cierre (el sonido ya ha sonado): nunca dos tarjetas a la vez.
+        .overlay(alignment: isDesk ? .topLeading : .top) {
+            if let transition, !(isDesk && capture.composer != nil) {
                 PhaseTransitionCard(transition: transition) {
                     withAnimation(.easeIn(duration: 0.18)) { self.transition = nil }
                 }
+                .frame(maxWidth: isDesk ? 460 : nil)
                 .padding(.top, Space.s)
+                .padding(.leading, isDesk ? Space.m : 0)
                 .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
                 .zIndex(1)
             }

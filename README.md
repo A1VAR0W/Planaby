@@ -35,6 +35,16 @@ Recuerda refrescar la app en SideStore cada 7 días.
 - [x] Asistente de concentración: «Empezar ahora» (5 minutos y un primer paso), contexto y «Me he atascado», «Bienvenido de nuevo» al volver, avisos de fase con sonidos propios, bloqueo adaptativo con pases por app, sugerencias adaptativas explicadas, estadísticas corregidas y filtro de mensajes con remitentes prioritarios. Detalles, limitaciones y alternativas de IA en [docs/MEJORAS.md](docs/MEJORAS.md).
 - [x] Comunicación inteligente y StandBy: «Filtrar notificación» para WhatsApp, Teams, Outlook, Gmail, Instagram y Mensajes (disparador «Notificación» de Atajos en iOS 27), «espera respuesta», solo lo importante de trabajo durante la concentración, «Mientras te concentrabas…» en el descanso, «Mientras estabas fuera» al volver, modo escritorio, widgets y Live Activity con el mismo diseño y «Abrir escritorio si toca» (Concentración Trabajo + cargando + horizontal). Guía en [docs/STANDBY.md](docs/STANDBY.md).
 - [x] Captura rápida: «Apúntalo ahora. Organízalo después. Sigue concentrado». Un botón en Enfoque (también concentrándote) y en el modo escritorio abre un panel pequeño para escribir o dictar sin pausar ni cambiar la sesión. Lo apuntado se guarda al momento en «Por organizar» (Plan) y se organiza en el descanso o al terminar, con la IA si está y siempre con tu confirmación. También con Siri («Captura una tarea en Planaby»), el control del Centro de Control y el widget mediano. Detalles en [docs/CAPTURA.md](docs/CAPTURA.md).
+- [x] Modo horizontal y avisos:
+  - volumen real en una cápsula vertical que sale de la derecha;
+  - música y tareas a la vez, mitad y mitad;
+  - captura con detalles opcionales;
+  - avisos que bajan la música un momento y la devuelven, con la tarjeta encima del panel de música;
+  - Plan, Progreso y Ajustes sin parar la sesión;
+  - Dynamic Island y Live Activity rediseñadas como el escritorio;
+  - icono nuevo.
+
+  Guía y pruebas en [docs/HORIZONTAL.md](docs/HORIZONTAL.md).
 
 ## Atajos útiles
 

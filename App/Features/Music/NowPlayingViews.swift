@@ -106,35 +106,107 @@ struct PlaybackControls: View {
 }
 
 /// Modo escritorio con música: carátula grande a la izquierda y, a la derecha, la canción,
-/// sus controles y el temporizador en pequeño.
+/// sus controles y el temporizador en pequeño (el volumen, vertical, sale de la barra a la derecha). `compact` es la mitad de la pantalla
+/// (música y tareas a la vez): todo en una columna.
 struct DeskNowPlaying: View {
     let state: TimerState?
     let date: Date
     let tint: Color
     let ink: Color
     let night: Bool
+    var compact = false
     private let spotify = SpotifyController.shared
 
     var body: some View {
+        Group {
+            if compact { column } else { wide }
+        }
+        .task {
+            await spotify.connectRemote()
+            await spotify.watch()
+        }
+    }
+
+    /// Media pantalla: carátula pequeña con la canción al lado; debajo progreso, controles y volumen.
+    private var column: some View {
+        VStack(alignment: .leading, spacing: Space.s) {
+            // El temporizador sigue mandando: fase y cifra grandes arriba, la música debajo.
+            stackedClock
+            HStack(spacing: Space.m) {
+                ArtworkView(url: spotify.track?.artworkURL, image: spotify.artwork, night: night, cornerRadius: 14)
+                    .frame(width: 68, height: 68)
+                    .shadow(color: .black.opacity(0.45), radius: 12, y: 5)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(spotify.track?.title ?? (spotify.isConnected ? "Nada sonando" : "Spotify sin conectar"))
+                        .font(.headline)
+                        .foregroundStyle(ink)
+                        .lineLimit(2)
+                    Text(spotify.track?.artists ?? (spotify.isConnected ? "Pon algo en Spotify" : "Ajustes › Música"))
+                        .font(.subheadline)
+                        .foregroundStyle(ink.opacity(0.65))
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+            if let track = spotify.track {
+                TrackProgress(position: spotify.position(at: date), duration: track.duration, tint: tint, ink: ink)
+                PlaybackControls(tint: tint, ink: ink)
+                    .frame(maxWidth: .infinity)
+            } else if spotify.isConnected {
+                Button("Poner música", systemImage: "play.fill") { spotify.wakeSpotify() }
+                    .buttonStyle(.glass)
+                    .tint(tint)
+            }
+        }
+        .padding(Space.m)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(Color.white.opacity(0.05), in: .rect(cornerRadius: Theme.cardRadius))
+    }
+
+    /// Media pantalla: la fase encima de una cifra fina y grande, como la esfera del escritorio.
+    private var stackedClock: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let state {
+                Eyebrow(text: state.isPaused ? "En pausa" : state.phase.title, color: tint)
+                Text(state.clockText(at: date))
+                    .font(Theme.clock(52))
+                    .foregroundStyle(ink.opacity(state.isPaused ? 0.55 : 1))
+                    .contentTransition(.numericText(countsDown: true))
+            } else {
+                Text(date, format: .dateTime.hour().minute())
+                    .font(Theme.clock(52))
+                    .foregroundStyle(ink)
+            }
+        }
+        .lineLimit(1)
+        .minimumScaleFactor(0.6)
+    }
+
+    @ViewBuilder
+    private func clock(font: Font) -> some View {
+        if let state {
+            HStack(spacing: Space.s) {
+                Eyebrow(text: state.isPaused ? "En pausa" : state.phase.title, color: tint)
+                Text(state.clockText(at: date))
+                    .font(font)
+                    .foregroundStyle(ink.opacity(0.85))
+                    .contentTransition(.numericText(countsDown: true))
+            }
+        } else {
+            Text(date, format: .dateTime.hour().minute())
+                .font(font)
+                .foregroundStyle(ink.opacity(0.85))
+        }
+    }
+
+    private var wide: some View {
         HStack(spacing: Space.xl) {
             ArtworkView(url: spotify.track?.artworkURL, image: spotify.artwork, night: night, cornerRadius: 24)
                 .frame(maxHeight: .infinity)
                 .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
 
-            VStack(alignment: .leading, spacing: Space.m) {
-                if let state {
-                    HStack(spacing: Space.s) {
-                        Eyebrow(text: state.isPaused ? "En pausa" : state.phase.title, color: tint)
-                        Text(state.clockText(at: date))
-                            .font(.system(.title2, design: .rounded).weight(.light).monospacedDigit())
-                            .foregroundStyle(ink.opacity(0.85))
-                            .contentTransition(.numericText(countsDown: true))
-                    }
-                } else {
-                    Text(date, format: .dateTime.hour().minute())
-                        .font(.system(.title2, design: .rounded).weight(.light).monospacedDigit())
-                        .foregroundStyle(ink.opacity(0.85))
-                }
+            VStack(alignment: .leading, spacing: Space.s) {
+                clock(font: .system(.title2, design: .rounded).weight(.light).monospacedDigit())
 
                 if let track = spotify.track {
                     VStack(alignment: .leading, spacing: Space.xs) {
@@ -142,6 +214,7 @@ struct DeskNowPlaying: View {
                             .font(.title.weight(.semibold))
                             .foregroundStyle(ink)
                             .lineLimit(2)
+                            .minimumScaleFactor(0.7)
                         Text(track.artists)
                             .font(.title3)
                             .foregroundStyle(ink.opacity(0.65))
@@ -170,10 +243,6 @@ struct DeskNowPlaying: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.vertical, Space.s)
-        .task {
-            await spotify.connectRemote()
-            await spotify.watch()
-        }
     }
 }
 
@@ -256,6 +325,8 @@ struct NowPlayingView: View {
                 }
 
                 PlaybackControls(tint: Theme.orange, ink: .white, large: true)
+
+                VolumeSlider(tint: Theme.orange, ink: .white)
 
                 HStack(spacing: Space.s) {
                     if MusicLinks.url(from: focusMusic) != nil {

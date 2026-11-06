@@ -6,7 +6,7 @@ import SwiftUI
 /// En reposo solo hay una cifra grande sobre negro y una línea finísima de progreso. Un toque
 /// muestra una única barra inferior (método, controles, tareas y atenuar) que se oculta sola; en pausa
 /// o sin sesión se queda visible. Mientras carga la pantalla no se apaga, y de noche todo pasa
-/// a rojo tenue, como StandBy. La lista de tareas, si se activa, queda a la derecha con checks.
+/// a rojo tenue, como StandBy. Música y tareas pueden verse a la vez: mitad y mitad.
 ///
 /// Comparte diseño y datos con los widgets de StandBy y la Live Activity (`DeskPresentation`):
 /// tres disposiciones (concentración, descanso y sin sesión), la tarea, lo siguiente y un recuento
@@ -32,8 +32,11 @@ struct DeskView: View {
     /// Hasta cuándo se ven los controles mientras la sesión corre.
     @State private var controlsUntil = Date.now.addingTimeInterval(DeskView.controlsTimeout)
     @State private var confirmingStop = false
+    /// Cápsula vertical del volumen abierta (nace del botón del altavoz, a la derecha de la barra).
+    @State private var showsVolume = false
     /// Captura rápida: el panel flota a la derecha y la cifra sigue a la vista.
     @State private var capture = CaptureCenter.shared
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let controlsTimeout: TimeInterval = 6
     /// Margen extra al abrir el menú de métodos, para elegir con calma.
@@ -45,7 +48,7 @@ struct DeskView: View {
             let state = timer.state
             let tint = night ? Theme.night : (state?.phase.tint ?? Theme.orange)
             let ink = night ? Theme.night : Color.white
-            let showControls = state == nil || state?.isPaused == true || context.date < controlsUntil
+            let showControls = state == nil || state?.isPaused == true || showsVolume || context.date < controlsUntil
             let presentation = DeskPresentation(
                 state: state, comms: comms.revision >= 0 ? CommsSnapshot.load() : .empty,
                 agenda: AgendaSnapshot.load().items, now: context.date
@@ -60,29 +63,16 @@ struct DeskView: View {
                 )
 
                 VStack(spacing: 0) {
-                    HStack(spacing: Space.l) {
-                        if musicVisible {
-                            // Modo carátula: lo que suena en Spotify, como en StandBy.
-                            DeskNowPlaying(state: state, date: context.date, tint: tint, ink: ink, night: night)
-                                .transition(.opacity)
-                        } else {
-                            VStack(spacing: 0) {
-                                Spacer(minLength: 0)
-                                face(state: state, date: context.date, tint: tint, ink: ink)
-                                details(presentation, date: context.date, tint: tint, ink: ink)
-                                    .padding(.top, Space.s)
-                                Spacer(minLength: 0)
+                    panels(state: state, presentation: presentation, date: context.date, tint: tint, ink: ink, night: night)
+                        // Con el volumen abierto, tocar fuera de él lo recoge (sin pulsar nada debajo).
+                        .overlay {
+                            if showsVolume {
+                                Color.clear
+                                    .contentShape(.rect)
+                                    .onTapGesture { closeVolume() }
+                                    .accessibilityHidden(true)
                             }
-                            .frame(maxWidth: .infinity)
                         }
-
-                        if showsTasks && !musicVisible {
-                            DeskTaskList(tint: tint, ink: ink, onInteract: reveal)
-                                .frame(width: 300)
-                                .padding(.top, Space.s)
-                                .transition(.move(edge: .trailing).combined(with: .opacity))
-                        }
-                    }
 
                     ZStack(alignment: .bottom) {
                         if showControls {
@@ -96,12 +86,14 @@ struct DeskView: View {
                         }
                     }
                     .frame(height: 72)
+                    // La cápsula del volumen sube por encima de los paneles.
+                    .zIndex(1)
                 }
                 .padding(.horizontal, Space.l)
                 .padding(.vertical, Space.s)
                 .animation(.smooth(duration: 0.4), value: showControls)
-                .animation(.smooth(duration: 0.4), value: showsTasks)
-                .animation(.smooth(duration: 0.4), value: musicVisible)
+                .animation(layoutAnimation, value: showsTasks)
+                .animation(layoutAnimation, value: musicVisible)
 
                 if dimmed {
                     Color.black.opacity(0.45)
@@ -111,7 +103,14 @@ struct DeskView: View {
             }
         }
         .contentShape(.rect)
-        .onTapGesture { reveal() }
+        .onTapGesture {
+            if showsVolume { closeVolume() }
+            reveal()
+        }
+        // Nunca el volumen y la captura a la vez.
+        .onChange(of: capture.composer?.id) { _, id in
+            if id != nil { showsVolume = false }
+        }
         // Reproductor automático: escucha a Spotify aunque la carátula no esté a la vista.
         .task(id: autoMusic && !musicVisible) {
             guard autoMusic, !musicVisible, SpotifyController.shared.isConnected else { return }
@@ -123,21 +122,36 @@ struct DeskView: View {
         .onChange(of: SpotifyController.shared.track == nil) { _, empty in
             if empty { autoShown = false }
         }
-        .overlay(alignment: .topTrailing) {
+        // Captura rápida en horizontal: tarjeta ancha arriba (el teclado ocupa la mitad de abajo),
+        // dentro de las áreas seguras para no quedar bajo la Dynamic Island. La sesión sigue detrás.
+        .overlay(alignment: .top) {
             if let request = capture.composer {
-                QuickCapturePanel(startsDictation: request.dictation, tint: deskTint, ink: deskInk, compact: true) {
-                    capture.close()
-                    // La barra vuelve un momento: se ve la marca del botón y se encuentra a la primera.
-                    reveal()
+                ZStack(alignment: .top) {
+                    Color.black.opacity(0.35)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            // Cerrar tocando fuera no borra lo escrito: vuelve al abrirlo.
+                            capture.close()
+                            reveal()
+                        }
+                        .accessibilityHidden(true)
+                    QuickCapturePanel(startsDictation: request.dictation, tint: deskTint, ink: deskInk, compact: true) {
+                        capture.close()
+                        // La barra vuelve un momento: se ve la marca del botón y se encuentra a la primera.
+                        reveal()
+                    }
+                    .id(request.id)
+                    .frame(maxWidth: 640)
+                    .background(Color(white: 0.06).opacity(0.94), in: .rect(cornerRadius: Theme.cardRadius))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: Theme.cardRadius).strokeBorder(Theme.hairline)
+                    }
+                    .shadow(color: .black.opacity(0.5), radius: 24, y: 8)
+                    .padding(.horizontal, Space.l)
+                    .padding(.top, Space.s)
+                    .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
                 }
-                .id(request.id)
-                .frame(width: 460)
-                .background(Color(white: 0.06).opacity(0.92), in: .rect(cornerRadius: Theme.cardRadius))
-                .overlay {
-                    RoundedRectangle(cornerRadius: Theme.cardRadius).strokeBorder(Theme.hairline)
-                }
-                .padding(Space.m)
-                .transition(.move(edge: .trailing).combined(with: .opacity))
+                .transition(.opacity)
             }
         }
         .animation(.smooth(duration: 0.3), value: capture.composer?.id)
@@ -162,6 +176,60 @@ struct DeskView: View {
     }
 
     // MARK: - Partes
+
+    /// Solo música, solo tareas o las dos a la vez (mitad y mitad del sitio que queda sobre la
+    /// barra). Cambiar de disposición no toca la sesión ni el reproductor.
+    @ViewBuilder
+    private func panels(state: TimerState?, presentation: DeskPresentation, date: Date, tint: Color, ink: Color, night: Bool) -> some View {
+        let layout = DeskPanels(music: musicVisible, tasks: showsTasks)
+        let music = musicVisible
+        if layout == .musicAndTasks {
+            GeometryReader { proxy in
+                let half = DeskPanels.halfWidth(total: proxy.size.width, spacing: Space.m)
+                HStack(spacing: Space.m) {
+                    DeskNowPlaying(state: state, date: date, tint: tint, ink: ink, night: night, compact: true)
+                        .frame(width: half)
+                        .transition(panelTransition(edge: .leading))
+                    DeskTaskList(tint: tint, ink: ink, onInteract: reveal)
+                        .frame(width: half)
+                        .transition(panelTransition(edge: .trailing))
+                }
+            }
+            .padding(.top, Space.s)
+        } else {
+            HStack(spacing: Space.l) {
+                if music {
+                    // Modo carátula: lo que suena en Spotify, como en StandBy.
+                    DeskNowPlaying(state: state, date: date, tint: tint, ink: ink, night: night)
+                        .transition(panelTransition(edge: .leading))
+                } else {
+                    VStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        face(state: state, date: date, tint: tint, ink: ink)
+                        details(presentation, date: date, tint: tint, ink: ink)
+                            .padding(.top, Space.s)
+                        Spacer(minLength: 0)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .transition(.opacity)
+                }
+                if showsTasks {
+                    DeskTaskList(tint: tint, ink: ink, onInteract: reveal)
+                        .frame(width: 320)
+                        .padding(.top, Space.s)
+                        .transition(panelTransition(edge: .trailing))
+                }
+            }
+        }
+    }
+
+    private var layoutAnimation: Animation {
+        reduceMotion ? .easeInOut(duration: 0.2) : .smooth(duration: 0.4)
+    }
+
+    private func panelTransition(edge: Edge) -> AnyTransition {
+        reduceMotion ? .opacity : .move(edge: edge).combined(with: .opacity)
+    }
 
     /// Debajo de la cifra: la tarea y lo siguiente, y el recuento de comunicaciones (sin textos).
     private func details(_ presentation: DeskPresentation, date: Date, tint: Color, ink: Color) -> some View {
@@ -250,6 +318,10 @@ struct DeskView: View {
                 methodMenu(ink: ink)
                 QuickCaptureButton()
                     .simultaneousGesture(TapGesture().onEnded { reveal() })
+                SectionsMenu(tint: ink.opacity(0.88))
+                    .simultaneousGesture(TapGesture().onEnded {
+                        controlsUntil = .now.addingTimeInterval(Self.menuTimeout)
+                    })
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -294,6 +366,8 @@ struct DeskView: View {
                 if SpotifyController.shared.isConnected { musicButton }
                 tasksButton
                 dimButton
+                // En el borde derecho: el volumen real del iPhone, que se despliega hacia arriba.
+                DeskVolumeControl(isOpen: $showsVolume, tint: tint, ink: ink, onInteract: reveal)
             }
             .frame(maxWidth: .infinity, alignment: .trailing)
         }
@@ -404,6 +478,11 @@ struct DeskView: View {
     /// Colores del panel de captura: rojo tenue de noche, como el resto del modo escritorio.
     private var deskTint: Color { isNight(.now) ? Theme.night : (timer.state?.phase.tint ?? Theme.orange) }
     private var deskInk: Color { isNight(.now) ? Theme.night : .white }
+
+    private func closeVolume() {
+        withAnimation(DeskVolumeControl.animation(reduceMotion: reduceMotion)) { showsVolume = false }
+        reveal()
+    }
 
     /// Muestra los controles y reinicia la cuenta para ocultarlos.
     private func reveal() {

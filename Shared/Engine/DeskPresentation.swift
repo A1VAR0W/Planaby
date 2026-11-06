@@ -99,3 +99,83 @@ struct DeskPresentation: Equatable, Sendable {
         return TimerState.format(max(0, reference.timeIntervalSince(phaseStart)))
     }
 }
+
+/// Qué ocupa el centro del modo escritorio: la cifra, la música, la cifra con las tareas al lado
+/// o música y tareas a la vez, mitad y mitad.
+enum DeskPanels: Equatable, Sendable {
+    case clock, music, clockAndTasks, musicAndTasks
+
+    init(music: Bool, tasks: Bool) {
+        switch (music, tasks) {
+        case (true, true): self = .musicAndTasks
+        case (true, false): self = .music
+        case (false, true): self = .clockAndTasks
+        case (false, false): self = .clock
+        }
+    }
+
+    /// Ancho de cada mitad con música y tareas: el sitio que queda quitando la separación, a partes iguales.
+    static func halfWidth(total: Double, spacing: Double) -> Double {
+        max(0, (total - spacing) / 2)
+    }
+}
+
+/// Textos del aviso de cambio de fase (la tarjeta dentro de la app): «¡Sesión completada! Has
+/// trabajado durante 25 minutos. Comienza tu descanso de 5 minutos».
+enum PhaseAlertText {
+    /// Minutos redondeados (al menos 1); nil en una fase abierta.
+    static func minutes(_ seconds: TimeInterval?) -> Int? {
+        seconds.map { max(1, Int(($0 / 60).rounded())) }
+    }
+
+    static func minutesText(_ minutes: Int) -> String {
+        minutes == 1 ? "1 minuto" : "\(minutes) minutos"
+    }
+
+    static func title(finished: PhaseKind, next: PhaseKind) -> String {
+        if next.isBreak { return "¡Sesión completada!" }
+        return finished.isBreak ? "Descanso terminado" : "Sigue la concentración"
+    }
+
+    static func message(finished: PhaseKind, finishedDuration: TimeInterval?, next: PhaseKind, nextDuration: TimeInterval?) -> String {
+        if next.isBreak {
+            var parts: [String] = []
+            if !finished.isBreak, let worked = minutes(finishedDuration) {
+                parts.append("Has trabajado durante \(minutesText(worked)).")
+            }
+            let kind = next == .longBreak ? "descanso largo" : "descanso"
+            parts.append(minutes(nextDuration).map { "Comienza tu \(kind) de \(minutesText($0))." } ?? "Comienza tu \(kind).")
+            return parts.joined(separator: " ")
+        }
+        return minutes(nextDuration).map { "Vuelve la concentración: \(minutesText($0))." } ?? "Vuelve la concentración, sin límite de tiempo."
+    }
+}
+
+/// Textos de la Live Activity y la Dynamic Island, los mismos que el modo escritorio.
+enum ActivityText {
+    /// La etiqueta naranja de encima de la cifra.
+    static func eyebrow(phase: PhaseKind, isPaused: Bool, isFinished: Bool) -> String {
+        if isFinished { return "Fase completada" }
+        if isPaused { return "En pausa" }
+        return phase.title
+    }
+
+    /// «Concentración · 75 %» (o solo la fase si es abierta).
+    static func status(phase: PhaseKind, isPaused: Bool, progress: Double?) -> String {
+        let title = isPaused ? "En pausa" : phase.title
+        guard let progress else { return title }
+        return "\(title) · \(Int((min(1, max(0, progress)) * 100).rounded())) %"
+    }
+
+    /// La línea de debajo de la cifra: la tarea en concentración; en el descanso, un recordatorio
+    /// breve para recuperarse; al acabar, qué viene.
+    static func detail(phase: PhaseKind, task: String?, method: String, isFinished: Bool, next: PhaseKind) -> String {
+        if isFinished { return next.isBreak ? "Toca para empezar el descanso" : "Toca para volver a concentrarte" }
+        if phase.isBreak { return "Levántate, respira y mira lejos" }
+        if let task, !task.trimmingCharacters(in: .whitespaces).isEmpty { return task }
+        return method
+    }
+
+    /// «Luego: Descanso» o «Luego: Concentración».
+    static func next(_ next: PhaseKind) -> String { "Luego: \(next.title)" }
+}

@@ -26,7 +26,7 @@ def note(freq, start, length, partials, decay, attack=0.004):
     return start, samples
 
 
-def render(notes, total, volume=0.32):
+def render(notes, total, volume=0.89):
     mix = [0.0] * int(total * RATE)
     for start, samples in notes:
         offset = int(start * RATE)

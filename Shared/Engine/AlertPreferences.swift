@@ -44,10 +44,12 @@ enum AlertPreferences {
         static let soundSet = "alertSoundSet"
         static let breakStart = "alertBreakStart"
         static let breakEnd = "alertBreakEnd"
-        /// No sonar dentro de la app si ya suena música (Spotify u otra).
+        /// No sonar dentro de la app si ya suena música (Spotify u otra). Por defecto suena igual.
         static let respectMusic = "alertRespectMusic"
         /// Tarjeta de transición dentro de la app.
         static let overlay = "alertOverlay"
+        /// Bajar la música de otras apps mientras suena el aviso (y devolverla después).
+        static let duckMusic = "alertDuckMusic"
     }
 
     private static var defaults: UserDefaults { AppGroup.defaults }
@@ -62,8 +64,25 @@ enum AlertPreferences {
 
     static var alertsBreakStart: Bool { defaults.object(forKey: Keys.breakStart) as? Bool ?? true }
     static var alertsBreakEnd: Bool { defaults.object(forKey: Keys.breakEnd) as? Bool ?? true }
-    static var respectsMusic: Bool { defaults.object(forKey: Keys.respectMusic) as? Bool ?? true }
+    static var respectsMusic: Bool { defaults.object(forKey: Keys.respectMusic) as? Bool ?? false }
     static var showsOverlay: Bool { defaults.object(forKey: Keys.overlay) as? Bool ?? true }
+    static var ducksMusic: Bool { defaults.object(forKey: Keys.duckMusic) as? Bool ?? true }
+
+    /// Cómo convive el aviso con la música de otra app (Spotify, Apple Music…).
+    enum MusicHandling: Equatable, Sendable {
+        /// No suena: está activado respetar la música.
+        case skip
+        /// Baja la música un momento y la devuelve al terminar.
+        case duck
+        /// Suena mezclado, sin tocar la música (o no hay música).
+        case mix
+    }
+
+    static func musicHandling(otherAudioPlaying: Bool, respectsMusic: Bool, ducksMusic: Bool) -> MusicHandling {
+        guard otherAudioPlaying else { return .mix }
+        if respectsMusic { return .skip }
+        return ducksMusic ? .duck : .mix
+    }
 
     /// Si hay que avisar de este cambio (empieza un descanso o vuelve la concentración).
     static func alerts(intoBreak: Bool) -> Bool {

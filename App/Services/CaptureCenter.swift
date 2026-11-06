@@ -24,6 +24,8 @@ final class CaptureCenter {
         let id = UUID()
         let title: String
         let duringSession: Bool
+        /// Se guardó con detalles: ya es una tarea del plan (no queda «por organizar»).
+        var addedToTasks = false
     }
 
     /// Resumen al terminar una sesión con cosas apuntadas.
@@ -104,6 +106,30 @@ final class CaptureCenter {
         confirmation = Confirmation(title: text, duringSession: state != nil)
         revision += 1
         return capture
+    }
+
+    /// Captura con detalles (plan, prioridad, fecha, duración o notas): se crea directamente la
+    /// tarea, que aparece al momento en la lista del escritorio. Tampoco toca el temporizador.
+    @discardableResult
+    func saveTask(_ raw: String, details: CaptureDetails, context: ModelContext? = nil) throws -> PlanTask {
+        guard let text = CaptureRules.clean(raw) else { throw Failure.empty }
+        let context = context ?? self.context
+        let task = PlanTask(
+            title: text, mode: details.mode, deadline: details.resolvedDeadline(),
+            estimatedMinutes: details.minutes, priority: details.priority, notes: details.cleanNotes
+        )
+        context.insert(task)
+        do {
+            try context.save()
+        } catch {
+            context.delete(task)
+            throw Failure.notSaved
+        }
+        draft = ""
+        confirmation = Confirmation(title: text, duringSession: FocusTimer.shared.state != nil, addedToTasks: true)
+        revision += 1
+        ReminderScheduler.shared.reschedule()
+        return task
     }
 
     /// Quita la confirmación pasado su tiempo (solo si sigue siendo la misma).

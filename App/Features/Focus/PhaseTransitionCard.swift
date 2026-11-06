@@ -36,6 +36,11 @@ struct PhaseTransitionCard: View {
         }
         .padding(Space.m)
         .glassEffect(.regular, in: .rect(cornerRadius: Theme.cardRadius))
+        // Acento del color de la fase que empieza: se distingue a la primera de la música de detrás.
+        .overlay {
+            RoundedRectangle(cornerRadius: Theme.cardRadius).strokeBorder(tint.opacity(0.4), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.4), radius: 18, y: 6)
         .padding(.horizontal, Space.m)
         .accessibilityElement(children: .contain)
         .accessibilityAddTraits(.isModal)
@@ -60,11 +65,15 @@ struct PhaseTransitionCard: View {
 
     private var title: String {
         if transition.endedStarter { return "Ya has empezado" }
-        return intoBreak ? "Buen trabajo. Es hora de descansar" : "Es hora de continuar"
+        return PhaseAlertText.title(finished: transition.finished, next: transition.next)
     }
 
-    private var minutes: String {
-        transition.nextDuration.map { "\(Int(($0 / 60).rounded())) min" } ?? ""
+    /// «Has trabajado durante 25 minutos. Comienza tu descanso de 5 minutos».
+    private var summary: String {
+        PhaseAlertText.message(
+            finished: transition.finished, finishedDuration: transition.finishedDuration,
+            next: transition.next, nextDuration: transition.nextDuration
+        )
     }
 
     private var nextStep: String? {
@@ -78,11 +87,11 @@ struct PhaseTransitionCard: View {
             return "Lo más difícil era arrancar. Puedes seguir con un bloque de \(library.selected.name) o descansar un momento."
         }
         if intoBreak {
-            var text = "\(transition.next.title) de \(minutes). Levántate y mira lejos un rato."
+            var text = summary + " Levántate y mira lejos un rato."
             if let nextStep { text += " Al volver: \(nextStep)." }
             return text
         }
-        var text = transition.nextDuration == nil ? "Concentración libre." : "\(minutes) de concentración."
+        var text = summary
         if let nextStep {
             text += " Siguiente paso: \(nextStep)."
         } else if let task = timer.state?.taskTitle {

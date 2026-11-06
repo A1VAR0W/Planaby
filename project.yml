@@ -124,6 +124,7 @@ targets:
       - Shared/Engine/QuickCapture.swift
       - Shared/Planning/PlanDraft.swift
       - Shared/Planning/ProposalEditing.swift
+      - Shared/Engine/AlertPreferences.swift
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES

@@ -14,6 +14,11 @@ struct FocusActivityAttributes: ActivityAttributes {
         /// «2 comunicaciones laborales importantes» o «Mientras trabajabas: 3 pendientes».
         var commsText: String?
         var commsCount: Int?
+        /// La sesión terminó: la actividad se queda unos minutos con «Sesión terminada» y un
+        /// acceso a Planaby (opcional, así las actividades ya creadas se siguen leyendo).
+        var endedAt: Date?
+
+        var isFinished: Bool { endedAt != nil }
 
         init(_ state: TimerState, comms: CommsSnapshot = .load()) {
             phase = state.phase

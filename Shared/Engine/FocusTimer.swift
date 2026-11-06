@@ -20,6 +20,8 @@ final class FocusTimer {
         let nextDuration: TimeInterval?
         /// La concentración que terminó era la de «Empezar ahora».
         let endedStarter: Bool
+        /// Cuánto duró la fase que acaba de terminar («Has trabajado durante 25 minutos»).
+        var finishedDuration: TimeInterval? = nil
     }
 
     private(set) var lastTransition: AutomaticTransition?
@@ -118,13 +120,15 @@ final class FocusTimer {
     func reconcile(now: Date = .now) {
         guard var updated = state else { return }
         let before = updated.phase
+        let beforeDuration = updated.phaseEnd.map { $0.timeIntervalSince(updated.phaseStart) }
         if updated.catchUp(to: now) > 0 {
             // Solo si acaba de pasar: al abrir la app horas después no se enseña un aviso viejo.
             if now.timeIntervalSince(updated.phaseStart) < 5 {
                 lastTransition = AutomaticTransition(
                     finished: before, next: updated.phase,
                     nextDuration: updated.phaseEnd.map { $0.timeIntervalSince(updated.phaseStart) },
-                    endedStarter: before == .focus && updated.method.id == FocusMethod.starter.id
+                    endedStarter: before == .focus && updated.method.id == FocusMethod.starter.id,
+                    finishedDuration: beforeDuration
                 )
             }
             commit(updated)

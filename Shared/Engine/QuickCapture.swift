@@ -169,3 +169,48 @@ enum CaptureRequest {
         return now.timeIntervalSince(date) < 60
     }
 }
+
+/// Detalles opcionales de la captura rápida: plan, prioridad, fecha, duración y notas. Sin ellos,
+/// lo apuntado queda en «Por organizar»; con ellos, pasa directamente a tus tareas.
+struct CaptureDetails: Equatable, Sendable {
+    var mode: PlanMode
+    /// 0 baja, 1 media, 2 alta (como `PlanTask.priority`).
+    var priority = 1
+    /// Solo cuenta el día: la hora se fija al guardar (`resolvedDeadline`).
+    var deadline: Date
+    var minutes = 30
+    var notes = ""
+
+    static let durations = [15, 30, 45, 60, 90, 120]
+    /// Hora a la que vence una tarea apuntada para un día.
+    static let deadlineHour = 20
+
+    init(mode: PlanMode, now: Date = .now, calendar: Calendar = .current) {
+        self.mode = mode
+        deadline = Self.resolve(day: now, now: now, calendar: calendar)
+    }
+
+    static func priorityTitle(_ priority: Int) -> String {
+        switch priority {
+        case ..<1: "Baja"
+        case 1: "Media"
+        default: "Alta"
+        }
+    }
+
+    /// El día elegido a las 20:00; si es hoy y ya han pasado, al final del día (nunca en el pasado
+    /// sin querer). Un día anterior a hoy se mueve a hoy.
+    static func resolve(day: Date, now: Date, calendar: Calendar = .current) -> Date {
+        let today = calendar.startOfDay(for: now)
+        let chosen = max(calendar.startOfDay(for: day), today)
+        let evening = calendar.date(bySettingHour: deadlineHour, minute: 0, second: 0, of: chosen) ?? chosen
+        guard evening <= now else { return evening }
+        return calendar.date(bySettingHour: 23, minute: 59, second: 0, of: chosen) ?? evening
+    }
+
+    func resolvedDeadline(now: Date = .now, calendar: Calendar = .current) -> Date {
+        Self.resolve(day: deadline, now: now, calendar: calendar)
+    }
+
+    var cleanNotes: String { notes.trimmingCharacters(in: .whitespacesAndNewlines) }
+}

@@ -47,13 +47,16 @@ struct QuickCapturePanel: View {
     let startsDictation: Bool
     var tint: Color = Theme.orange
     var ink: Color = .white
-    /// En horizontal: todo en dos filas para que quepa encima del teclado.
+    /// En horizontal (modo escritorio): una tarjeta ancha y baja, pensada para quedar encima del
+    /// teclado: título y estado arriba; campo, micrófono, Cancelar y Guardar en una sola fila.
     var compact = false
     let onClose: () -> Void
     @State private var center = CaptureCenter.shared
     @State private var speech = SpeechCapture()
     @State private var usedVoice = false
     @State private var message: String?
+    /// Detalles opcionales (solo en horizontal). nil: captura rápida a «Por organizar».
+    @State private var details: CaptureDetails?
     @FocusState private var focused: Bool
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
@@ -69,20 +72,30 @@ struct QuickCapturePanel: View {
                     .foregroundStyle(ink)
                     .accessibilityAddTraits(.isHeader)
                 Spacer()
-                closeButton
+                if compact {
+                    status
+                    detailsToggle
+                } else {
+                    closeButton
+                }
             }
 
             if compact {
                 HStack(spacing: Space.s) {
-                    field
                     micButton
+                    field
+                    cancelButton
                     saveButton
+                }
+                if let details {
+                    detailsRow(Binding(get: { details }, set: { self.details = $0 }))
+                        .transition(.opacity)
                 }
             } else {
                 field
             }
 
-            if let message {
+            if let message, !compact {
                 Text(message)
                     .font(.footnote)
                     .foregroundStyle(tint)
@@ -112,6 +125,131 @@ struct QuickCapturePanel: View {
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { speech.cancel() }
         }
+    }
+
+    /// Estado en una línea (horizontal): escuchando, error o la pista de que no hace falta fecha.
+    private var status: some View {
+        Group {
+            if let message {
+                Label(message, systemImage: "exclamationmark.circle")
+                    .foregroundStyle(tint)
+            } else if speech.isListening {
+                Label("Te escucho…", systemImage: "waveform")
+                    .foregroundStyle(tint)
+            } else if details != nil {
+                Text("Va directa a tus tareas")
+                    .foregroundStyle(ink.opacity(0.6))
+            } else {
+                Text("Sin fecha ni plan: lo organizas después")
+                    .foregroundStyle(ink.opacity(0.5))
+            }
+        }
+        .font(.caption)
+        .lineLimit(1)
+        .minimumScaleFactor(0.8)
+        .accessibilityAddTraits(.updatesFrequently)
+    }
+
+    /// «Detalles»: abre o cierra la fila opcional sin perder lo escrito.
+    private var detailsToggle: some View {
+        Button {
+            withAnimation(reduceMotion ? nil : .smooth(duration: 0.25)) {
+                details = details == nil ? CaptureDetails(mode: ModeController.shared.mode) : nil
+            }
+        } label: {
+            HStack(spacing: Space.xs) {
+                Text("Detalles")
+                Image(systemName: details == nil ? "chevron.down" : "chevron.up")
+                    .font(.caption2.weight(.bold))
+                    .accessibilityHidden(true)
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(details == nil ? ink.opacity(0.75) : tint)
+            .padding(.horizontal, Space.s)
+            .frame(minHeight: 44)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(details == nil ? "Añadir detalles" : "Quitar detalles")
+        .accessibilityHint("Plan, prioridad, fecha, duración y notas. Opcional.")
+    }
+
+    /// Plan, prioridad, fecha, duración y notas en una sola fila, para que con el teclado abierto
+    /// todo siga a la vista.
+    private func detailsRow(_ details: Binding<CaptureDetails>) -> some View {
+        HStack(spacing: Space.s) {
+            Menu {
+                Picker("Plan", selection: details.mode) {
+                    ForEach(PlanMode.allCases) { mode in
+                        Label(mode.title, systemImage: mode.symbol).tag(mode)
+                    }
+                }
+            } label: {
+                chip(details.wrappedValue.mode.title, systemImage: details.wrappedValue.mode.symbol)
+            }
+            .accessibilityLabel("Plan: \(details.wrappedValue.mode.title)")
+
+            Menu {
+                Picker("Prioridad", selection: details.priority) {
+                    ForEach(0..<3, id: \.self) { Text(CaptureDetails.priorityTitle($0)).tag($0) }
+                }
+            } label: {
+                chip(CaptureDetails.priorityTitle(details.wrappedValue.priority), systemImage: "flag.fill")
+            }
+            .accessibilityLabel("Prioridad: \(CaptureDetails.priorityTitle(details.wrappedValue.priority))")
+
+            DatePicker(
+                "Fecha", selection: details.deadline,
+                in: Calendar.current.startOfDay(for: .now)..., displayedComponents: .date
+            )
+            .labelsHidden()
+            .datePickerStyle(.compact)
+            .tint(tint)
+            .fixedSize()
+            .accessibilityLabel("Fecha")
+
+            Menu {
+                Picker("Duración", selection: details.minutes) {
+                    ForEach(CaptureDetails.durations, id: \.self) { Text("\($0) min").tag($0) }
+                }
+            } label: {
+                chip("\(details.wrappedValue.minutes) min", systemImage: "clock")
+            }
+            .accessibilityLabel("Duración: \(details.wrappedValue.minutes) minutos")
+
+            TextField("Notas (opcional)", text: details.notes)
+                .font(.subheadline)
+                .foregroundStyle(ink)
+                .submitLabel(.done)
+                .onSubmit(save)
+                .padding(.horizontal, Space.s)
+                .frame(minHeight: 44)
+                .background(ink.opacity(0.08), in: .rect(cornerRadius: 12))
+        }
+    }
+
+    private func chip(_ text: String, systemImage: String) -> some View {
+        Label(text, systemImage: systemImage)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(ink.opacity(0.9))
+            .lineLimit(1)
+            .fixedSize()
+            .padding(.horizontal, Space.s + 2)
+            .frame(minHeight: 44)
+            .background(ink.opacity(0.08), in: .capsule)
+            .contentShape(.capsule)
+    }
+
+    private var cancelButton: some View {
+        Button("Cancelar") {
+            center.draft = ""
+            close()
+        }
+        .font(.subheadline.weight(.medium))
+        .foregroundStyle(ink.opacity(0.8))
+        .frame(minHeight: 44)
+        .padding(.horizontal, Space.xs)
+        .buttonStyle(.plain)
     }
 
     private var closeButton: some View {
@@ -215,7 +353,11 @@ struct QuickCapturePanel: View {
     private func save() {
         guard canSave else { return }
         do {
-            try center.save(center.draft, source: usedVoice ? .voice : .text, context: context)
+            if let details {
+                try center.saveTask(center.draft, details: details, context: context)
+            } else {
+                try center.save(center.draft, source: usedVoice ? .voice : .text, context: context)
+            }
             close()
         } catch {
             message = error.localizedDescription
@@ -265,12 +407,14 @@ struct CaptureToast: View {
                 .foregroundStyle(Theme.orange)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 1) {
-                Text("Apuntado «\(confirmation.title)»")
+                Text("Tarea apuntada")
                     .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
-                Text(confirmation.duringSession ? "La organizaremos cuando termines" : "En Plan › Por organizar")
+                Text("«\(confirmation.title)» · " + (confirmation.addedToTasks
+                    ? "en tus tareas"
+                    : (confirmation.duringSession ? "la organizas al terminar" : "en Plan › Por organizar")))
                     .font(.caption)
                     .foregroundStyle(Theme.secondaryText)
+                    .lineLimit(1)
             }
         }
         .padding(.horizontal, Space.m)
@@ -297,7 +441,7 @@ struct CaptureToastOverlay: ViewModifier {
                         .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
                         .allowsHitTesting(false)
                         .task {
-                            AccessibilityNotification.Announcement("Apuntado: \(confirmation.title)").post()
+                            AccessibilityNotification.Announcement("Tarea apuntada:\(confirmation.title)").post()
                             try? await Task.sleep(for: .seconds(1.8))
                             withAnimation(.easeIn(duration: 0.25)) { center.dismissConfirmation(confirmation.id) }
                         }
