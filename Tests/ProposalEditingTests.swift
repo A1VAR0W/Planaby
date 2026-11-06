@@ -23,9 +23,9 @@ private func applied(_ result: ProposalEditResult) throws -> ProposalEditOutcome
 
 private enum ProposalTestError: Error { case notApplied }
 
-private let placement = ProposalPlacement(
-    busy: [], planner: WorkloadPlanner(), availability: { _ in .work }, now: base
-)
+private var placement: ProposalPlacement { ProposalPlacement(
+    busy: [], planner: WorkloadPlanner(), availability: { _ in .work }, now: base)
+}
 
 @Suite("Propuestas editables")
 struct ProposalEditingTests {
@@ -127,6 +127,77 @@ struct ProposalEditingTests {
         #expect(ProposalCommand.detect("Deshaz lo último") == .undo)
         #expect(ProposalCommand.detect("Ahora sí, guarda el plan") == .accept)
         #expect(ProposalCommand.detect("Pon la reunión como antes a las 10") == nil)
+    }
+
+    @Test func deadlineAndModeChanges() throws {
+        var changes = ProposalChanges()
+        changes.deadline = at(3, 18)
+        changes.mode = .personal
+        let outcome = try applied(ProposalEditor.apply([.update(ProposalTarget(text: "T1"), changes)], to: sample()))
+        #expect(outcome.draft.tasks[0].deadline == at(3, 18))
+        #expect(outcome.draft.tasks[0].mode == .personal)
+    }
+
+    @Test func eventDurationAndEndTime() throws {
+        var changes = ProposalChanges()
+        changes.endMinute = 11 * 60 + 30
+        let outcome = try applied(ProposalEditor.apply([.update(ProposalTarget(text: "E1"), changes)], to: sample()))
+        #expect(outcome.draft.items[0].start == at(3, 10))
+        #expect(outcome.draft.items[0].durationMinutes == 90)
+    }
+
+    @Test func addingKeepsEverythingElse() throws {
+        let draft = sample()
+        let call = PlanDraft.Item(title: "Llamar a Marta", start: at(1, 17), end: at(1, 17, 30), mode: .personal, kind: .event)
+        let outcome = try applied(ProposalEditor.apply([.addEvent(call)], to: draft))
+        #expect(outcome.draft.newEvents.count == 2)
+        #expect(outcome.draft.tasks == draft.tasks)
+        #expect(outcome.draft.ref(call.id) == "E2")
+    }
+
+    @Test func latestEndConditionIsRespected() throws {
+        var conditions = PlanConstraints()
+        conditions.latestEndMinute = 12 * 60
+        let outcome = try applied(ProposalEditor.apply([.constraints(conditions)], to: sample()))
+        let draft = placement.replan(outcome.draft, affected: Set(outcome.draft.tasks.map(\.id))).draft
+        #expect(!draft.blocks.isEmpty)
+        #expect(draft.blocks.allSatisfy { ProposalEditor.minuteOfDay($0.end, calendar: calendar) <= 12 * 60 })
+    }
+
+    @Test func emptyChangeExplainsInsteadOfGuessing() throws {
+        let outcome = try applied(ProposalEditor.apply([.update(ProposalTarget(text: "T1"), ProposalChanges())], to: sample()))
+        #expect(outcome.affectedTasks.isEmpty)
+        #expect(outcome.draft.tasks[0].requestedMinutes == 240)
+        #expect(!outcome.problems.isEmpty)
+    }
+
+    /// La conversación completa del encargo, con las operaciones que devolvería la IA.
+    @Test func fullConversation() throws {
+        var history = ProposalHistory(placement.replan(sample(), affected: Set(sample().tasks.map(\.id))).draft)
+        func step(_ edits: [ProposalEdit]) throws {
+            let outcome = try applied(ProposalEditor.apply(edits, to: history.current))
+            history.commit(placement.replan(outcome.draft, affected: outcome.affectedTasks).draft)
+        }
+        var move = ProposalChanges()
+        move.day = calendar.startOfDay(for: at(2, 0))
+        move.startMinute = 12 * 60
+        try step([.update(ProposalTarget(text: "E1"), move)])
+        var shorter = ProposalChanges()
+        shorter.minutes = 120
+        try step([.update(ProposalTarget(text: "T1"), shorter)])
+        try step([.moveFirst(ProposalTarget(text: "el informe"))])
+        try step([.remove(ProposalTarget(text: "la reunión", kind: .event))])
+        #expect(history.current.newEvents.isEmpty)
+        #expect(history.current.tasks[0].requestedMinutes == 120)
+
+        history.undo()
+        let final = history.current
+        #expect(final.newEvents.count == 1)
+        #expect(final.newEvents[0].start == at(2, 12))
+        #expect(final.tasks[0].requestedMinutes == 120)
+        #expect(final.blocks.reduce(0) { $0 + $1.durationMinutes } == 120)
+        let meeting = DateInterval(start: final.newEvents[0].start, end: final.newEvents[0].end)
+        #expect(!final.blocks.contains { $0.start < meeting.end && meeting.start < $0.end })
     }
 
     @Test func proposalRoundTripsThroughJSON() throws {

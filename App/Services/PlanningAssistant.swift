@@ -588,6 +588,11 @@ final class PlanningAssistant {
 
     func isActive(_ message: Message) -> Bool { message.id == active?.messageID }
 
+    private func reply(_ text: String) {
+        messages.append(Message(role: .assistant, text: text))
+        saveHistory()
+    }
+
     // MARK: Cambios a mano (revisión)
 
     func beginManualEdits() {
