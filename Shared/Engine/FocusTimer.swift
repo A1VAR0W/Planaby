@@ -20,9 +20,37 @@ final class FocusTimer {
         reconcile()
     }
 
-    func start(_ method: FocusMethod, task: String? = nil) {
+    func start(_ method: FocusMethod, task: String? = nil, taskID: UUID? = nil) {
         if state != nil { stop() }
-        commit(TimerState(method: method, at: .now, taskTitle: task))
+        // El plan (Trabajo o Normal) se lee del App Group: también arrancan sesiones los widgets.
+        let mode = AppGroup.defaults.string(forKey: "planMode")
+        commit(TimerState(method: method, at: .now, taskTitle: task, taskID: taskID, mode: mode))
+    }
+
+    /// Cambia la tarea de la sesión en marcha (al retomar con otra o al elegirla después).
+    func setTask(_ title: String?, id: UUID?) {
+        mutate {
+            $0.taskTitle = title
+            $0.taskID = id
+        }
+    }
+
+    /// Retoma ahora con una concentración de `minutes` (por defecto, la del método).
+    func refocus(minutes: Int? = nil) {
+        mutate { $0.beginFocus(at: .now, minutes: minutes) }
+    }
+
+    /// Tras los minutos de «Empezar ahora», sigue con un bloque normal del método elegido.
+    func continueWithBlock(_ method: FocusMethod) {
+        mutate {
+            $0.method = method
+            $0.beginFocus(at: .now)
+        }
+    }
+
+    /// Apunta una salida de Planaby en mitad de la concentración.
+    func noteLeave(seconds: TimeInterval) {
+        mutate { $0.noteLeave(seconds: seconds) }
     }
 
     func pause() { mutate { $0.pause(at: .now) } }
@@ -42,8 +70,11 @@ final class FocusTimer {
         guard var updated = TimerState.loadShared() ?? state,
               updated.phase == .focus, !updated.isPaused, updated.phaseStart <= leftAt else { return }
         if let end = updated.phaseEnd, end <= leftAt { return }
+        // Es una salida, no una pausa: no cuenta en las pausas de la sesión.
+        let pauses = updated.pauseCount
         updated.pause(at: leftAt)
         updated.resume(at: now)
+        updated.pauseCount = pauses
         commit(updated)
     }
 
@@ -61,7 +92,12 @@ final class FocusTimer {
         commit(nil)
         guard summary.focusedSeconds >= 60 else { return nil }
         let context = PlanabyStore.container.mainContext
-        context.insert(FocusSessionRecord(summary))
+        let record = FocusSessionRecord(summary)
+        // Una sesión empezada solo con el título (un aviso, Siri…) se liga a su tarea por el nombre.
+        if record.taskID == nil, let title = record.taskTitle {
+            record.taskID = PlanabyStore.task(titled: title)?.stableID
+        }
+        context.insert(record)
         try? context.save()
         return summary
     }

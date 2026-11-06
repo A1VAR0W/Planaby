@@ -90,6 +90,7 @@ struct RootView: View {
             if pending != nil { tab = .plan }
         }
         .task {
+            PlanabyStore.backfillIdentifiers()
             // Las fases avanzan solas aunque no se toque nada.
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))

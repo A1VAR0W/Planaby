@@ -158,13 +158,11 @@ final class PersonalProfile {
         var count = 0
         for session in sessions where session.start >= monthAgo {
             count += 1
-            // Reparte la sesión por las horas que ocupó.
-            var cursor = session.start
-            while cursor < session.end {
-                let hourEnd = calendar.dateInterval(of: .hour, for: cursor)?.end ?? session.end
-                let pieceEnd = min(hourEnd, session.end)
-                minutes[calendar.component(.hour, from: cursor)] += pieceEnd.timeIntervalSince(cursor) / 60
-                cursor = pieceEnd
+            // Reparte el tiempo concentrado por las horas que ocupó la sesión.
+            for slice in FocusDistribution.slices(
+                start: session.start, end: session.end, focusedSeconds: session.focusedSeconds, calendar: calendar
+            ) {
+                minutes[slice.hour] += slice.minutes
             }
         }
         learnedMinutesByHour = minutes
@@ -174,7 +172,11 @@ final class PersonalProfile {
             .filter { $0.isDone && $0.estimatedMinutes > 0 }
         let ratios: [Double] = done.compactMap { task in
             let actual = sessions
-                .filter { $0.taskTitle == task.title && $0.start >= task.created }
+                .filter { session in
+                    // Por identificador; las sesiones sin él, por el título.
+                    if let id = session.taskID { return id == task.uid }
+                    return session.taskTitle == task.title && session.start >= task.created
+                }
                 .reduce(0) { $0 + $1.focusedSeconds } / 60
             return actual >= 15 ? actual / Double(task.estimatedMinutes) : nil
         }.sorted()

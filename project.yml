@@ -94,7 +94,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.alvaro.planaby.widgets
 
-  # Tests del planificador y del lector ICS: lógica pura, sin app anfitriona.
+  # Tests de la lógica pura (planificador, ICS, temporizador, pases, bloqueo y recomendaciones), sin app anfitriona.
   PlanabyTests:
     type: bundle.unit-test
     platform: iOS
@@ -102,6 +102,12 @@ targets:
       - Tests
       - Shared/Planning/WorkloadPlanner.swift
       - Shared/Planning/ICSCalendar.swift
+      - Shared/AppGroup.swift
+      - Shared/Models/FocusMethod.swift
+      - Shared/TimerEngine/TimerState.swift
+      - Shared/Engine/PassBook.swift
+      - Shared/Engine/FrictionPolicy.swift
+      - Shared/Engine/AttentionEngine.swift
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES

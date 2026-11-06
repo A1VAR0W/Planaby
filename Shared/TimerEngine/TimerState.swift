@@ -14,6 +14,17 @@ struct CompletedSession: Sendable {
     let focusedSeconds: TimeInterval
     let completedCycles: Int
     let taskTitle: String?
+    var taskID: UUID? = nil
+    var methodID = ""
+    var mode = ""
+    var plannedFocusMinutes = 0
+    var endedEarly = false
+    var abandonedAfterMinutes = 0.0
+    var pauses = 0
+    var leaves = 0
+    var awaySeconds = 0.0
+    var skippedBreaks = 0
+    var isStarter = false
 }
 
 /// Estado del temporizador basado en fechas, no en ticks: sigue siendo correcto
@@ -31,8 +42,20 @@ struct TimerState: Codable, Equatable, Sendable {
     var focusedSeconds: TimeInterval
     /// Tarea del plan en la que se está trabajando, si la hay.
     var taskTitle: String?
+    // Lo siguiente es opcional para poder leer sesiones guardadas por versiones anteriores.
+    /// Identificador estable de la tarea (PlanTask.uid).
+    var taskID: UUID?
+    /// Plan en el que se trabaja ("work" o "personal").
+    var modeRaw: String?
+    var pauseCount: Int?
+    /// Veces que se salió de Planaby más del margen, y cuánto tiempo en total.
+    var leaveCount: Int?
+    var awaySeconds: Double?
+    var skippedBreaks: Int?
+    /// Sesión de «Empezar ahora» (unos minutos para arrancar).
+    var isStarter: Bool?
 
-    init(method: FocusMethod, at now: Date, taskTitle: String? = nil) {
+    init(method: FocusMethod, at now: Date, taskTitle: String? = nil, taskID: UUID? = nil, mode: String? = nil) {
         self.method = method
         phase = .focus
         completedCycles = 0
@@ -42,6 +65,9 @@ struct TimerState: Codable, Equatable, Sendable {
         sessionStart = now
         focusedSeconds = 0
         self.taskTitle = taskTitle
+        self.taskID = taskID
+        modeRaw = mode
+        isStarter = method.id == FocusMethod.starter.id ? true : nil
     }
 
     var isPaused: Bool { pausedAt != nil }
@@ -65,15 +91,42 @@ struct TimerState: Codable, Equatable, Sendable {
     }
 
     func summary(endingAt now: Date) -> CompletedSession {
-        CompletedSession(
+        // Terminar con más de un minuto de concentración por delante es dejarla a medias.
+        let early = phase == .focus && (remaining(at: now) ?? 0) > 60
+        return CompletedSession(
             start: sessionStart, end: now, methodName: method.name,
-            focusedSeconds: totalFocused(at: now), completedCycles: completedCycles, taskTitle: taskTitle
+            focusedSeconds: totalFocused(at: now), completedCycles: completedCycles, taskTitle: taskTitle,
+            taskID: taskID, methodID: method.id, mode: modeRaw ?? "",
+            plannedFocusMinutes: method.focusMinutes ?? 0, endedEarly: early,
+            abandonedAfterMinutes: phase == .focus ? elapsed(at: now) / 60 : 0,
+            pauses: pauseCount ?? 0, leaves: leaveCount ?? 0, awaySeconds: awaySeconds ?? 0,
+            skippedBreaks: skippedBreaks ?? 0, isStarter: isStarter ?? false
         )
     }
 
     mutating func pause(at now: Date) {
         guard pausedAt == nil else { return }
         pausedAt = now
+        if phase == .focus { pauseCount = (pauseCount ?? 0) + 1 }
+    }
+
+    /// Una salida de Planaby en mitad de la concentración (la apunta LeaveGuard al volver).
+    mutating func noteLeave(seconds: TimeInterval) {
+        leaveCount = (leaveCount ?? 0) + 1
+        awaySeconds = (awaySeconds ?? 0) + max(0, seconds)
+    }
+
+    /// Vuelve a empezar una concentración ahora mismo, de `minutes` (o la del método).
+    /// Sirve para retomar con un bloque corto o seguir tras «Empezar ahora».
+    mutating func beginFocus(at now: Date, minutes: Int? = nil) {
+        if phase == .focus {
+            focusedSeconds += elapsed(at: now)
+        }
+        pausedAt = nil
+        phase = .focus
+        phaseStart = now
+        let length = minutes.map { TimeInterval($0 * 60) } ?? method.duration(of: .focus)
+        phaseEnd = length.map { now.addingTimeInterval($0) }
     }
 
     mutating func resume(at now: Date) {
@@ -98,6 +151,7 @@ struct TimerState: Codable, Equatable, Sendable {
 
     /// Termina la fase actual ahora mismo ("Saltar", o "Descansar" en Flowtime).
     mutating func skip(at now: Date) {
+        if phase.isBreak { skippedBreaks = (skippedBreaks ?? 0) + 1 }
         resume(at: now)
         completePhase(endingAt: now)
     }

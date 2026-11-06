@@ -22,11 +22,16 @@ struct PlanabyBackup: Codable {
 
     struct Session: Codable {
         var start: Date, end: Date, methodName: String, focusedSeconds: Double, completedCycles: Int, taskTitle: String?
+        // Desde la 1.1 (opcionales para leer copias anteriores).
+        var taskID: UUID?, methodID: String?, modeRaw: String?, plannedFocusMinutes: Int?, endedEarly: Bool?
+        var abandonedAfterMinutes: Double?, pauseCount: Int?, leaveCount: Int?, awaySeconds: Double?
+        var skippedBreaks: Int?, isStarter: Bool?, focusRating: Int?
     }
 
     struct TaskItem: Codable {
         var ref: Int, title: String, modeRaw: String, deadline: Date, estimatedMinutes: Int, priority: Int
         var isDone: Bool, created: Date, difficulty: Int, notes: String, completedAt: Date?
+        var uid: UUID?, nextStep: String?, blockedNote: String?, blockedAt: Date?
     }
 
     struct Event: Codable {
@@ -36,6 +41,7 @@ struct PlanabyBackup: Codable {
 
     struct Distraction: Codable {
         var date: Date, app: String, reason: String, resisted: Bool, duringFocus: Bool
+        var kindRaw: String?, motiveRaw: String?, awaySeconds: Double?
     }
 
     struct Attachment: Codable {
@@ -52,10 +58,12 @@ enum BackupService {
     private static let groupKeys = [
         "dailyGoalMinutes", "phaseAlerts", "planMode", "planModeSource", "planSchedule.work", "planSchedule.personal",
         "customMethods", "selectedMethodID", "focusProfile",
+        "alertSounds", "alertBreakStart", "alertBreakEnd", "alertHaptics", "alertVisualOnly", "alertSilent",
+        "alertSoundSet", "alertRespectMusic", "alertReduceMotion", "sessionContext",
     ]
     private static let localKeys = [
         "deskDimmed", "deskNightMode", "deskNightStart", "deskNightEnd", "deskKeepAwake", "deskShowsTasks", "deskShowsMusic", "frictionApps", "deskAutoMusic", "planShowsMonth", "spotifyClientID",
-        "frictionEnabled", "leaveGuardEnabled", "leaveGuardGrace", "leaveGuardStrict", "frictionScope", "frictionPauseSeconds", "frictionPassMinutes", "musicFocusURL", "musicBreakURL", "musicAutoOpen", "messageNotifyLevel",
+        "frictionEnabled", "frictionIntensity", "frictionRules", "adaptiveEnabled", "adaptiveDismissed", "learningResetDate", "prioritySenders", "senderOverrides", "leaveGuardEnabled", "leaveGuardGrace", "leaveGuardStrict", "frictionScope", "frictionPauseSeconds", "frictionPassMinutes", "musicFocusURL", "musicBreakURL", "musicAutoOpen", "messageNotifyLevel",
         "externalCalendars", "calendarSubscriptions", CalendarMirror.enabledKey, "deviceCalendarsAdopted",
     ]
     private static let maxFileSize = 10 * 1024 * 1024
@@ -90,12 +98,16 @@ enum BackupService {
             appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?",
             sessions: sessions.map {
                 PlanabyBackup.Session(start: $0.start, end: $0.end, methodName: $0.methodName, focusedSeconds: $0.focusedSeconds,
-                      completedCycles: $0.completedCycles, taskTitle: $0.taskTitle)
+                      completedCycles: $0.completedCycles, taskTitle: $0.taskTitle, taskID: $0.taskID, methodID: $0.methodID,
+                      modeRaw: $0.modeRaw, plannedFocusMinutes: $0.plannedFocusMinutes, endedEarly: $0.endedEarly,
+                      abandonedAfterMinutes: $0.abandonedAfterMinutes, pauseCount: $0.pauseCount, leaveCount: $0.leaveCount,
+                      awaySeconds: $0.awaySeconds, skippedBreaks: $0.skippedBreaks, isStarter: $0.isStarter, focusRating: $0.focusRating)
             },
             tasks: tasks.enumerated().map { index, task in
                 PlanabyBackup.TaskItem(ref: index, title: task.title, modeRaw: task.modeRaw, deadline: task.deadline,
                       estimatedMinutes: task.estimatedMinutes, priority: task.priority, isDone: task.isDone,
-                      created: task.created, difficulty: task.difficulty, notes: task.notes, completedAt: task.completedAt)
+                      created: task.created, difficulty: task.difficulty, notes: task.notes, completedAt: task.completedAt,
+                      uid: task.uid, nextStep: task.nextStep, blockedNote: task.blockedNote, blockedAt: task.blockedAt)
             },
             events: events.map { event in
                 PlanabyBackup.Event(title: event.title, notes: event.notes, start: event.start, end: event.end, isAllDay: event.isAllDay,
@@ -113,7 +125,8 @@ enum BackupService {
             localSettings: settings(localKeys, from: .standard),
             chat: try? Data(contentsOf: URL.applicationSupportDirectory.appending(path: "chat.json")),
             distractions: distractions.map {
-                PlanabyBackup.Distraction(date: $0.date, app: $0.app, reason: $0.reason, resisted: $0.resisted, duringFocus: $0.duringFocus)
+                PlanabyBackup.Distraction(date: $0.date, app: $0.app, reason: $0.reason, resisted: $0.resisted, duringFocus: $0.duringFocus,
+                      kindRaw: $0.kindRaw, motiveRaw: $0.motiveRaw, awaySeconds: $0.awaySeconds)
             }
         )
     }
@@ -204,6 +217,10 @@ enum BackupService {
             task.isDone = item.isDone
             task.created = item.created
             task.completedAt = item.completedAt
+            if let uid = item.uid { task.uid = uid }
+            task.nextStep = item.nextStep ?? ""
+            task.blockedNote = item.blockedNote ?? ""
+            task.blockedAt = item.blockedAt
             context.insert(task)
             tasks[item.ref] = task
         }
@@ -231,13 +248,20 @@ enum BackupService {
         for item in backup.sessions {
             let record = FocusSessionRecord(CompletedSession(
                 start: item.start, end: item.end, methodName: item.methodName, focusedSeconds: item.focusedSeconds,
-                completedCycles: item.completedCycles, taskTitle: item.taskTitle
+                completedCycles: item.completedCycles, taskTitle: item.taskTitle, taskID: item.taskID,
+                methodID: item.methodID ?? "", mode: item.modeRaw ?? "", plannedFocusMinutes: item.plannedFocusMinutes ?? 0,
+                endedEarly: item.endedEarly ?? false, abandonedAfterMinutes: item.abandonedAfterMinutes ?? 0,
+                pauses: item.pauseCount ?? 0, leaves: item.leaveCount ?? 0, awaySeconds: item.awaySeconds ?? 0,
+                skippedBreaks: item.skippedBreaks ?? 0, isStarter: item.isStarter ?? false
             ))
+            record.focusRating = item.focusRating ?? 0
             context.insert(record)
         }
         for item in backup.distractions ?? [] {
             context.insert(DistractionRecord(
-                date: item.date, app: item.app, reason: item.reason, resisted: item.resisted, duringFocus: item.duringFocus
+                date: item.date, app: item.app, reason: item.reason, resisted: item.resisted, duringFocus: item.duringFocus,
+                kind: AttemptSample.Kind(rawValue: item.kindRaw ?? "") ?? .pause,
+                motive: DistractionMotive(rawValue: item.motiveRaw ?? ""), awaySeconds: item.awaySeconds ?? 0
             ))
         }
         try context.save()

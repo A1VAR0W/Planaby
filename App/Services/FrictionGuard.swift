@@ -28,6 +28,13 @@ final class FrictionGuard {
     struct Request: Identifiable {
         let id = UUID()
         let app: String
+        /// Segundos de pausa (crecen si se insiste).
+        var seconds = 10
+        var passMinutes = 5
+        /// Intentos con esta app en la última media hora.
+        var recentAttempts = 0
+        var asksMotive = false
+        var onBreak = false
     }
 
     enum Keys {
@@ -41,6 +48,9 @@ final class FrictionGuard {
         static let apps = "frictionApps"
         /// Última vez que la automatización avisó a Planaby (segundos desde 1970).
         static let lastTrigger = "frictionLastTrigger"
+        static let intensity = "frictionIntensity"
+        /// [FrictionRule] en JSON.
+        static let rules = "frictionRules"
     }
 
     static let defaultPauseSeconds = 10
@@ -59,12 +69,24 @@ final class FrictionGuard {
         UserDefaults.standard.string(forKey: Keys.scope).flatMap { FrictionScope(rawValue: $0) } ?? .focus
     }
 
-    static var pauseSeconds: Int {
-        UserDefaults.standard.object(forKey: Keys.pauseSeconds) as? Int ?? defaultPauseSeconds
+    static var intensity: FrictionIntensity {
+        UserDefaults.standard.string(forKey: Keys.intensity).flatMap(FrictionIntensity.init(rawValue:)) ?? .balanced
     }
 
-    static var passMinutes: Int {
-        UserDefaults.standard.object(forKey: Keys.passMinutes) as? Int ?? defaultPassMinutes
+    static var rules: [FrictionRule] {
+        get {
+            guard let data = UserDefaults.standard.data(forKey: Keys.rules) else { return [] }
+            return (try? JSONDecoder().decode([FrictionRule].self, from: data)) ?? []
+        }
+        set {
+            let clean = newValue.filter { $0.passMinutes != nil || $0.freeOpensPerDay > 0 }
+            UserDefaults.standard.set(try? JSONEncoder().encode(clean), forKey: Keys.rules)
+        }
+    }
+
+    /// Minutos del pase para una app (su regla o los de la intensidad).
+    static func passMinutes(for app: String) -> Int {
+        FrictionPolicy(intensity: intensity, rules: rules).rule(for: app)?.passMinutes ?? intensity.passMinutes
     }
 
     /// Las apps elegidas en Ajustes › Bloqueo con fricción.
@@ -92,55 +114,91 @@ final class FrictionGuard {
         return state.phase == .focus && !state.isPaused
     }
 
-    /// Lo que responde la acción «¿Toca pausa consciente?».
-    func shouldPause(app: String, now: Date = .now) -> Bool {
-        guard Self.isEnabled, !hasPass(for: app, now: now) else { return false }
-        switch Self.scope {
-        case .focus: return isFocusing
-        case .workHours: return isFocusing || isWorkTime(now)
-        case .always: return true
+    private var isOnBreak: Bool {
+        guard let state = FocusTimer.shared.state else { return false }
+        return state.phase != .focus && !state.isPaused
+    }
+
+    /// Lo que decide la política para esta app ahora mismo.
+    func decision(app: String, now: Date = .now) -> FrictionPolicy.Decision {
+        let inScope: Bool = switch Self.scope {
+        case .focus: isFocusing
+        case .workHours: isFocusing || isWorkTime(now)
+        case .always: true
         }
+        let policy = FrictionPolicy(intensity: Self.intensity, rules: Self.rules)
+        return policy.decide(
+            app: app, inScope: Self.isEnabled && inScope, focusing: isFocusing, onBreak: isOnBreak,
+            passes: passBook, history: recentAttempts(now: now), now: now
+        )
+    }
+
+    /// Lo que responde la acción «¿Toca pausa consciente?». Una apertura libre queda apuntada.
+    func shouldPause(app: String, now: Date = .now) -> Bool {
+        let result = decision(app: app, now: now)
+        if result.skipReason == "apertura libre" {
+            let context = PlanabyStore.container.mainContext
+            context.insert(DistractionRecord(app: app, reason: "Apertura libre", resisted: false, duringFocus: false))
+            try? context.save()
+        }
+        return result.pause
     }
 
     func present(app: String) {
-        request = Request(app: app.trimmingCharacters(in: .whitespacesAndNewlines))
+        let name = app.trimmingCharacters(in: .whitespacesAndNewlines)
+        let result = decision(app: name)
+        request = Request(
+            app: name, seconds: max(3, result.seconds == 0 ? Self.intensity.baseSeconds : result.seconds),
+            passMinutes: result.passMinutes, recentAttempts: result.recentAttempts,
+            asksMotive: result.asksMotive, onBreak: isOnBreak
+        )
     }
 
-    /// Guarda cómo acabó la pausa; si la abre igualmente, no se le vuelve a frenar durante el pase.
-    func finish(_ request: Request, reason: String, resisted: Bool, context: ModelContext) {
+    /// Guarda cómo acabó la pausa; si la abre igualmente, solo esa app tiene pase durante unos minutos.
+    /// - Parameter openedApp: la app que se abre (en un aviso sin nombre, la que se eligió).
+    func finish(
+        _ request: Request, openedApp: String? = nil, reason: String, motive: DistractionMotive?,
+        resisted: Bool, context: ModelContext
+    ) {
+        let app = openedApp ?? request.app
         context.insert(DistractionRecord(
-            app: request.app, reason: reason.trimmingCharacters(in: .whitespacesAndNewlines),
-            resisted: resisted, duringFocus: isFocusing
+            app: app, reason: reason.trimmingCharacters(in: .whitespacesAndNewlines),
+            resisted: resisted, duringFocus: isFocusing, kind: .pause, motive: motive
         ))
         try? context.save()
-        if !resisted { grantPass(for: request.app) }
+        if !resisted {
+            var book = passBook
+            book.grant(app: app, fromUnknownTrigger: request.app.isEmpty, minutes: request.passMinutes, now: .now)
+            passBook = book
+        }
         self.request = nil
     }
 
     // MARK: Pases
 
-    private func key(for app: String) -> String {
-        let name = app.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return name.isEmpty ? "*" : name
-    }
-
-    private var passes: [String: Date] {
+    /// Se guardan como [clave: fin] (mismo formato que antes, así los pases en curso siguen valiendo).
+    var passBook: PassBook {
         get {
             let stored = UserDefaults.standard.dictionary(forKey: Keys.passes) as? [String: Date] ?? [:]
-            return stored.filter { $0.value > .now }
+            var book = PassBook()
+            for (key, end) in stored where end > .now {
+                book.setEnd(end, forKey: key)
+            }
+            return book
         }
-        set { UserDefaults.standard.set(newValue, forKey: Keys.passes) }
+        set {
+            var book = newValue
+            book.prune(now: .now)
+            UserDefaults.standard.set(book.passes, forKey: Keys.passes)
+        }
     }
 
-    private func hasPass(for app: String, now: Date) -> Bool {
-        let current = passes
-        return (current[key(for: app)] ?? .distantPast) > now || (current["*"] ?? .distantPast) > now
-    }
-
-    private func grantPass(for app: String) {
-        var current = passes
-        current[key(for: app)] = Date.now.addingTimeInterval(TimeInterval(Self.passMinutes * 60))
-        passes = current
+    /// Intentos de pausa consciente de las últimas 24 h, para la escalada y las aperturas libres.
+    private func recentAttempts(now: Date) -> [AttemptSample] {
+        let since = now.addingTimeInterval(-24 * 3600)
+        let descriptor = FetchDescriptor<DistractionRecord>(predicate: #Predicate { $0.date >= since })
+        let records = (try? PlanabyStore.container.mainContext.fetch(descriptor)) ?? []
+        return records.map(\.sample)
     }
 
     // MARK: Ayudas

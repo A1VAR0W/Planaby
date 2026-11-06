@@ -105,10 +105,11 @@ final class LeaveGuard {
         let strict = Self.isStrict
         // Modo estricto: el rato fuera no cuenta; el bloque sigue donde lo dejaste.
         if strict { FocusTimer.shared.discount(from: leftAt, to: .now) }
+        FocusTimer.shared.noteLeave(seconds: away)
         let context = PlanabyStore.container.mainContext
         context.insert(DistractionRecord(
             date: leftAt, app: "", reason: "Fuera de Planaby \(Self.minutes(away))",
-            resisted: false, duringFocus: true
+            resisted: false, duringFocus: true, kind: .leave, awaySeconds: away
         ))
         try? context.save()
         let state = TimerState.loadShared()

@@ -10,9 +10,11 @@ struct BlockSetupView: View {
     @AppStorage(FrictionGuard.Keys.lastTrigger) private var lastTrigger: Double = 0
     @AppStorage(FrictionGuard.Keys.enabled) private var blocksApps = true
     @AppStorage(FrictionGuard.Keys.scope) private var frictionScope = FrictionScope.focus.rawValue
-    @AppStorage(FrictionGuard.Keys.pauseSeconds) private var pauseSeconds = FrictionGuard.defaultPauseSeconds
-    @AppStorage(FrictionGuard.Keys.passMinutes) private var passMinutes = FrictionGuard.defaultPassMinutes
+    @AppStorage(FrictionGuard.Keys.intensity) private var intensityRaw = FrictionIntensity.balanced.rawValue
+    @State private var rules = FrictionGuard.rules
     @Environment(\.openURL) private var openURL
+
+    private var intensity: FrictionIntensity { FrictionIntensity(rawValue: intensityRaw) ?? .balanced }
 
     private var chosen: [BlockableApp] {
         appsRaw.split(separator: ",").compactMap { BlockableApp(rawValue: String($0)) }
@@ -101,20 +103,59 @@ struct BlockSetupView: View {
                     ForEach(FrictionScope.allCases) { Text($0.title).tag($0.rawValue) }
                 }
                 .disabled(!blocksApps)
-                Picker("Respirar", selection: $pauseSeconds) {
-                    ForEach([5, 10, 20, 30], id: \.self) { Text("\($0) s").tag($0) }
+                Picker("Intensidad", selection: $intensityRaw) {
+                    ForEach(FrictionIntensity.allCases) { Text($0.title).tag($0.rawValue) }
                 }
-                Picker("Si la abres igualmente", selection: $passMinutes) {
-                    ForEach([1, 5, 10, 15, 30], id: \.self) { Text("\($0) min").tag($0) }
-                }
+                .disabled(!blocksApps)
             } header: {
                 Text("Cómo frena")
             } footer: {
-                Text("Si la abres igualmente, durante ese rato no te vuelve a frenar ni te avisa por salir.")
+                Text("\(intensity.detail) Pausa de \(intensity.baseSeconds) s y pase de \(intensity.passMinutes) min. En los descansos frena con más suavidad.")
+            }
+
+            if !chosen.isEmpty {
+                Section {
+                    ForEach(chosen) { app in
+                        ruleRow(app)
+                    }
+                } header: {
+                    Text("Por app")
+                } footer: {
+                    Text("El pase solo vale para la app que abres. Las aperturas libres no frenan fuera de la concentración; concentrándote, siempre frena.")
+                }
             }
         }
+        .onChange(of: rules) { _, new in FrictionGuard.rules = new }
         .navigationTitle("Frenar apps")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func ruleRow(_ app: BlockableApp) -> some View {
+        let key = PassBook.key(for: app.name)
+        let index = rules.firstIndex { $0.app == key }
+        let rule = index.map { rules[$0] } ?? FrictionRule(app: key)
+        let update: (FrictionRule) -> Void = { new in
+            if let index { rules[index] = new } else { rules.append(new) }
+        }
+        return VStack(alignment: .leading, spacing: Space.xs) {
+            Text(app.name).font(.subheadline.weight(.semibold))
+            Picker("Pase", selection: Binding(get: { rule.passMinutes ?? 0 }, set: { value in
+                var new = rule
+                new.passMinutes = value == 0 ? nil : value
+                update(new)
+            })) {
+                Text("Como la intensidad").tag(0)
+                ForEach([1, 3, 5, 10, 15, 30], id: \.self) { Text("\($0) min").tag($0) }
+            }
+            Stepper(value: Binding(get: { rule.freeOpensPerDay }, set: { value in
+                var new = rule
+                new.freeOpensPerDay = value
+                update(new)
+            }), in: 0...10) {
+                Text(rule.freeOpensPerDay == 0 ? "Sin aperturas libres" : "\(rule.freeOpensPerDay) libres al día")
+            }
+        }
+        .padding(.vertical, Space.xs)
     }
 
     private func chip(_ app: BlockableApp) -> some View {

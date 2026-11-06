@@ -130,6 +130,14 @@ final class PlanTask {
     /// Notas y pasos (los que propone la IA al estimar).
     var notes: String = ""
     var completedAt: Date?
+    /// Identificador estable (las sesiones lo guardan en vez del título). Se rellena al abrir
+    /// la app en las tareas antiguas.
+    var uid: UUID? = nil
+    /// El siguiente paso concreto, para retomar o «Empezar ahora».
+    var nextStep: String = ""
+    /// Atascada: qué la bloquea y desde cuándo (vacío si no lo está).
+    var blockedNote: String = ""
+    var blockedAt: Date? = nil
     @Relationship(deleteRule: .cascade, inverse: \CalendarEvent.task)
     var blocks: [CalendarEvent] = []
     @Relationship(deleteRule: .cascade, inverse: \TaskAttachment.task)
@@ -148,6 +156,27 @@ final class PlanTask {
         self.notes = notes
         isDone = false
         created = .now
+        uid = UUID()
+    }
+
+    /// El identificador estable, creándolo si la tarea es anterior a que existiera.
+    var stableID: UUID {
+        if let uid { return uid }
+        let new = UUID()
+        uid = new
+        return new
+    }
+
+    var isBlocked: Bool { blockedAt != nil }
+
+    /// El primer paso que se puede hacer ya: el guardado o el primero de las notas.
+    var firstStep: String? {
+        let saved = nextStep.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !saved.isEmpty { return saved }
+        return notes.split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .map { line in String(line.drop { character in "-•*0123456789.) ".contains(character) }) }
+            .first { $0.count >= 4 }
     }
 
     func setDone(_ done: Bool) {

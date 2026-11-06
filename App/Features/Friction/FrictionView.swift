@@ -14,10 +14,13 @@ struct FrictionView: View {
     @Query(sort: \DistractionRecord.date, order: .reverse) private var records: [DistractionRecord]
     @State private var started = Date.now
     @State private var reason = ""
+    @State private var motive: DistractionMotive?
     @FocusState private var reasonFocused: Bool
 
-    private let pause = FrictionGuard.pauseSeconds
-    private let pass = FrictionGuard.passMinutes
+    private var pause: Int { request.seconds }
+    private var pass: Int { request.passMinutes }
+    /// En modo estricto hay que decir para qué se abre.
+    private var hasMotive: Bool { !request.asksMotive || motive != nil || !reason.trimmingCharacters(in: .whitespaces).isEmpty }
 
     var body: some View {
         TimelineView(.animation(minimumInterval: reduceMotion ? 1 : 1.0 / 30)) { timeline in
@@ -36,13 +39,22 @@ struct FrictionView: View {
                             .foregroundStyle(Theme.secondaryText)
                             .multilineTextAlignment(.center)
                     }
+                    if request.recentAttempts > 0 {
+                        Text(request.recentAttempts == 1
+                             ? "Es la segunda vez en media hora: esta pausa es algo más larga."
+                             : "Es la \(request.recentAttempts + 1).ª vez en media hora. ¿Qué te está costando?")
+                            .font(.footnote)
+                            .foregroundStyle(Theme.secondaryText)
+                            .multilineTextAlignment(.center)
+                    }
                     if resistedToday > 0 {
                         Label("Hoy has vuelto a lo tuyo \(resistedToday == 1 ? "1 vez" : "\(resistedToday) veces")", systemImage: "leaf.fill")
                             .font(.footnote)
                             .foregroundStyle(Theme.orange)
                     }
                 }
-                TextField("¿Para qué la abres? (opcional)", text: $reason)
+                motives
+                TextField(request.asksMotive ? "¿Para qué la abres?" : "¿Para qué la abres? (opcional)", text: $reason)
                     .focused($reasonFocused)
                     .padding(.horizontal, Space.m)
                     .frame(minHeight: 48)
@@ -81,11 +93,36 @@ struct FrictionView: View {
         .accessibilityLabel(left > 0 ? "Respira. Quedan \(left) segundos" : "Ya puedes decidir")
     }
 
+    /// Motivos rápidos: sirven para ver patrones («la abro por aburrimiento a las 17 h»).
+    private var motives: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: Space.s) {
+                ForEach(DistractionMotive.allCases) { item in
+                    let selected = motive == item
+                    Button {
+                        motive = selected ? nil : item
+                    } label: {
+                        Label(item.title, systemImage: item.symbol)
+                            .font(.footnote.weight(selected ? .semibold : .regular))
+                            .foregroundStyle(selected ? Color.black : Color.white)
+                            .padding(.horizontal, Space.m)
+                            .frame(minHeight: 36)
+                            .background(selected ? Theme.orange : Theme.surface, in: .capsule)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(selected ? .isSelected : [])
+                }
+            }
+        }
+        .sensoryFeedback(.selection, trigger: motive)
+        .accessibilityLabel("Motivo")
+    }
+
     private func buttons(enabled: Bool) -> some View {
         VStack(spacing: Space.s) {
             Button {
                 reasonFocused = false
-                FrictionGuard.shared.finish(request, reason: reason, resisted: true, context: context)
+                FrictionGuard.shared.finish(request, reason: reason, motive: motive, resisted: true, context: context)
                 onDone(true)
             } label: {
                 Label("Volver a lo mío", systemImage: "arrow.uturn.backward")
@@ -106,7 +143,7 @@ struct FrictionView: View {
                             Button(app.name) { openAnyway(app.name) }
                         }
                     } label: {
-                        Text("Abrir igualmente \(pass) min")
+                        Text("Abrir igualmente")
                             .font(.subheadline.weight(.medium))
                             .frame(maxWidth: .infinity, minHeight: 36)
                     }
@@ -123,16 +160,26 @@ struct FrictionView: View {
             }
             .buttonStyle(.glass)
             .controlSize(.large)
-            .disabled(!enabled)
-            .accessibilityHint(enabled ? "Durante \(pass) minutos no te volveré a frenar" : "Espera a que termine la cuenta atrás")
+            .disabled(!enabled || !hasMotive)
+            .accessibilityHint(enabled
+                ? (hasMotive ? "Durante \(pass) minutos no te volveré a frenar con esta app" : "Antes di para qué la abres")
+                : "Espera a que termine la cuenta atrás")
+            if enabled, !hasMotive {
+                Text("Elige un motivo o escribe para qué la abres.")
+                    .font(.footnote)
+                    .foregroundStyle(Theme.secondaryText)
+            }
         }
     }
 
     private func openAnyway(_ app: String) {
         reasonFocused = false
-        FrictionGuard.shared.finish(request, reason: reason, resisted: false, context: context)
+        var chosen = request
+        // En un aviso sin nombre, el pase es el de la app elegida.
+        if request.app.isEmpty, !app.isEmpty { chosen.passMinutes = FrictionGuard.passMinutes(for: app) }
+        FrictionGuard.shared.finish(chosen, openedApp: app, reason: reason, motive: motive, resisted: false, context: context)
         // Abrirla igualmente da un pase: durante ese rato tampoco avisa al salir.
-        LeaveGuard.shared.excuse(for: TimeInterval(pass * 60))
+        LeaveGuard.shared.excuse(for: TimeInterval(chosen.passMinutes * 60))
         if let url = FrictionGuard.url(for: app) { openURL(url) }
         onDone(false)
     }

@@ -101,6 +101,15 @@ extension FocusMethod {
         ),
     ]
 
+    /// «Empezar ahora»: unos minutos para arrancar; al terminar se ofrece seguir con un bloque.
+    /// No aparece en la lista de métodos.
+    static let starter = FocusMethod(
+        id: "starter", name: "Empezar ahora",
+        summary: "Cinco minutos para arrancar, sin pensar en todo lo que queda.",
+        focusMinutes: 5, shortBreakMinutes: 2, longBreakMinutes: 2, cyclesBeforeLongBreak: 0,
+        flowBreakRatio: nil, isBuiltIn: true
+    )
+
     static func newCustom() -> FocusMethod {
         FocusMethod(
             id: UUID().uuidString, name: "", summary: "Plantilla personalizada",

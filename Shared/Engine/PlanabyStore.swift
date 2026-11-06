@@ -29,6 +29,41 @@ enum PlanabyStore {
         }
     }()
 
+    /// La tarea con ese título (preferiblemente pendiente), si hay alguna.
+    static func task(titled title: String) -> PlanTask? {
+        let wanted = title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !wanted.isEmpty else { return nil }
+        let all = (try? container.mainContext.fetch(FetchDescriptor<PlanTask>())) ?? []
+        let matches = all.filter { $0.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == wanted }
+        return matches.first { !$0.isDone } ?? matches.first
+    }
+
+    /// Una vez: da identificador a las tareas antiguas y liga las sesiones antiguas a su tarea
+    /// por el título. No borra ni cambia nada más.
+    static func backfillIdentifiers() {
+        let key = "backfillTaskIDs1"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        let context = container.mainContext
+        let tasks = (try? context.fetch(FetchDescriptor<PlanTask>())) ?? []
+        var byTitle: [String: UUID] = [:]
+        for task in tasks {
+            let id = task.stableID
+            let title = task.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if byTitle[title] == nil || !task.isDone { byTitle[title] = id }
+        }
+        let sessions = (try? context.fetch(FetchDescriptor<FocusSessionRecord>(predicate: #Predicate { $0.taskID == nil }))) ?? []
+        for session in sessions {
+            guard let title = session.taskTitle?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else { continue }
+            session.taskID = byTitle[title]
+        }
+        do {
+            try context.save()
+            UserDefaults.standard.set(true, forKey: key)
+        } catch {
+            // Se reintenta en el siguiente arranque.
+        }
+    }
+
     /// Guarda lo pendiente (al pasar a segundo plano).
     static func saveNow() {
         let context = container.mainContext

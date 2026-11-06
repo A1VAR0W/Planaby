@@ -49,7 +49,7 @@ struct PlanView: View {
                             AgendaRow(entry: entry) {
                                 Task {
                                     await NotificationAccess.requestIfNeeded()
-                                    timer.start(library.selected, task: entry.event.task?.title ?? entry.event.title)
+                                    timer.start(library.selected, task: entry.event.task?.title ?? entry.event.title, taskID: entry.event.task?.stableID)
                                 }
                             }
                             .contentShape(.rect)
