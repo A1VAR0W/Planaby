@@ -13,13 +13,14 @@ packages:
   # IA local en el iPhone (MLX de Apple): un modelo abierto que se descarga una vez y funciona
   # sin conexión. No se usa el producto MLXHuggingFace (lleva macros); el tokenizador se adapta a
   # mano en LocalModel.swift.
+  # Versiones exactas: mlx-swift 0.31.5 y posteriores piden Swift 6.3 (Xcode 26.4) y el CI usa
+  # Xcode 26.3. mlx-swift-lm 3.31.4 ya entiende Qwen3.5 y acepta mlx-swift 0.31.4.
   MLXSwiftLM:
     url: https://github.com/ml-explore/mlx-swift-lm
-    minorVersion: 3.32.3
-  # La misma versión menor que pide mlx-swift-lm 3.32.3 (upToNextMinor 0.32.3).
+    exactVersion: 3.31.4
   MLXSwift:
     url: https://github.com/ml-explore/mlx-swift
-    minorVersion: 0.32.3
+    exactVersion: 0.31.4
   SwiftTransformers:
     url: https://github.com/huggingface/swift-transformers
     from: 1.3.0
