@@ -48,7 +48,7 @@ struct TaskDetailView: View {
                         if isEstimating { ProgressView() }
                     }
                 }
-                .disabled(isEstimating || PlanningAssistant.unavailableReason != nil)
+                .disabled(isEstimating || AIProvider.unavailableReason != nil)
                 if let estimate {
                     EstimateSummary(estimate: estimate)
                 }

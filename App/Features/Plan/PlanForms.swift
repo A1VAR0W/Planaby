@@ -218,7 +218,7 @@ struct TaskForm: View {
                         if isEstimating { ProgressView() }
                     }
                 }
-                .disabled(cleanTitle.isEmpty || isEstimating || PlanningAssistant.unavailableReason != nil)
+                .disabled(cleanTitle.isEmpty || isEstimating || AIProvider.unavailableReason != nil)
                 if let estimate {
                     EstimateSummary(estimate: estimate)
                 }
@@ -228,7 +228,7 @@ struct TaskForm: View {
                         .foregroundStyle(Theme.orange)
                 }
             } footer: {
-                if let reason = PlanningAssistant.unavailableReason {
+                if let reason = AIProvider.unavailableReason {
                     Text(reason)
                 }
             }

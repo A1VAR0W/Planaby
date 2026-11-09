@@ -1,10 +1,45 @@
-# Planificación con Apple Intelligence
+# Planificación con IA en el iPhone
 
-Cómo entiende Planaby lo que le pides en el chat, qué comprueba antes de enseñarte una propuesta
-y qué hay que probar en el iPhone. Las propuestas editables (versiones, deshacer, revisión) se
+Cómo entiende Planaby lo que le pides en el chat (con la IA local o con Apple Intelligence), qué
+comprueba antes de enseñarte una propuesta y qué hay que probar en el iPhone. Las propuestas editables (versiones, deshacer, revisión) se
 explican en [PROPUESTAS.md](PROPUESTAS.md).
 
-## Qué fallaba
+## IA local en el iPhone (Qwen3.5)
+
+El modelo de Apple Intelligence es pequeño (unos 3.000 millones de parámetros y poco contexto): con
+peticiones largas, varias cosas a la vez o mucho guardado, entiende mal o se deja cosas. Por eso
+Planaby puede usar además un modelo abierto más capaz que corre **en el propio iPhone**:
+
+- **Qwen3.5 4B** (recomendado, 3,1 GB) o **Qwen3.5 2B** (1,8 GB, más ligero), de Alibaba, con
+  licencia Apache 2.0, en la versión cuantizada a 4 bits de `mlx-community` en Hugging Face.
+- Corre con **MLX**, la librería de Apple para la GPU (paquete `mlx-swift-lm`). No hay servidores,
+  cuentas ni claves: se descarga una vez y después funciona sin conexión. Nada de lo que escribes
+  sale del iPhone.
+- Se activa en **Ajustes › Plan › IA de planificación**: elegir el modelo, «Descargar» (con
+  progreso; si se corta, sigue donde iba), el interruptor «Usar la IA local» y «Borrar». Los
+  archivos van a Application Support/Modelos y no entran en las copias de iCloud.
+
+Cómo se usa:
+
+1. Con la IA local activada, cada petición va en **una sola llamada** con todo el contexto (la
+   propuesta, hasta 40 elementos guardados relevantes, la conversación reciente y el material) y
+   con ejemplos resueltos (`LocalPlanningPrompt`). Contesta en JSON y `PlanReading.parse` lo lee
+   con tolerancia (texto alrededor, comillas de código, números entre comillas, comas sobrantes).
+2. Si no se puede leer, se pide otra vez solo el JSON. Si faltan elementos de los que se pidieron,
+   se le repite la petición diciéndole cuáles faltan.
+3. Lo que devuelve pasa por **las mismas comprobaciones** que lo de Apple (`convert`): nombres y
+   fechas exactos de la petición, nada inventado, preguntas por lo que falta y nada se guarda sin
+   confirmar.
+4. Si el modelo local falla, se usa Apple Intelligence (si está) y se avisa en la respuesta. Sin
+   ninguno de los dos, quedan las plantillas.
+
+Memoria: el modelo ocupa varios GB de RAM mientras se usa. Se suelta al pasar Planaby a segundo
+plano o si iOS avisa de poca memoria, y se vuelve a cargar en la siguiente petición (unos
+segundos). Si Planaby se cierra mientras lo usa (casi siempre por falta de memoria), al volver a
+abrirla la IA local queda desactivada y Ajustes lo explica, sugiriendo el 2B. «Estimar con IA»
+sigue usando Apple Intelligence.
+
+## Qué fallaba con Apple Intelligence
 
 Con «Añade dos eventos, uno Subida PRE para el 25 de noviembre y otro Subida PRO para el 26 de
 noviembre» salía un solo evento y, además, una «Comida» que nadie había pedido. Las causas:
@@ -134,7 +169,7 @@ Una petición tarda algo más, porque son dos o tres pasos seguidos. A cambio fa
 - La IA ve como mucho 15 citas de los próximos 21 días, 10 tareas pendientes y 8 eventos de otros
   calendarios. Para algo más lejano, di su día o su nombre exacto.
 - Un evento que se repite no se puede cambiar en una sola fecha: solo la serie entera.
-- La calidad depende del modelo de Apple en el dispositivo. El código vigila que no falte ni
+- Con Apple Intelligence, la calidad depende de su modelo en el dispositivo. El código vigila que no falte ni
   sobre nada, pero puede tener que preguntarte más a menudo.
 
 ## Tests
@@ -146,6 +181,9 @@ ello:
   pregunta del inicio y el fin con sus opciones;
 - `Tests/RequestIntentTests.swift`: qué pide cada petición sin el modelo, y los recortes de
   contexto;
+- `Tests/PlanReadingTests.swift`: el JSON del modelo local (los ejemplos que se le enseñan se
+  leen bien, solo cambia lo que viene, valores fuera de rango, texto alrededor y respuestas que
+  no son JSON);
 - `Tests/EventTimesTests.swift`: inicio y fin (solo el fin, solo el inicio, conservar el fin,
   varios días, medianoche, cambio de hora), franjas escritas, cambios de la IA, franjas de
   tareas y compatibilidad con lo guardado;
@@ -184,3 +222,18 @@ Con Apple Intelligence activado:
 12. Adjunta un documento largo y pide «Organiza esto»: debe salir la propuesta o, si no cabe, un
     aviso que diga la causa.
 13. Si aparece algún error, anota el mensaje exacto: ahora cada causa tiene el suyo.
+
+Con la IA local (nada de esto está comprobado todavía en un iPhone):
+
+14. Ajustes › Plan › IA de planificación › «Descargar Qwen3.5 4B» con Wi-Fi y Planaby abierta: la
+    barra avanza hasta el final y el interruptor se activa solo. Corta la red a mitad y vuelve a
+    pulsar: sigue donde iba.
+15. Repite las pruebas 1 a 6 y 11 con la IA local. Anota cuánto tarda la primera petición (carga
+    el modelo) y las siguientes.
+16. Una petición larga con varias cosas a la vez («Añade dos eventos…, mueve…, y nada después de
+    las 17:00»): debe salir todo en la misma propuesta.
+17. Si Planaby se cierra al pensar: vuelve a abrirla. En Ajustes debe salir el aviso y la IA local
+    desactivada. Prueba entonces el 2B.
+18. Activa el modo avión: la IA local debe seguir funcionando.
+19. Pasa Planaby a segundo plano y vuelve: la siguiente petición vuelve a cargar el modelo y
+    funciona.

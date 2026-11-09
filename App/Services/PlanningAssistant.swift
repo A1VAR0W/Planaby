@@ -53,17 +53,39 @@ struct ParsedConditions {
     var conditions: [ParsedCondition]
 }
 
-/// Lo entendido, juntando los pasos. No lo genera el modelo directamente.
-struct ParsedPlan {
-    var offTopic = false
-    var requestedCount = 0
-    var edits: [ParsedEdit] = []
-    var events: [ParsedEvent] = []
-    var tasks: [ParsedTask] = []
-    var conditions: [ParsedCondition] = []
-    var reorganize = false
-    var prioritize: [String] = []
-    var question = ""
+// De los formatos de Apple Intelligence a lo común (`PlanReading`, también lo que lee el
+// modelo local).
+
+extension ParsedEvent {
+    var reading: ReadEvent {
+        ReadEvent(title: title, day: day, time: time, endTime: endTime, endsNextDay: endsNextDay,
+                  durationMinutes: durationMinutes, mode: mode, reminderMinutes: reminderMinutes, repeats: repeats)
+    }
+}
+
+extension ParsedTask {
+    var reading: ReadTask {
+        ReadTask(title: title, deadline: deadline, estimatedMinutes: estimatedMinutes, difficulty: difficulty,
+                 mode: mode, priority: priority)
+    }
+}
+
+extension ParsedEdit {
+    /// Lo que no viene no cambia. Los valores fuera de rango se descartan en `makeEdit`.
+    var fields: ProposalEditFields {
+        ProposalEditFields(
+            action: action, target: target, title: title ?? "", day: day ?? "", time: time ?? "",
+            endTime: endTime ?? "", minutes: max(0, minutes ?? 0), deadline: deadline ?? "",
+            priority: priority ?? -1, difficulty: difficulty ?? 0, mode: mode ?? "",
+            repeats: repeats ?? "", reminderMinutes: reminderMinutes ?? -1, workDay: workDay ?? "",
+            startShift: max(-720, min(720, startShift ?? 0)), keepEnd: keepEnd ?? false,
+            endsNextDay: endsNextDay ?? false
+        )
+    }
+}
+
+extension ParsedCondition {
+    var fields: ProposalConditionFields { ProposalConditionFields(kind: kind, day: day, from: from, to: to) }
 }
 
 /// Un cambio. Solo se escribe lo que cambia (lo demás se queda sin poner): así la respuesta es
@@ -524,8 +546,11 @@ final class PlanningAssistant {
         saveProposal()
     }
 
-    /// nil si está disponible; si no, el motivo para mostrarlo.
-    static var unavailableReason: String? { AIProvider.unavailableReason }
+    /// nil si está disponible (el modelo local descargado y activado, o Apple Intelligence); si
+    /// no, el motivo para mostrarlo.
+    static var unavailableReason: String? {
+        LocalModel.shared.isActive ? nil : AIProvider.unavailableReason
+    }
 
     var unavailableReason: String? { Self.unavailableReason }
 
@@ -1170,15 +1195,92 @@ final class PlanningAssistant {
 
     private static let logger = Logger(subsystem: "com.alvaro.Planaby", category: "IA")
 
-    /// Por pasos, cada uno en una sesión nueva y pequeña: qué pide, y luego crear, cambiar o
-    /// condiciones según haga falta. Al final, las comprobaciones de siempre (`convert`). Si
-    /// faltan elementos de los que se pidieron, se repite una vez la parte de crear diciéndoselo.
+    /// Con el modelo local si está activado; si falla, con Apple Intelligence (si hay).
     private static func respond(
+        to input: RequestInput, sources: [String], context: ModelContext, proposal: PlanDraft?
+    ) async throws -> Interpretation {
+        guard LocalModel.shared.isActive else {
+            return try await respondWithApple(to: input, sources: sources, context: context, proposal: proposal)
+        }
+        do {
+            return try await respondLocally(to: input, sources: sources, context: context, proposal: proposal)
+        } catch let error as CancellationError {
+            throw error
+        } catch {
+            logger.error("Modelo local: \(String(describing: error), privacy: .public)")
+            guard AIProvider.isAvailable, !Task.isCancelled else { throw error }
+            var result = try await respondWithApple(to: input, sources: sources, context: context, proposal: proposal)
+            result.problems.append("El modelo local no ha respondido bien esta vez; lo he resuelto con Apple Intelligence.")
+            return result
+        }
+    }
+
+    /// Modelo local: una sola petición con todo el contexto y ejemplos, que contesta en JSON. Si
+    /// no se puede leer, se pide otra vez solo el JSON; si faltan elementos, se le dice cuáles.
+    private static func respondLocally(
+        to input: RequestInput, sources: [String], context: ModelContext, proposal: PlanDraft?
+    ) async throws -> Interpretation {
+        let model = LocalModel.shared
+        let instructions = LocalPlanningPrompt.instructions + "\n\n" + AIProvider.guardrail
+        let prompt = localPrompt(input)
+
+        let answer = try await model.generate(instructions: instructions, prompt: prompt)
+        var parsed = PlanReading.parse(json: answer)
+        if parsed == nil {
+            try Task.checkCancellation()
+            let strict = prompt + "\n\nResponde solo con el objeto JSON, empezando por { y terminando por }."
+            let again = try await model.generate(instructions: instructions, prompt: strict)
+            parsed = PlanReading.parse(json: again)
+        }
+        guard let parsed else { throw LocalModelError.invalidAnswer }
+
+        var result = convert(parsed, request: input.text, sources: sources, saved: input.saved, context: context, proposal: proposal)
+        if let expected = result.expectedCount, result.newCount < expected {
+            try Task.checkCancellation()
+            let found = (result.events.map(\.title) + result.tasks.map(\.title)).map { "«\($0)»" }.joined(separator: ", ")
+            let correction = prompt + "\n\nAtención: pide \(expected) elementos nuevos y antes solo devolviste \(result.newCount) (\(found.isEmpty ? "ninguno" : found)). Devuélvelos todos, uno por elemento, con su nombre exacto; deja vacío lo que no diga."
+            // Si este segundo intento falla, vale lo que ya había.
+            if let corrected = try? await model.generate(instructions: instructions, prompt: correction),
+               let again = PlanReading.parse(json: corrected) {
+                let retried = convert(again, request: input.text, sources: sources, saved: input.saved, context: context, proposal: proposal)
+                if retried.newCount > result.newCount { result = retried }
+            }
+        }
+        return result
+    }
+
+    /// Todo el contexto en el formato de los ejemplos de `LocalPlanningPrompt`. El modelo local
+    /// tiene contexto de sobra, pero cada carácter es tiempo en el iPhone: se recorta a lo útil.
+    private static func localPrompt(_ input: RequestInput) -> String {
+        var parts = [header()]
+        if let proposal = input.proposalText {
+            parts.append("Propuesta pendiente:\n" + ContextBudget.clip(proposal, to: 4_000))
+        }
+        let lines = ContextBudget.relevant(
+            lines: input.saved.lines, titles: input.saved.titles, request: input.text, limit: 40
+        )
+        parts.append("Guardado:\n" + (lines.isEmpty ? "nada" : lines.joined(separator: "\n")))
+        if let recent = input.recent {
+            parts.append("Conversación reciente:\n" + ContextBudget.clip(recent, to: 1_200))
+        }
+        let material = input.attachments
+            .map { "[\($0.name)]\n\($0.text.isEmpty ? "(sin texto legible)" : $0.text)" }
+            .joined(separator: "\n")
+        if !material.isEmpty { parts.append("Material adjunto:\n" + AIProvider.wrap(material, limit: 4_000)) }
+        parts.append("Petición: \(input.request)")
+        return parts.joined(separator: "\n")
+    }
+
+    /// Apple Intelligence, por pasos, cada uno en una sesión nueva y pequeña: qué pide, y luego
+    /// crear, cambiar o condiciones según haga falta. Al final, las comprobaciones de siempre
+    /// (`convert`). Si faltan elementos de los que se pidieron, se repite una vez la parte de
+    /// crear diciéndoselo.
+    private static func respondWithApple(
         to input: RequestInput, sources: [String], context: ModelContext, proposal: PlanDraft?
     ) async throws -> Interpretation {
         var intent = RequestIntent.hints(input.text)
         if !input.attachments.isEmpty { intent.creates = true }
-        var parsed = ParsedPlan()
+        var parsed = PlanReading()
 
         // Qué pide lo decide la IA; las palabras de la petición se suman por si se le escapa algo.
         // Si este paso falla, bastan las palabras.
@@ -1208,8 +1310,8 @@ final class PlanningAssistant {
                 prompt: creationPrompt(input, compact: false), compact: creationPrompt(input, compact: true)
             )
             parsed.requestedCount = creation.requestedCount
-            parsed.events = creation.events
-            parsed.tasks = creation.tasks
+            parsed.events = creation.events.map(\.reading)
+            parsed.tasks = creation.tasks.map(\.reading)
             questions.append(creation.question)
             try Task.checkCancellation()
         }
@@ -1218,7 +1320,7 @@ final class PlanningAssistant {
                 ParsedChanges.self, instructions: changeInstructions,
                 prompt: changePrompt(input, compact: false), compact: changePrompt(input, compact: true)
             )
-            parsed.edits = changes.edits
+            parsed.edits = changes.edits.map(\.fields)
             parsed.prioritize = changes.prioritize
             questions.append(changes.question)
             try Task.checkCancellation()
@@ -1230,7 +1332,7 @@ final class PlanningAssistant {
                 parsed.conditions = try await generate(
                     ParsedConditions.self, instructions: conditionInstructions,
                     prompt: conditionPrompt(input), compact: conditionPrompt(input)
-                ).conditions
+                ).conditions.map(\.fields)
             } catch let error as CancellationError {
                 throw error
             } catch {
@@ -1252,8 +1354,8 @@ final class PlanningAssistant {
             ) {
                 var again = parsed
                 again.requestedCount = second.requestedCount
-                again.events = second.events
-                again.tasks = second.tasks
+                again.events = second.events.map(\.reading)
+                again.tasks = second.tasks.map(\.reading)
                 let retried = convert(again, request: input.text, sources: sources, saved: input.saved, context: context, proposal: proposal)
                 if retried.newCount > result.newCount { result = retried }
             }
@@ -1291,7 +1393,7 @@ final class PlanningAssistant {
     /// petición: nombres exactos, fechas escritas, nada inventado y lo que falta marcado como
     /// provisional (para preguntarlo).
     private static func convert(
-        _ parsed: ParsedPlan, request: String, sources: [String], saved: SavedIndex, context: ModelContext,
+        _ parsed: PlanReading, request: String, sources: [String], saved: SavedIndex, context: ModelContext,
         proposal: PlanDraft?, now: Date = .now
     ) -> Interpretation {
         let fallbackMode = ModeController.shared.mode
@@ -1380,15 +1482,9 @@ final class PlanningAssistant {
         result.undecidedTasks = undecidedTasks.intersection(result.tasks.map(\.id))
 
         for edit in parsed.edits {
-            // Lo que no viene no cambia. Los valores fuera de rango se descartan en `makeEdit`.
-            let fields = ProposalEditFields(
-                action: edit.action, target: edit.target, title: edit.title ?? "", day: edit.day ?? "", time: edit.time ?? "",
-                endTime: edit.endTime ?? "", minutes: max(0, edit.minutes ?? 0), deadline: edit.deadline ?? "",
-                priority: edit.priority ?? -1, difficulty: edit.difficulty ?? 0, mode: edit.mode ?? "",
-                repeats: edit.repeats ?? "", reminderMinutes: edit.reminderMinutes ?? -1, workDay: edit.workDay ?? "",
-                startShift: max(-720, min(720, edit.startShift ?? 0)), keepEnd: edit.keepEnd ?? false,
-                endsNextDay: (edit.endsNextDay ?? false) && AnswerParsing.endsNextDay(request)
-            )
+            var fields = edit
+            // «Termina al día siguiente» solo si lo dice la petición.
+            fields.endsNextDay = edit.endsNextDay && AnswerParsing.endsNextDay(request)
             if fields.isUndo {
                 if proposal != nil { result.undo = true }
             } else if let operation = fields.makeEdit(), !fields.target.trimmingCharacters(in: .whitespaces).isEmpty {
@@ -1399,8 +1495,7 @@ final class PlanningAssistant {
         // hora», «de 9:00 a 11:00») se comprueba con la petición escrita.
         result.edits = TimeGrounding.check(result.edits, request: request)
         for condition in parsed.conditions {
-            let fields = ProposalConditionFields(kind: condition.kind, day: condition.day, from: condition.from, to: condition.to)
-            if let operation = fields.makeEdit() { result.edits.append(operation) }
+            if let operation = condition.makeEdit() { result.edits.append(operation) }
         }
 
         // Lo que se quiere priorizar: si está en la propuesta, se pone primero ahí; si no, se
@@ -1450,7 +1545,11 @@ final class PlanningAssistant {
     }
 
     static func message(for error: Error) -> String {
+        if let error = error as? LocalModelError, let text = error.errorDescription { return text }
         guard let error = error as? LanguageModelSession.GenerationError else {
+            if LocalModel.shared.isActive {
+                return "El modelo local ha fallado (\(error.localizedDescription)). Puedes reintentarlo; si se repite, prueba el modelo 2B en Ajustes › Plan › IA de planificación."
+            }
             return "Algo ha fallado al usar la IA del iPhone. Puedes reintentarlo."
         }
         switch error {

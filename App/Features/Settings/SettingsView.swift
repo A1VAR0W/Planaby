@@ -122,6 +122,15 @@ struct SettingsView: View {
                 Label("Modo", systemImage: modes.mode.symbol)
             }
             NavigationLink {
+                LocalModelView()
+            } label: {
+                LabeledContent {
+                    Text(LocalModel.shared.isActive ? LocalModel.shared.choice.title : "Apple Intelligence")
+                } label: {
+                    Label("IA de planificación", systemImage: "sparkles")
+                }
+            }
+            NavigationLink {
                 PersonalProfileView()
             } label: {
                 LabeledContent {
