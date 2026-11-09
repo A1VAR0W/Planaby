@@ -24,7 +24,8 @@ struct FocusView: View {
         ZStack {
             PhaseBackground(
                 tint: timer.state?.phase.tint ?? Theme.focus,
-                isBreak: timer.state?.phase.isBreak ?? false
+                isBreak: timer.state?.phase.isBreak ?? false,
+                animated: isRunning && timer.state?.phase.isBreak == true
             )
             if let state = timer.state {
                 ActiveSessionView(
@@ -293,7 +294,9 @@ private struct ActiveSessionView: View {
                     .accessibilityLabel("Siguiente paso: \(nextStep)")
             }
 
-            TimelineView(.periodic(from: .now, by: 1)) { context in
+            // En pausa la cifra no cambia: basta con mirar cada minuto.
+            let tick = RefreshPolicy.tickInterval(sessionRunning: !state.isPaused)
+            TimelineView(.periodic(from: RefreshPolicy.tickStart(interval: tick), by: tick)) { context in
                 ZStack {
                     ProgressRing(progress: state.progress(at: context.date), tint: state.phase.tint, lineWidth: 4)
                     VStack(spacing: Space.s) {

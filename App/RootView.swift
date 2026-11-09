@@ -206,9 +206,15 @@ struct RootView: View {
         .task {
             PlanabyStore.backfillIdentifiers()
             capture.consumePendingRequest()
-            // Las fases avanzan solas aunque no se toque nada.
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(1))
+        }
+        // Las fases avanzan solas aunque no se toque nada. Se despierta justo cuando acaba la
+        // fase (no cada segundo): sin sesión o en pausa no hay nada que esperar. Cualquier cambio
+        // de la sesión vuelve a empezar la espera.
+        .task(id: [timer.state?.phaseEnd?.timeIntervalSinceReferenceDate ?? -1, timer.state?.isPaused == true ? 1 : 0]) {
+            while !Task.isCancelled,
+                  let delay = RefreshPolicy.reconcileDelay(phaseEnd: timer.state?.phaseEnd, isPaused: timer.state?.isPaused ?? false) {
+                try? await Task.sleep(for: .seconds(delay))
+                guard !Task.isCancelled else { return }
                 timer.reconcile()
             }
         }

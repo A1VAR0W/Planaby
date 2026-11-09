@@ -36,6 +36,10 @@ struct DeskView: View {
     @State private var showsVolume = false
     /// Captura rápida: el panel flota a la derecha y la cifra sigue a la vista.
     @State private var capture = CaptureCenter.shared
+    /// La agenda y el recuento de comunicaciones se leen al cambiar (y una vez por minuto), no en
+    /// cada repintado: son JSON del App Group.
+    @State private var agenda = AgendaSnapshot.load().items
+    @State private var commsSnapshot = CommsSnapshot.load()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let controlsTimeout: TimeInterval = 6
@@ -43,16 +47,19 @@ struct DeskView: View {
     private static let menuTimeout: TimeInterval = 15
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
+        // Puede pasar horas encendido cargando: cada segundo solo si corre una sesión o suena
+        // música (la cuenta atrás y la barra de la canción); si no, al cambiar de minuto (el reloj).
+        let tick = RefreshPolicy.tickInterval(
+            sessionRunning: timer.state.map { !$0.isPaused } ?? false,
+            musicPlaying: musicVisible && SpotifyController.shared.isPlaying
+        )
+        TimelineView(.periodic(from: RefreshPolicy.tickStart(interval: tick), by: tick)) { context in
             let night = isNight(context.date)
             let state = timer.state
             let tint = night ? Theme.night : (state?.phase.tint ?? Theme.orange)
             let ink = night ? Theme.night : Color.white
             let showControls = state == nil || state?.isPaused == true || showsVolume || context.date < controlsUntil
-            let presentation = DeskPresentation(
-                state: state, comms: comms.revision >= 0 ? CommsSnapshot.load() : .empty,
-                agenda: AgendaSnapshot.load().items, now: context.date
-            )
+            let presentation = DeskPresentation(state: state, comms: commsSnapshot, agenda: agenda, now: context.date)
 
             ZStack {
                 Color.black.ignoresSafeArea()
@@ -118,6 +125,15 @@ struct DeskView: View {
             await SpotifyController.shared.watch()
         }
         .onAppear { updateAutoMusic(playing: SpotifyController.shared.isPlaying) }
+        .onAppear(perform: reloadSnapshots)
+        .onChange(of: comms.revision) { commsSnapshot = CommsSnapshot.load() }
+        // Lo que llega de fuera (widgets, Atajos, recordatorios) se mira una vez por minuto.
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                reloadSnapshots()
+            }
+        }
         .onChange(of: SpotifyController.shared.isPlaying) { _, playing in updateAutoMusic(playing: playing) }
         .onChange(of: SpotifyController.shared.track == nil) { _, empty in
             if empty { autoShown = false }
@@ -172,6 +188,8 @@ struct DeskView: View {
         }
         .onDisappear {
             UIApplication.shared.isIdleTimerDisabled = false
+            // Fuera del modo escritorio no hace falta saber si está cargando.
+            UIDevice.current.isBatteryMonitoringEnabled = false
         }
     }
 
@@ -281,6 +299,11 @@ struct DeskView: View {
     }
 
     /// La cifra, con la fase encima y la hora debajo.
+    private func reloadSnapshots() {
+        agenda = AgendaSnapshot.load().items
+        commsSnapshot = CommsSnapshot.load()
+    }
+
     private func face(state: TimerState?, date: Date, tint: Color, ink: Color) -> some View {
         VStack(spacing: Space.xs) {
             if let state {

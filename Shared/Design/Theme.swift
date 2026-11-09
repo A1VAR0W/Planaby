@@ -105,7 +105,9 @@ struct BreathingGlow: View {
             if reduceMotion || !animated {
                 gradient(level: 0.5)
             } else {
-                TimelineView(.animation(minimumInterval: 1 / 30)) { context in
+                // La respiración dura varios segundos: 20 fotogramas por segundo se ven igual de
+                // suaves y gastan un tercio menos.
+                TimelineView(.animation(minimumInterval: 1.0 / 20)) { context in
                     gradient(level: Breath.level(at: context.date))
                 }
             }
@@ -129,11 +131,14 @@ struct BreathingGlow: View {
 struct PhaseBackground: View {
     let tint: Color
     var isBreak = false
+    /// Solo respira cuando sirve (un descanso en marcha); el resto del tiempo, quieto: un halo
+    /// a pantalla completa repintándose sin parar gasta batería aunque no se mire.
+    var animated = false
 
     var body: some View {
         ZStack {
             Color.black
-            BreathingGlow(tint: tint, strength: isBreak ? 0.30 : 0.16)
+            BreathingGlow(tint: tint, strength: isBreak ? 0.30 : 0.16, animated: animated)
                 .offset(y: -120)
         }
         .ignoresSafeArea()

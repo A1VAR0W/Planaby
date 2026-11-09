@@ -309,7 +309,9 @@ struct NowPlayingView: View {
     private let spotify = SpotifyController.shared
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
+        // La barra de la canción avanza cada segundo solo mientras suena.
+        let tick = RefreshPolicy.tickInterval(sessionRunning: false, musicPlaying: spotify.isPlaying)
+        TimelineView(.periodic(from: RefreshPolicy.tickStart(interval: tick), by: tick)) { context in
             VStack(spacing: Space.l) {
                 ArtworkView(url: spotify.track?.artworkURL, image: spotify.artwork, cornerRadius: 24)
                     .padding(.horizontal, Space.m)

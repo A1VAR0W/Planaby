@@ -271,15 +271,24 @@ final class SpotifyController {
         }
     }
 
-    /// Mientras la vista que lo llama esté en pantalla, se actualiza cada 3 s y, si la app de
-    /// Spotify no está conectada, se intenta reconectar en silencio cada 6 s (si suena, responde).
+    /// Mientras la vista que lo llama esté en pantalla, se pone al día: cada pocos segundos si
+    /// suena, más despacio si no, y casi nada con App Remote (que avisa solo). Si la app de
+    /// Spotify no está conectada, se intenta reconectar en silencio, cada vez más espaciado
+    /// (`RefreshPolicy`); volver a Planaby lo intenta otra vez enseguida.
     func watch() async {
-        var tick = 0
+        var failures = 0
+        var nextConnect = Date.distantPast
         while !Task.isCancelled {
-            if !isRemoteConnected, tick.isMultiple(of: 2) { await connectRemote() }
+            if isRemoteConnected {
+                failures = 0
+            } else if Date.now >= nextConnect {
+                await connectRemote()
+                failures += 1
+                nextConnect = .now.addingTimeInterval(RefreshPolicy.reconnectDelay(failures: failures))
+            }
             await refresh()
-            tick += 1
-            try? await Task.sleep(for: .seconds(3))
+            let wait = RefreshPolicy.musicPoll(isPlaying: isPlaying, remoteConnected: isRemoteConnected)
+            try? await Task.sleep(for: .seconds(wait))
         }
     }
 

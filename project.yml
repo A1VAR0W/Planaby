@@ -153,6 +153,7 @@ targets:
       - Shared/Planning/LocalPlanningPrompt.swift
       - Shared/Design/MotionTiming.swift
       - Shared/Design/SunsetMotion.swift
+      - Shared/Engine/RefreshPolicy.swift
       - Shared/Engine/VolumeLevel.swift
       - Shared/Engine/AlertPreferences.swift
     settings:
