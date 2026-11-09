@@ -23,11 +23,20 @@ noviembre» salía un solo evento y, además, una «Comida» que nadie había pe
 Cada petición pasa por los mismos pasos. La IA solo interpreta; todo lo demás es código
 determinista y tiene tests.
 
-1. **Intención.** El modelo dice primero si la petición es de planificación (`offTopic`) y cuántas
-   cosas nuevas pide (`requestedCount`). Fuera de tema, contesta que está especializado en
-   planificación y no toca nada.
-2. **Extracción.** Un elemento por cosa pedida, aunque le falten datos. Lo que no se dice va vacío,
-   nunca inventado.
+1. **Intención.** Un primer paso muy corto (`ParsedIntent`) dice qué pide: crear, cambiar,
+   condiciones, reorganizar o nada de planificar (`offTopic`). Las palabras de la petición se
+   suman por si al modelo se le escapa algo (`RequestIntent.hints`). Si este paso falla, bastan
+   las palabras. Fuera de tema, contesta que está especializado en planificación y no toca nada.
+2. **Extracción, por partes.** Cada parte va en una sesión nueva, con su formato pequeño y solo
+   el contexto que necesita (ver «Por qué por pasos»):
+   - crear (`ParsedCreation`): la fecha, el material (hasta 1.500 caracteres) y la petición.
+     Devuelve un elemento por cosa pedida, aunque le falten datos. Lo que no se dice va vacío,
+     nunca inventado;
+   - cambiar (`ParsedChanges`): la propuesta (hasta 1.600 caracteres) y solo lo guardado que
+     nombra la petición, más lo más próximo (12 líneas como mucho). En cada cambio solo se
+     escriben los campos que cambian;
+   - condiciones (`ParsedConditions`): solo la fecha y la petición. Si solo falla esta parte, lo
+     demás sigue y la respuesta dice qué no entendió.
 3. **Comprobación con la petición** (`PlanRequest.swift`):
    - `RequestCheck` cuenta lo anunciado («dos eventos», «3 tareas», «una… y otra…»). Si falta
      alguno, se pide al modelo una vez más diciéndoselo. Si sigue faltando, la respuesta lo dice
@@ -75,6 +84,30 @@ determinista y tiene tests.
    sin crear otro. Lo borrado se elimina con sus adjuntos y bloques. Si algo ya no existe, se
    salta sin romper nada.
 
+## Por qué por pasos
+
+El modelo de Apple Intelligence del iPhone es pequeño (unos 3.000 millones de parámetros). En
+unos 4.000 tokens tienen que caber las instrucciones, el formato de respuesta, el contexto y la
+propia respuesta. Antes todo iba en una sola petición: unas 25 reglas, un formato con unos 45
+campos (19 por cada cambio, que el modelo rellenaba siempre), 33 líneas del calendario, la
+propuesta, la conversación y hasta 3.000 caracteres de adjuntos. A menudo no cabía, la respuesta
+salía cortada y no se podía leer: era el «La IA no ha dado una respuesta válida».
+
+Ahora:
+
+- cada paso tiene instrucciones cortas y un formato pequeño;
+- los campos de un cambio son opcionales, así que la respuesta solo lleva lo que cambia;
+- el calendario se recorta a lo que nombra la petición, y la propuesta y la conversación tienen
+  un límite (`ContextBudget`);
+- si una respuesta no cabe o sale mal formada, se repite una vez con el contexto aún más
+  recortado. Si la IA está ocupada, se espera un segundo y medio y se vuelve a intentar;
+- cada error dice su causa: demasiado texto, respuesta mal formada, bloqueo de seguridad, IA
+  ocupada, modelo descargándose o idioma no admitido. El detalle técnico queda en el registro
+  del sistema (subsistema `com.alvaro.Planaby`, categoría `IA`), que se ve con la app Consola
+  de un Mac.
+
+Una petición tarda algo más, porque son dos o tres pasos seguidos. A cambio falla mucho menos.
+
 ## Contexto de la conversación
 
 - Hay una sola propuesta activa, con versiones. Cada mensaje la modifica y solo cambia lo pedido:
@@ -111,6 +144,8 @@ ello:
 
 - el caso PRE/PRO: dos eventos, nombres exactos, 25 y 26 de noviembre, fuera la «Comida», y la
   pregunta del inicio y el fin con sus opciones;
+- `Tests/RequestIntentTests.swift`: qué pide cada petición sin el modelo, y los recortes de
+  contexto;
 - `Tests/EventTimesTests.swift`: inicio y fin (solo el fin, solo el inicio, conservar el fin,
   varios días, medianoche, cambio de hora), franjas escritas, cambios de la IA, franjas de
   tareas y compatibilidad con lo guardado;
@@ -143,3 +178,9 @@ Con Apple Intelligence activado:
    campo y aparece «Reintentar». Prueba también «Cancelar».
 9. Cierra Planaby del todo con una propuesta a medias y vuelve a abrirla: sigue ahí, con su pregunta.
 10. Intenta borrar un evento de Outlook o del Calendario de iOS: debe decir que es solo lectura.
+11. Con 20 o más citas guardadas y una propuesta abierta, escribe «Mueve la Subida PRO al jueves
+    y añade una llamada el lunes»: los dos cambios en la misma respuesta, sin «respuesta no
+    válida».
+12. Adjunta un documento largo y pide «Organiza esto»: debe salir la propuesta o, si no cabe, un
+    aviso que diga la causa.
+13. Si aparece algún error, anota el mensaje exacto: ahora cada causa tiene el suyo.

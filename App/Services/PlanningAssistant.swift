@@ -1,71 +1,109 @@
 import Foundation
 import FoundationModels
 import Observation
+import os
 import SwiftData
 
 // MARK: - Estructuras que genera el modelo
 
-// El orden de las propiedades es el orden en que el modelo las escribe: primero decide si la
-// petición es de planificación y cuántas cosas nuevas pide; así no se le «olvida» ninguna.
+// La IA del iPhone tiene muy poco espacio (unos 4.000 tokens entre instrucciones, formato,
+// contexto y respuesta). Con un solo formato para todo no cabía y la respuesta salía cortada
+// («no es válida»). Ahora cada petición va por pasos: primero qué pide (`ParsedIntent`), y luego
+// solo esa parte, con su formato pequeño y el contexto justo. El orden de las propiedades es el
+// orden en que el modelo las escribe.
 
-@Generable(description: "Lo que el usuario quiere crear, cambiar o borrar en su plan")
-struct ParsedPlan {
-    @Guide(description: "true solo si la petición no tiene nada que ver con planificar eventos, tareas o el calendario")
+@Generable(description: "Qué pide la petición")
+struct ParsedIntent {
+    @Guide(description: "true solo si no tiene nada que ver con planificar eventos, tareas o el calendario")
     var offTopic: Bool
-    @Guide(description: "Cuántos eventos y tareas NUEVOS pide crear en total, aunque les falten datos; 0 si solo cambia o borra", .range(0...30))
-    var requestedCount: Int
-    @Guide(description: "Cambios sobre lo que ya existe: la propuesta (códigos E y T) o lo guardado (códigos C y P)")
-    var edits: [ParsedEdit]
-    @Guide(description: "Cada evento NUEVO que pide, uno por elemento, aunque le falte el día, la hora o la duración")
-    var events: [ParsedEvent]
-    @Guide(description: "Trabajos NUEVOS con fecha límite que hay que repartir en bloques: entregas, informes, estudiar")
-    var tasks: [ParsedTask]
-    @Guide(description: "Condiciones sobre todo el plan: dejar libre una franja, nada antes o después de una hora, menos intenso, lo difícil por la mañana, primero lo urgente")
-    var conditions: [ParsedCondition]
+    @Guide(description: "true si pide crear eventos o tareas nuevos")
+    var creates: Bool
+    @Guide(description: "true si pide cambiar, mover, renombrar, borrar o priorizar algo que ya existe")
+    var changes: Bool
+    @Guide(description: "true si pone condiciones a todo el plan: dejar libre una franja, nada antes o después de una hora, menos intenso, lo difícil por la mañana, primero lo urgente")
+    var conditions: Bool
     @Guide(description: "true si pide reorganizar o replanificar todo, adelantar trabajo o hacer hueco")
     var reorganize: Bool
-    @Guide(description: "Títulos exactos de tareas guardadas que quiere adelantar o priorizar, en orden")
-    var prioritize: [String]
-    @Guide(description: "Respuesta breve si no se puede hacer o falta algo que Planaby no puede deducir; vacía si ya se puede hacer")
+}
+
+@Generable(description: "Los eventos y tareas nuevos que pide")
+struct ParsedCreation {
+    @Guide(description: "Cuántos eventos y tareas nuevos pide en total, aunque les falten datos («dos eventos» son 2)", .range(0...30))
+    var requestedCount: Int
+    @Guide(description: "Cada evento nuevo, uno por elemento, aunque le falte el día o la hora")
+    var events: [ParsedEvent]
+    @Guide(description: "Trabajos nuevos con fecha límite que hay que repartir en bloques: entregas, informes, estudiar")
+    var tasks: [ParsedTask]
+    @Guide(description: "Respuesta breve solo si pide algo que Planaby no puede hacer; vacía si no")
     var question: String
 }
 
+@Generable(description: "Los cambios sobre lo que ya existe")
+struct ParsedChanges {
+    @Guide(description: "Un cambio por elemento")
+    var edits: [ParsedEdit]
+    @Guide(description: "Títulos exactos de tareas guardadas que quiere adelantar o priorizar, en orden; vacío si no")
+    var prioritize: [String]
+    @Guide(description: "Respuesta breve solo si pide algo que Planaby no puede hacer; vacía si no")
+    var question: String
+}
+
+@Generable(description: "Las condiciones sobre todo el plan")
+struct ParsedConditions {
+    var conditions: [ParsedCondition]
+}
+
+/// Lo entendido, juntando los pasos. No lo genera el modelo directamente.
+struct ParsedPlan {
+    var offTopic = false
+    var requestedCount = 0
+    var edits: [ParsedEdit] = []
+    var events: [ParsedEvent] = []
+    var tasks: [ParsedTask] = []
+    var conditions: [ParsedCondition] = []
+    var reorganize = false
+    var prioritize: [String] = []
+    var question = ""
+}
+
+/// Un cambio. Solo se escribe lo que cambia (lo demás se queda sin poner): así la respuesta es
+/// corta y el modelo no rellena campos por rellenar.
 @Generable(description: "Un cambio sobre un elemento que ya existe")
 struct ParsedEdit {
-    @Guide(description: "update cambia datos; delete lo borra; remove lo quita de la propuesta sin borrar nada guardado; first lo pone antes que las demás tareas; undo deshace el último cambio", .anyOf(["update", "delete", "remove", "first", "undo"]))
+    @Guide(description: "update cambia datos; delete lo borra del calendario; remove lo quita de la propuesta; first lo pone antes que las demás tareas; undo deshace el último cambio", .anyOf(["update", "delete", "remove", "first", "undo"]))
     var action: String
-    @Guide(description: "Código del elemento (E1, T2, C3, P1). Si no está claro cuál es, las palabras del usuario («la reunión del jueves»)")
+    @Guide(description: "Código del elemento (E1, T2, C3, P1); si no está claro cuál es, las palabras del usuario")
     var target: String
-    @Guide(description: "Título nuevo; vacío si no cambia")
-    var title: String
-    @Guide(description: "Día nuevo de un evento yyyy-MM-dd; vacío si no cambia")
-    var day: String
-    @Guide(description: "Hora nueva de inicio HH:mm; vacía si no cambia")
-    var time: String
-    @Guide(description: "Hora nueva de fin HH:mm («que termine a las 17:00», «de 9:00 a 11:00»); vacía si no cambia")
-    var endTime: String
-    @Guide(description: "true si el fin es del día siguiente porque lo dice («hasta la 1 de la madrugada»)")
-    var endsNextDay: Bool
-    @Guide(description: "Minutos que se mueve solo el comienzo: adelantar media hora -30, retrasar una hora 60; 0 si no", .range(-720...720))
-    var startShift: Int
-    @Guide(description: "true si pide conservar la hora de fin al cambiar el comienzo")
-    var keepEnd: Bool
-    @Guide(description: "Duración nueva de un evento o total nuevo de una tarea, en minutos, solo si da una duración y no una hora de fin; 0 si no", .range(0...12000))
-    var minutes: Int
-    @Guide(description: "Día yyyy-MM-dd en que se trabaja una tarea («pásala al viernes»); vacío si no cambia")
-    var workDay: String
-    @Guide(description: "Fecha límite nueva de una tarea, yyyy-MM-dd HH:mm; vacía si no cambia")
-    var deadline: String
-    @Guide(description: "Prioridad nueva: 0 baja, 1 media, 2 alta; -1 si no cambia", .range(-1...2))
-    var priority: Int
-    @Guide(description: "Dificultad nueva de 1 a 5; 0 si no cambia", .range(0...5))
-    var difficulty: Int
-    @Guide(description: "Plan nuevo; same si no cambia", .anyOf(["same", "work", "personal"]))
-    var mode: String
-    @Guide(description: "Repetición nueva de un evento; same si no cambia", .anyOf(["same", "none", "weekdays", "daily", "weekly"]))
-    var repeats: String
-    @Guide(description: "Minutos de aviso nuevos; -1 si no cambia; 0 sin aviso", .range(-1...1440))
-    var reminderMinutes: Int
+    @Guide(description: "Título nuevo")
+    var title: String?
+    @Guide(description: "Día nuevo yyyy-MM-dd")
+    var day: String?
+    @Guide(description: "Hora nueva de inicio HH:mm")
+    var time: String?
+    @Guide(description: "Hora nueva de fin HH:mm")
+    var endTime: String?
+    @Guide(description: "true si dice que el fin es del día siguiente")
+    var endsNextDay: Bool?
+    @Guide(description: "Minutos que se mueve solo el comienzo: adelantar media hora es -30, retrasar una hora 60")
+    var startShift: Int?
+    @Guide(description: "true si pide conservar la hora de fin")
+    var keepEnd: Bool?
+    @Guide(description: "Duración nueva de un evento o total nuevo de una tarea, en minutos")
+    var minutes: Int?
+    @Guide(description: "Día yyyy-MM-dd en que se trabaja una tarea")
+    var workDay: String?
+    @Guide(description: "Fecha límite nueva de una tarea, yyyy-MM-dd HH:mm")
+    var deadline: String?
+    @Guide(description: "Prioridad nueva: 0 baja, 1 media, 2 alta")
+    var priority: Int?
+    @Guide(description: "Dificultad nueva de 1 a 5")
+    var difficulty: Int?
+    @Guide(description: "Plan nuevo: work o personal")
+    var mode: String?
+    @Guide(description: "Repetición nueva: none, weekdays, daily o weekly")
+    var repeats: String?
+    @Guide(description: "Minutos de aviso nuevos; 0 sin aviso")
+    var reminderMinutes: Int?
 }
 
 @Generable(description: "Una condición sobre todo el plan")
@@ -229,6 +267,21 @@ extension ProposalEdit {
         default: false
         }
     }
+}
+
+// MARK: - Lo que se le puede dar a la IA
+
+/// Todo lo que podría servir para una petición; cada paso coge solo lo que necesita.
+struct RequestInput {
+    var text: String
+    var attachments: [ImportedAttachment] = []
+    var saved: SavedIndex
+    /// La propuesta abierta con sus códigos (nil si no hay).
+    var proposalText: String?
+    /// Los últimos mensajes (nil si no hay conversación).
+    var recent: String?
+
+    var request: String { text.isEmpty ? "Organiza el material adjunto." : text }
 }
 
 // MARK: - Lo guardado, tal como lo ve la IA
@@ -507,15 +560,14 @@ final class PlanningAssistant {
         defer { isThinking = false }
         let saved = SavedIndex.make(context: context)
         do {
-            let prompt = Self.prompt(
-                for: trimmed, attachments: attachments, saved: saved, context: context,
-                proposal: activeProposalText, recent: recentConversation
-            )
             var sources = [trimmed] + attachments.map(\.text)
             sources += messages.dropLast().suffix(4).filter { $0.role == .user }.map(\.text)
-            var result = try await Self.respond(
-                to: prompt, request: trimmed, sources: sources, saved: saved, context: context, proposal: draft
+            let input = RequestInput(
+                text: trimmed, attachments: attachments, saved: saved,
+                proposalText: draft == nil ? nil : activeProposalText,
+                recent: messages.count > 1 ? recentConversation : nil
             )
+            var result = try await Self.respond(to: input, sources: sources, context: context, proposal: draft)
             try Task.checkCancellation()
             // El material adjunto queda guardado con las tareas que salgan de él.
             for index in result.tasks.indices {
@@ -1109,36 +1161,130 @@ final class PlanningAssistant {
 
     /// Interpreta una petición suelta (también la usan Reorganizar y la voz).
     static func interpret(
-        _ text: String, attachments: [ImportedAttachment] = [], session: LanguageModelSession? = nil, context: ModelContext
+        _ text: String, attachments: [ImportedAttachment] = [], context: ModelContext
     ) async throws -> Interpretation {
         let saved = SavedIndex.make(context: context)
-        return try await respond(
-            to: prompt(for: text, attachments: attachments, saved: saved, context: context), request: text,
-            sources: [text] + attachments.map(\.text), saved: saved, context: context, proposal: nil, session: session
-        )
+        let input = RequestInput(text: text, attachments: attachments, saved: saved)
+        return try await respond(to: input, sources: [text] + attachments.map(\.text), context: context, proposal: nil)
     }
 
-    /// Una sesión nueva por petición: el contexto va en el mensaje (propuesta, últimos mensajes),
-    /// así una conversación larga no llena la memoria del modelo del iPhone. Si faltan elementos
-    /// de los que se pidieron, se intenta una vez más diciéndoselo.
+    private static let logger = Logger(subsystem: "com.alvaro.Planaby", category: "IA")
+
+    /// Por pasos, cada uno en una sesión nueva y pequeña: qué pide, y luego crear, cambiar o
+    /// condiciones según haga falta. Al final, las comprobaciones de siempre (`convert`). Si
+    /// faltan elementos de los que se pidieron, se repite una vez la parte de crear diciéndoselo.
     private static func respond(
-        to prompt: String, request: String, sources: [String], saved: SavedIndex, context: ModelContext,
-        proposal: PlanDraft?, session: LanguageModelSession? = nil
+        to input: RequestInput, sources: [String], context: ModelContext, proposal: PlanDraft?
     ) async throws -> Interpretation {
-        let session = session ?? makeSession()
-        let options = GenerationOptions(temperature: 0.2)
-        let response = try await session.respond(to: prompt, generating: ParsedPlan.self, options: options)
-        var result = convert(response.content, request: request, sources: sources, saved: saved, context: context, proposal: proposal)
-        if let expected = result.expectedCount, result.newCount < expected {
+        var intent = RequestIntent.hints(input.text)
+        if !input.attachments.isEmpty { intent.creates = true }
+        var parsed = ParsedPlan()
+
+        // Qué pide lo decide la IA; las palabras de la petición se suman por si se le escapa algo.
+        // Si este paso falla, bastan las palabras.
+        if let routed = try? await generate(
+            ParsedIntent.self, instructions: intentInstructions, prompt: intentPrompt(input), compact: "Petición: \(input.request)"
+        ) {
+            if routed.offTopic, intent.isEmpty, input.attachments.isEmpty {
+                parsed.offTopic = true
+                return convert(parsed, request: input.text, sources: sources, saved: input.saved, context: context, proposal: proposal)
+            }
+            intent = intent | RequestIntent(
+                creates: routed.creates, changes: routed.changes, conditions: routed.conditions, reorganize: routed.reorganize
+            )
+        }
+        try Task.checkCancellation()
+        if intent.isEmpty {
+            // Ni la IA ni las palabras lo aclaran: se prueba como algo nuevo y como un cambio.
+            intent.creates = true
+            intent.changes = proposal != nil || !input.saved.lines.isEmpty
+        }
+        parsed.reorganize = intent.reorganize
+
+        var questions: [String] = []
+        if intent.creates {
+            let creation = try await generate(
+                ParsedCreation.self, instructions: creationInstructions,
+                prompt: creationPrompt(input, compact: false), compact: creationPrompt(input, compact: true)
+            )
+            parsed.requestedCount = creation.requestedCount
+            parsed.events = creation.events
+            parsed.tasks = creation.tasks
+            questions.append(creation.question)
             try Task.checkCancellation()
-            let found = (result.events.map(\.title) + result.tasks.map(\.title)).map { "«\($0)»" }.joined(separator: ", ")
-            let correction = prompt + "\nAtención: el usuario pide \(expected) elementos nuevos y solo has devuelto \(result.newCount) (\(found.isEmpty ? "ninguno" : found)). Devuélvelos todos, uno por elemento, con su nombre exacto; deja vacío lo que no diga."
-            if let second = try? await makeSession().respond(to: correction, generating: ParsedPlan.self, options: options) {
-                let again = convert(second.content, request: request, sources: sources, saved: saved, context: context, proposal: proposal)
-                if again.newCount > result.newCount { result = again }
+        }
+        if intent.changes {
+            let changes = try await generate(
+                ParsedChanges.self, instructions: changeInstructions,
+                prompt: changePrompt(input, compact: false), compact: changePrompt(input, compact: true)
+            )
+            parsed.edits = changes.edits
+            parsed.prioritize = changes.prioritize
+            questions.append(changes.question)
+            try Task.checkCancellation()
+        }
+        var conditionProblem: String?
+        if intent.conditions {
+            // Si solo falla esta parte, lo demás sigue valiendo y se dice qué no se entendió.
+            do {
+                parsed.conditions = try await generate(
+                    ParsedConditions.self, instructions: conditionInstructions,
+                    prompt: conditionPrompt(input), compact: conditionPrompt(input)
+                ).conditions
+            } catch let error as CancellationError {
+                throw error
+            } catch {
+                conditionProblem = "No he entendido bien las condiciones sobre el plan; dímelas de otra forma."
             }
         }
+        parsed.question = questions
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+
+        var result = convert(parsed, request: input.text, sources: sources, saved: input.saved, context: context, proposal: proposal)
+        if intent.creates, let expected = result.expectedCount, result.newCount < expected {
+            try Task.checkCancellation()
+            let found = (result.events.map(\.title) + result.tasks.map(\.title)).map { "«\($0)»" }.joined(separator: ", ")
+            let correction = creationPrompt(input, compact: true) + "\nAtención: pide \(expected) elementos nuevos y solo has devuelto \(result.newCount) (\(found.isEmpty ? "ninguno" : found)). Devuélvelos todos, uno por elemento, con su nombre exacto; deja vacío lo que no diga."
+            if let second = try? await generate(
+                ParsedCreation.self, instructions: creationInstructions, prompt: correction, compact: correction
+            ) {
+                var again = parsed
+                again.requestedCount = second.requestedCount
+                again.events = second.events
+                again.tasks = second.tasks
+                let retried = convert(again, request: input.text, sources: sources, saved: input.saved, context: context, proposal: proposal)
+                if retried.newCount > result.newCount { result = retried }
+            }
+        }
+        if let conditionProblem { result.problems.append(conditionProblem) }
         return result
+    }
+
+    /// Una respuesta con su formato, en una sesión nueva. Si no cabe o sale mal formada, se
+    /// repite una vez con el contexto recortado; si la IA está ocupada, se espera un momento.
+    private static func generate<Content: Generable & Sendable>(
+        _ type: Content.Type, instructions: String, prompt: String, compact: String
+    ) async throws -> Content {
+        do {
+            return try await AIProvider.session(instructions: instructions)
+                .respond(to: prompt, generating: type, options: GenerationOptions(temperature: 0.2)).content
+        } catch let error as LanguageModelSession.GenerationError {
+            logger.error("\(String(describing: Content.self), privacy: .public): \(String(describing: error), privacy: .public)")
+            try Task.checkCancellation()
+            switch error {
+            case .exceededContextWindowSize, .decodingFailure:
+                return try await AIProvider.session(instructions: instructions)
+                    .respond(to: compact, generating: type, options: GenerationOptions(temperature: 0.1)).content
+            case .rateLimited, .concurrentRequests:
+                try await Task.sleep(for: .seconds(1.5))
+                return try await AIProvider.session(instructions: instructions)
+                    .respond(to: prompt, generating: type, options: GenerationOptions(temperature: 0.2)).content
+            default:
+                throw error
+            }
+        }
     }
 
     /// Convierte lo que devuelve el modelo en borradores y operaciones, y lo comprueba con la
@@ -1234,12 +1380,14 @@ final class PlanningAssistant {
         result.undecidedTasks = undecidedTasks.intersection(result.tasks.map(\.id))
 
         for edit in parsed.edits {
+            // Lo que no viene no cambia. Los valores fuera de rango se descartan en `makeEdit`.
             let fields = ProposalEditFields(
-                action: edit.action, target: edit.target, title: edit.title, day: edit.day, time: edit.time,
-                endTime: edit.endTime, minutes: edit.minutes, deadline: edit.deadline, priority: edit.priority,
-                difficulty: edit.difficulty, mode: edit.mode, repeats: edit.repeats, reminderMinutes: edit.reminderMinutes,
-                workDay: edit.workDay, startShift: edit.startShift, keepEnd: edit.keepEnd,
-                endsNextDay: edit.endsNextDay && AnswerParsing.endsNextDay(request)
+                action: edit.action, target: edit.target, title: edit.title ?? "", day: edit.day ?? "", time: edit.time ?? "",
+                endTime: edit.endTime ?? "", minutes: max(0, edit.minutes ?? 0), deadline: edit.deadline ?? "",
+                priority: edit.priority ?? -1, difficulty: edit.difficulty ?? 0, mode: edit.mode ?? "",
+                repeats: edit.repeats ?? "", reminderMinutes: edit.reminderMinutes ?? -1, workDay: edit.workDay ?? "",
+                startShift: max(-720, min(720, edit.startShift ?? 0)), keepEnd: edit.keepEnd ?? false,
+                endsNextDay: (edit.endsNextDay ?? false) && AnswerParsing.endsNextDay(request)
             )
             if fields.isUndo {
                 if proposal != nil { result.undo = true }
@@ -1303,13 +1451,21 @@ final class PlanningAssistant {
 
     static func message(for error: Error) -> String {
         guard let error = error as? LanguageModelSession.GenerationError else {
-            return "Algo ha fallado: \(error.localizedDescription)"
+            return "Algo ha fallado al usar la IA del iPhone. Puedes reintentarlo."
         }
         switch error {
         case .exceededContextWindowSize:
-            return "Era demasiado texto para la IA del iPhone. Prueba con menos material o una petición más corta."
+            return "Era demasiado para la IA del iPhone, incluso recortando. Pide menos cosas a la vez o usa menos material."
         case .guardrailViolation:
-            return "No puedo ayudarte con eso. Prueba a describir solo lo que quieres planificar."
+            return "La IA del iPhone ha bloqueado la petición por seguridad. Escríbela de otra forma, solo con lo que quieres planificar."
+        case .decodingFailure:
+            return "La IA del iPhone no ha sabido ordenar la respuesta, ni al repetirla. Pide una cosa cada vez o escríbelo con otras palabras."
+        case .rateLimited, .concurrentRequests:
+            return "La IA del iPhone está ocupada. Espera unos segundos y pulsa Reintentar."
+        case .assetsUnavailable:
+            return "Apple Intelligence aún se está descargando o preparando. Vuelve a intentarlo en un rato."
+        case .unsupportedLanguageOrLocale:
+            return "Apple Intelligence no admite el idioma configurado. Revisa el idioma en Ajustes de iOS › Apple Intelligence y Siri."
         default:
             return "La IA no ha dado una respuesta válida. Puedes reintentarlo o escribirlo de otra forma."
         }
@@ -1317,85 +1473,93 @@ final class PlanningAssistant {
 
     // MARK: Contexto para el modelo
 
-    private static func makeSession() -> LanguageModelSession {
-        AIProvider.session(instructions: """
-            Eres el asistente de planificación de Planaby. Solo ayudas a planificar: crear, cambiar, mover, replanificar y borrar eventos y tareas.
-            - Si la petición no tiene nada que ver con planificar, offTopic true y todo vacío.
-            - requestedCount: cuántos eventos y tareas nuevos pide («dos eventos» son 2).
-            - Incluye CADA elemento nuevo que pide, uno por elemento, sin omitir ninguno, aunque le falten datos. Si no dice el día, la hora de inicio o la de fin, déjalos vacíos (durationMinutes 0): Planaby lo preguntará. Nunca inventes datos.
-            - title es el nombre exacto que usa el usuario («Subida PRE»), sin la fecha ni la palabra evento.
-            - No añadas nada que no haya pedido. Lo que ya está en el calendario o en la propuesta no se vuelve a crear.
-            - Un evento tiene día y hora fijos. Una tarea es trabajo con fecha límite y duración estimada; Planaby la reparte en bloques.
-            - Propuesta pendiente: códigos E (eventos) y T (tareas). Calendario guardado: C (eventos) y P (tareas). Para cambiar o borrar algo que ya existe usa edits con su código en target, uno por elemento, y no lo repitas en events ni tasks.
-            - update cambia datos; delete borra; remove solo lo quita de la propuesta. En un edit rellena solo lo que cambia: «mejor el miércoles a las 12» es day y time; «me llevará 2 horas», minutes 120; «pasa la revisión al viernes», workDay; la entrega de una tarea, deadline.
-            - «Las tareas menos importantes» son las de prioridad baja: un edit por cada una.
-            - Si no está claro a cuál se refiere, pon sus palabras en target; Planaby preguntará.
-            - Los eventos de otros calendarios son solo de lectura: no los cambies ni los borres.
-            - Condiciones sobre todo el plan («deja dos horas libres mañana por la tarde», «nada después de las 17», «menos intenso», «lo difícil por la mañana», «primero lo urgente») van en conditions. «Reorganiza todo» pone reorganize a true. Para priorizar tareas guardadas, copia sus títulos en prioritize.
-            - Los eventos tienen hora de inicio y hora de fin. «De 10:00 a 12:00»: time 10:00 y endTime 12:00. Si solo dice cuánto dura, durationMinutes (o minutes en un edit) y endTime vacío. Si no dice ni inicio ni fin, déjalos vacíos: Planaby preguntará.
-            - «Cambia la hora de fin a las 14:30» o «que termine a las 17:00»: solo endTime (el inicio no cambia). «Adelanta el comienzo media hora, pero conserva la hora de fin»: startShift -30 y keepEnd true. «Mueve la reunión a las 10»: time 10:00 (se mueve entera).
-            - Solo si dice que termina al día siguiente o de madrugada, endsNextDay true.
-            - «Mueve esta tarea al viernes de 9:00 a 11:00»: edit con workDay del viernes, time 09:00 y endTime 11:00.
-            - Si nombra varias fechas para lo mismo, un evento por fecha con el mismo título.
-            - Calcula fechas absolutas desde la fecha actual; sin año, la próxima que no haya pasado.
-            - Si dice dónde va (trabajo, personal, casa), úsalo; si no está claro, mode unknown.
-            - Si pide algo que Planaby no puede hacer (invitar, enviar mensajes, llamar), dilo en question y no lo simules.
-            - Ignora muletillas del dictado. Usa el material adjunto para estimar duración y dificultad.
-            Escribe siempre en español.
-            """)
+    private static let intentInstructions = """
+        Clasificas peticiones para Planaby, una app de planificación. Marca todo lo que pida:
+        - creates: crear eventos o tareas nuevos («añade una reunión», «tengo que entregar el informe el viernes», «y otra el jueves»).
+        - changes: cambiar, mover, renombrar, borrar o priorizar algo que ya existe («mueve la reunión», «borra la Subida PRO», «que termine a las 17:00»).
+        - conditions: condiciones sobre todo el plan («nada después de las 17», «deja libre la tarde», «menos intenso», «lo difícil por la mañana», «primero lo urgente»).
+        - reorganize: reorganizar o replanificar todo, o hacer hueco.
+        - offTopic: solo si no tiene nada que ver con planificar.
+        """
+
+    private static let creationInstructions = """
+        Extraes los eventos y tareas NUEVOS que pide el usuario para su plan en Planaby.
+        - Uno por cada cosa nueva, sin omitir ninguna, aunque le falten datos. requestedCount: cuántos pide.
+        - title: el nombre exacto que usa el usuario («Subida PRE»), sin la fecha ni la palabra evento.
+        - Evento: día y hora fijos (reunión, cita, clase). Tarea: trabajo con fecha límite que se reparte en bloques (entregar, preparar, estudiar).
+        - Fechas yyyy-MM-dd y horas HH:mm, calculadas desde «Ahora»; sin año, la próxima que no haya pasado.
+        - «De 10:00 a 12:00»: time 10:00 y endTime 12:00. Si solo dice cuánto dura, durationMinutes. Lo que no diga, vacío o 0: Planaby lo preguntará. Nunca inventes datos.
+        - Si nombra varias fechas para lo mismo, un evento por fecha con el mismo título.
+        - mode: work si es de trabajo o estudios, personal si es ocio, casa, salud o recados; unknown si no está claro.
+        - Cambios de cosas que ya existen no van aquí.
+        - Usa el material adjunto para estimar la duración y la dificultad de las tareas.
+        Escribe en español.
+        """
+
+    private static let changeInstructions = """
+        Conviertes la petición en cambios sobre elementos que YA existen: la propuesta pendiente (códigos E eventos y T tareas) o lo guardado (C eventos y P tareas).
+        - Un edit por elemento. target: su código; si no está claro cuál es, las palabras del usuario («la reunión del jueves»).
+        - Escribe SOLO los campos que cambian; los demás no los pongas.
+        - «A las 10»: time 10:00 (se mueve entero). «Que termine a las 17:00»: solo endTime. «De 9:00 a 11:00»: time y endTime. «Adelanta el comienzo media hora y conserva el fin»: startShift -30 y keepEnd true.
+        - Tareas: «pásala al viernes», workDay; la entrega, deadline; «me llevará 2 horas», minutes 120.
+        - «Las tareas menos importantes» son las de prioridad baja: un edit por cada una.
+        - Lo de otros calendarios es de solo lectura: no lo cambies ni lo borres.
+        - Fechas yyyy-MM-dd y horas HH:mm, calculadas desde «Ahora».
+        Escribe en español.
+        """
+
+    private static let conditionInstructions = """
+        Extraes condiciones sobre todo el plan: free deja libre una franja de un día; latestEnd, nada después de una hora; earliestStart, nada antes de una hora; lighter, menos intenso; hardMorning, lo difícil por la mañana; urgentFirst, primero lo urgente.
+        Fechas yyyy-MM-dd y horas HH:mm, calculadas desde «Ahora». Escribe en español.
+        """
+
+    private static func header() -> String {
+        let now = Date.now
+        return "Ahora: \(now.formatted(.dateTime.weekday(.wide).day().month(.wide).year().hour().minute())) (\(ProposalFormat.machine.string(from: now)))."
     }
 
-    private static func prompt(
-        for text: String, attachments: [ImportedAttachment], saved: SavedIndex, context: ModelContext,
-        proposal: String = "ninguna", recent: String = "ninguna"
-    ) -> String {
-        let now = Date.now
-        let formatter = ProposalFormat.machine
-        let material = attachments
+    private static func recentBlock(_ input: RequestInput) -> String? {
+        input.recent.map { "Conversación reciente:\n" + ContextBudget.clip($0, to: 500) }
+    }
+
+    private static func intentPrompt(_ input: RequestInput) -> String {
+        var parts: [String] = []
+        if input.proposalText != nil { parts.append("Hay una propuesta pendiente sin aceptar.") }
+        if let recent = recentBlock(input) { parts.append(recent) }
+        if !input.attachments.isEmpty { parts.append("Adjunta material.") }
+        parts.append("Petición: \(input.request)")
+        return parts.joined(separator: "\n")
+    }
+
+    /// Para crear: la fecha, el material y la petición. Lo guardado no hace falta (lo que ya
+    /// existe se quita después con `RequestGrounding`).
+    private static func creationPrompt(_ input: RequestInput, compact: Bool) -> String {
+        var parts = [header()]
+        if !compact, let recent = recentBlock(input) { parts.append(recent) }
+        let material = input.attachments
             .map { "[\($0.name)]\n\($0.text.isEmpty ? "(sin texto legible)" : $0.text)" }
             .joined(separator: "\n")
-            .prefix(3_000)
-
-        return """
-            Ahora: \(now.formatted(.dateTime.weekday(.wide).day().month(.wide).year().hour().minute())) (\(formatter.string(from: now))).
-            Modo actual: \(ModeController.shared.mode.rawValue).
-            Horario de trabajo: \(scheduleText(ModeController.shared.availability(for: .work))).
-            Propuesta pendiente sin aceptar:
-            \(proposal)
-            Calendario guardado (ya existe; no lo vuelvas a crear):
-            \(saved.text)
-            Carga ya planificada: \(loadSummary(context: context, from: now)).
-            Conversación reciente:
-            \(recent)
-            \(material.isEmpty ? "" : "Material adjunto:\n\(AIProvider.wrap(String(material), limit: 3_000))")
-            Ritmo: \(PersonalContextService.profileLine())
-            Petición: \(text.isEmpty ? "Organiza el material adjunto." : text)
-            """
+        if !material.isEmpty { parts.append("Material adjunto:\n" + AIProvider.wrap(material, limit: compact ? 600 : 1_500)) }
+        parts.append("Petición: \(input.request)")
+        return parts.joined(separator: "\n")
     }
 
-    private static func scheduleText(_ rules: Availability) -> String {
-        let hours = { (minutes: Int) in String(format: "%d:%02d", minutes / 60, minutes % 60) }
-        return "\(hours(rules.startMinute))–\(hours(rules.endMinute)), días \(rules.weekdays.sorted().map { Calendar.current.shortWeekdaySymbols[$0 - 1] }.joined(separator: ","))"
+    /// Para cambiar: la propuesta y solo lo guardado que nombra (más lo próximo).
+    private static func changePrompt(_ input: RequestInput, compact: Bool) -> String {
+        var parts = [header()]
+        if let proposal = input.proposalText {
+            parts.append("Propuesta pendiente:\n" + ContextBudget.clip(proposal, to: compact ? 700 : 1_600))
+        }
+        let lines = ContextBudget.relevant(
+            lines: input.saved.lines, titles: input.saved.titles, request: input.text, limit: compact ? 5 : 12
+        )
+        parts.append("Guardado:\n" + (lines.isEmpty ? "nada" : lines.joined(separator: "\n")))
+        if !compact, let recent = recentBlock(input) { parts.append(recent) }
+        parts.append("Petición: \(input.request)")
+        return parts.joined(separator: "\n")
     }
 
-    /// Horas ocupadas por día en la próxima semana, para que el modelo pueda avisar si va justo.
-    private static func loadSummary(context: ModelContext, from now: Date) -> String {
-        let calendar = Calendar.current
-        let start = calendar.startOfDay(for: now)
-        let range = DateInterval(start: start, duration: 7 * 24 * 3600)
-        let events = (try? context.fetch(FetchDescriptor<CalendarEvent>())) ?? []
-        var perDay: [Date: TimeInterval] = [:]
-        for event in events {
-            for occurrence in event.occurrences(in: range) {
-                perDay[calendar.startOfDay(for: occurrence.start), default: 0] += occurrence.duration
-            }
-        }
-        for event in ExternalCalendars.shared.busyIntervals(in: range) {
-            perDay[calendar.startOfDay(for: event.start), default: 0] += event.duration
-        }
-        guard !perDay.isEmpty else { return "nada" }
-        return perDay.sorted { $0.key < $1.key }
-            .map { "\(ProposalFormat.machine.string(from: $0.key).prefix(10)) \(FocusStats.format($0.value))" }
-            .joined(separator: ", ")
+    private static func conditionPrompt(_ input: RequestInput) -> String {
+        header() + "\nPetición: \(input.request)"
     }
 }
