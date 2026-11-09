@@ -24,8 +24,7 @@ struct FocusView: View {
         ZStack {
             PhaseBackground(
                 tint: timer.state?.phase.tint ?? Theme.focus,
-                isBreak: timer.state?.phase.isBreak ?? false,
-                animated: isRunning && timer.state?.phase.isBreak == true
+                isBreak: timer.state?.phase.isBreak ?? false
             )
             if let state = timer.state {
                 ActiveSessionView(

@@ -90,40 +90,51 @@ enum Breath {
     static func isInhaling(at date: Date) -> Bool {
         date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: inhale + exhale) < inhale
     }
+
+    /// El siguiente tramo de la respiración: adónde va (1 lleno, 0 vacío) y cuánto le queda.
+    /// Sigue el mismo reloj que «Inhala / Exhala», así el halo y el texto van a la par.
+    static func nextTurn(after date: Date) -> (level: Double, duration: TimeInterval) {
+        let t = date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: inhale + exhale)
+        return t < inhale ? (1, max(0.05, inhale - t)) : (0, max(0.05, inhale + exhale - t))
+    }
 }
 
 /// Halo naranja que respira despacio detrás del contenido.
+///
+/// Se dibuja una sola vez y solo se animan su tamaño y su opacidad: SwiftUI interpola entre
+/// inhalar y exhalar sin volver a pintar el degradado, y la vista solo despierta dos veces por
+/// respiración (no 30 veces por segundo). Así puede respirar siempre sin gastar batería.
 struct BreathingGlow: View {
     let tint: Color
     var strength: Double = 0.22
-    /// false: halo quieto (pantallas que pasan mucho rato encendidas).
+    /// false: halo quieto (el modo escritorio de noche o atenuado).
     var animated = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var level = 0.5
 
     var body: some View {
-        Group {
-            if reduceMotion || !animated {
-                gradient(level: 0.5)
-            } else {
-                // La respiración dura varios segundos: 20 fotogramas por segundo se ven igual de
-                // suaves y gastan un tercio menos.
-                TimelineView(.animation(minimumInterval: 1.0 / 20)) { context in
-                    gradient(level: Breath.level(at: context.date))
-                }
-            }
-        }
-        .allowsHitTesting(false)
-        .ignoresSafeArea()
-        .accessibilityHidden(true)
+        RadialGradient(colors: [tint.opacity(strength), .clear], center: .center, startRadius: 0, endRadius: 400)
+            // Lo mismo que antes: radio de 260 a 400 pt y brillo del 55 al 100 %.
+            .scaleEffect(0.65 + 0.35 * level)
+            .opacity(0.55 + 0.45 * level)
+            .allowsHitTesting(false)
+            .ignoresSafeArea()
+            .accessibilityHidden(true)
+            .task(id: animated && !reduceMotion) { await breathe(animated && !reduceMotion) }
     }
 
-    private func gradient(level: Double) -> some View {
-        RadialGradient(
-            colors: [tint.opacity(strength * (0.55 + 0.45 * level)), .clear],
-            center: .center,
-            startRadius: 0,
-            endRadius: 260 + 140 * level
-        )
+    private func breathe(_ on: Bool) async {
+        guard on else {
+            withAnimation(.easeInOut(duration: 1)) { level = 0.5 }
+            return
+        }
+        // Empieza donde va la respiración y sigue con ella.
+        level = Breath.level(at: .now)
+        while !Task.isCancelled {
+            let turn = Breath.nextTurn(after: .now)
+            withAnimation(.easeInOut(duration: turn.duration)) { level = turn.level }
+            try? await Task.sleep(for: .seconds(turn.duration))
+        }
     }
 }
 
@@ -131,9 +142,9 @@ struct BreathingGlow: View {
 struct PhaseBackground: View {
     let tint: Color
     var isBreak = false
-    /// Solo respira cuando sirve (un descanso en marcha); el resto del tiempo, quieto: un halo
-    /// a pantalla completa repintándose sin parar gasta batería aunque no se mire.
-    var animated = false
+    /// Respira siempre (salvo con «Reducir movimiento»): la pantalla de concentrarse se siente
+    /// viva, y con `BreathingGlow` apenas cuesta.
+    var animated = true
 
     var body: some View {
         ZStack {

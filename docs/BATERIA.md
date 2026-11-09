@@ -9,7 +9,7 @@ despertar solo para lo que se ve, y nada si no cambia. Las cuentas están en
 | Antes | Ahora |
 |---|---|
 | El temporizador se despertaba **cada segundo** siempre, aunque no hubiera sesión | Se despierta **justo cuando acaba la fase**. Sin sesión o en pausa, no se despierta |
-| El halo de Enfoque se repintaba a 30 fps a pantalla completa siempre | Quieto, salvo en un **descanso en marcha** (como ya hacía el modo escritorio), y a 20 fps |
+| El halo de Enfoque y del modo escritorio volvía a pintar el degradado a pantalla completa 30 veces por segundo | **Sigue respirando siempre**, pero se pinta una vez y solo se animan su tamaño y su brillo: la vista despierta dos veces por respiración, no 30 por segundo. Va a la par con «Inhala / Exhala». De noche o atenuado en el modo escritorio, quieto y oscuro |
 | Enfoque en pausa, el modo escritorio sin sesión y el reproductor sin música se repintaban cada segundo | **Cada minuto**, justo al cambiar de minuto (lo que se ve es la hora) |
 | El modo escritorio leía la agenda y las comunicaciones del disco **cada segundo** | Al abrirlo, cuando llega algo nuevo y una vez por minuto |
 | Spotify: la API web cada 3 s y un intento de reconexión cada 6 s, sin fin | Cada 4 s si suena, cada 15 s si no y cada 30 s con App Remote (que avisa él solo). Reconexión cada vez más espaciada: 6, 12, 24, 48 s y después cada minuto |
@@ -35,6 +35,8 @@ despertar solo para lo que se ve, y nada si no cambia. Las cuentas están en
    iPhone no se calienta.
 3. Sesión de 25 minutos: la cuenta atrás va cada segundo y la fase cambia a su hora, con su aviso
    y la tarjeta «Has trabajado durante 25 minutos». En pausa, la cifra queda quieta.
-4. Un descanso en marcha: el halo respira; en concentración y sin sesión, está quieto.
+4. El halo respira despacio en Enfoque (sin sesión, concentrándote y en los descansos, con más
+   presencia) y en el modo escritorio de día. En un descanso, crece con «Inhala» y se apaga con
+   «Exhala». Con «Reducir movimiento», quieto.
 5. Spotify sonando en el modo escritorio: el cambio de canción se ve en unos segundos. Sin
    Spotify abierto, nada se queda intentando conectar sin parar (abre Spotify y vuelve: conecta).

@@ -63,10 +63,11 @@ struct DeskView: View {
 
             ZStack {
                 Color.black.ignoresSafeArea()
-                // Pantalla OLED encendida mucho rato: el halo solo respira en los descansos y nunca de noche.
+                // El halo respira (apenas cuesta: ver `BreathingGlow`), salvo de noche o atenuado,
+                // cuando la pantalla debe quedar lo más oscura y quieta posible.
                 BreathingGlow(
                     tint: tint, strength: night || dimmed ? 0.08 : (state?.phase.isBreak == true ? 0.28 : 0.16),
-                    animated: state?.phase.isBreak == true && !night && !dimmed
+                    animated: !night && !dimmed
                 )
 
                 VStack(spacing: 0) {
