@@ -33,11 +33,25 @@ Cómo se usa:
 4. Si el modelo local falla, se usa Apple Intelligence (si está) y se avisa en la respuesta. Sin
    ninguno de los dos, quedan las plantillas.
 
-Memoria: el modelo ocupa varios GB de RAM mientras se usa. Se suelta al pasar Planaby a segundo
-plano o si iOS avisa de poca memoria, y se vuelve a cargar en la siguiente petición (unos
-segundos). Si Planaby se cierra mientras lo usa (casi siempre por falta de memoria), al volver a
-abrirla la IA local queda desactivada y Ajustes lo explica, sugiriendo el 2B. «Estimar con IA»
-sigue usando Apple Intelligence.
+Memoria y batería: el modelo ocupa varios GB de RAM mientras está cargado, pero solo gasta
+cuando piensa. Por eso:
+
+- **No se carga al abrir el chat**, sino al escribir el primer carácter (en el chat o en
+  Reorganizar), al adjuntar algo o al empezar a dictar. Mientras terminas la petición se va
+  cargando, y al enviar ya está listo. Si envías antes de que termine, la petición espera a esa
+  misma carga (nunca se carga dos veces).
+- **Se suelta** tras 3 minutos sin usarlo, al empezar una sesión de concentración, al pasar
+  Planaby a segundo plano o si iOS avisa de poca memoria. Al cerrar el chat no se suelta en el
+  acto: si vuelves al rato, sigue listo.
+- Si Planaby se cierra mientras carga o piensa (casi siempre por falta de memoria), al volver a
+  abrirla la IA local queda desactivada y Ajustes lo explica, sugiriendo el 2B.
+
+«Estimar con IA» sigue usando Apple Intelligence.
+
+Animación: mientras la IA trabaja se ve el atardecer del icono (`SunsetLoader`, con las cuentas en
+`SunsetMotion`). Cargando, el sol amanece y se pone; pensando, respira, el reflejo ondula como el
+agua y un destello recorre el horizonte; en la descarga, el sol sube con el progreso. Va a 30
+fotogramas por segundo y, con «Reducir movimiento», se queda quieta como el icono.
 
 ## Qué fallaba con Apple Intelligence
 
@@ -184,6 +198,8 @@ ello:
 - `Tests/PlanReadingTests.swift`: el JSON del modelo local (los ejemplos que se le enseñan se
   leen bien, solo cambia lo que viene, valores fuera de rango, texto alrededor y respuestas que
   no son JSON);
+- `Tests/SunsetMotionTests.swift`: la animación del atardecer (el sol no se sale de su sitio, la
+  descarga lo hace subir, el reflejo y el destello, y la imagen quieta igual que el icono);
 - `Tests/EventTimesTests.swift`: inicio y fin (solo el fin, solo el inicio, conservar el fin,
   varios días, medianoche, cambio de hora), franjas escritas, cambios de la IA, franjas de
   tareas y compatibilidad con lo guardado;
@@ -237,3 +253,13 @@ Con la IA local (nada de esto está comprobado todavía en un iPhone):
 18. Activa el modo avión: la IA local debe seguir funcionando.
 19. Pasa Planaby a segundo plano y vuelve: la siguiente petición vuelve a cargar el modelo y
     funciona.
+20. Abre el chat sin escribir: no debe aparecer «Preparando la IA local». Escribe una letra:
+    aparece el atardecer pequeño sobre el campo y, al terminar de cargar, se va. Envía: la
+    respuesta llega sin la espera de la carga.
+21. Envía nada más empezar a escribir: el atardecer del chat dice «Preparando la IA local…» y
+    luego «Organizando…», sin cargar dos veces.
+22. Deja el chat 3 minutos sin usarlo y mira Ajustes › Plan › IA de planificación: ya no dice
+    «Ahora está cargado». Lo mismo al empezar una sesión de concentración.
+23. Dicta por voz: el atardecer grande sale mientras organiza (también en el modo escritorio, con
+    su color de noche). Con «Reducir movimiento», queda quieto como el icono.
+24. Descarga el 2B: el sol sube a medida que avanza la descarga.

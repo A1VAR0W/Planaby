@@ -22,6 +22,10 @@ struct PlanabyApp: App {
                 .environment(inbox)
                 .preferredColorScheme(.dark)
                 .tint(Theme.orange)
+                // Al empezar a concentrarse, la IA local deja libre la memoria.
+                .onChange(of: timer.state != nil) { _, running in
+                    if running { LocalModel.shared.unload() }
+                }
                 // planaby://desk (widgets, Live Activity) y vuelta desde Spotify (App Remote).
                 .onOpenURL { url in
                     if url.scheme == "planaby" {

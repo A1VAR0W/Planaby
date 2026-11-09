@@ -191,16 +191,36 @@ final class LocalModel {
 
     // MARK: Uso
 
-    /// Respuesta de texto a unas instrucciones y un mensaje. Carga el modelo si hace falta.
+    /// Cuánto se queda cargado sin usarse. Volver a cargarlo cuesta unos segundos de lectura;
+    /// lo que gasta de verdad es pensar, así que no compensa soltarlo antes.
+    static let idleLimit: Duration = .seconds(180)
+
+    /// Cargado en memoria y listo para responder al momento.
+    private(set) var isReady = false
+
+    /// Empieza a cargarlo antes de que haga falta (al escribir o dictar): mientras terminas la
+    /// petición, se carga, y la respuesta llega antes. Si ya está cargado, solo alarga el tiempo
+    /// que se queda.
+    func prepare() {
+        guard isActive else { return }
+        keepAlive()
+        guard !isReady, loading == nil else { return }
+        Task { _ = try? await loadContainer() }
+    }
+
+    /// Respuesta de texto a unas instrucciones y un mensaje. Carga el modelo si hace falta (o
+    /// espera a la carga que ya esté en marcha).
     func generate(instructions: String, prompt: String, maxTokens: Int = 1_500) async throws -> String {
         guard installed.contains(choice) else { throw LocalModelError.notInstalled }
-        defaults.set(choice.rawValue, forKey: Keys.busy)
+        markBusy(true)
         defer {
-            defaults.removeObject(forKey: Keys.busy)
-            phase = .idle
+            markBusy(false)
+            if phase == .thinking || phase == .loading { phase = .idle }
+            keepAlive()
         }
         let container = try await loadContainer()
-        phase = .thinking
+        // Una descarga en marcha (del otro modelo) sigue enseñándose.
+        if phase != .downloading { phase = .thinking }
         let session = ChatSession(
             container, instructions: instructions,
             generateParameters: GenerateParameters(maxTokens: maxTokens, temperature: 0.2, topP: 0.9),
@@ -209,23 +229,77 @@ final class LocalModel {
         return try await session.respond(to: prompt)
     }
 
+    /// Suelta el modelo de la memoria (al salir de Planaby, si iOS pide memoria, al empezar a
+    /// concentrarse o tras un rato sin usarlo). Una carga a medias se descarta.
     func unload() {
         container = nil
         loadedChoice = nil
+        loading = nil
+        loadID &+= 1
+        isReady = false
+        idleRelease?.cancel()
+        idleRelease = nil
     }
+
+    @ObservationIgnored private var loading: Task<ModelContainer, Error>?
+    @ObservationIgnored private var loadID = 0
+    @ObservationIgnored private var idleRelease: Task<Void, Never>?
+    @ObservationIgnored private var busyCount = 0
 
     private func loadContainer() async throws -> ModelContainer {
         if let container, loadedChoice == choice { return container }
+        if let loading { return try await loading.value }
         unload()
-        phase = .loading
-        // Como en los ejemplos de MLX: una caché pequeña para no acumular memoria entre peticiones.
-        Memory.cacheLimit = 20 * 1024 * 1024
-        let loaded = try await LLMModelFactory.shared.loadContainer(
-            from: LocalModelStore.directory(for: choice), using: TransformersTokenizerLoader()
-        )
-        container = loaded
-        loadedChoice = choice
+        let choice = self.choice
+        let id = loadID
+        if phase == .idle { phase = .loading }
+        markBusy(true)
+        let task = Task<ModelContainer, Error> {
+            // Como en los ejemplos de MLX: una caché pequeña para no acumular memoria entre peticiones.
+            Memory.cacheLimit = 20 * 1024 * 1024
+            return try await LLMModelFactory.shared.loadContainer(
+                from: LocalModelStore.directory(for: choice), using: TransformersTokenizerLoader()
+            )
+        }
+        loading = task
+        defer {
+            markBusy(false)
+            if loadID == id { loading = nil }
+            if phase == .loading { phase = .idle }
+        }
+        let loaded = try await task.value
+        // Si se soltó o se cambió de modelo mientras cargaba, esta carga solo sirve a quien la esperaba.
+        if loadID == id, choice == self.choice {
+            container = loaded
+            loadedChoice = choice
+            isReady = true
+            keepAlive()
+        }
         return loaded
+    }
+
+    /// Vuelve a contar el rato sin usarlo.
+    private func keepAlive() {
+        idleRelease?.cancel()
+        idleRelease = Task {
+            try? await Task.sleep(for: Self.idleLimit)
+            guard !Task.isCancelled else { return }
+            LocalModel.shared.releaseIfIdle()
+        }
+    }
+
+    private func releaseIfIdle() {
+        if busyCount > 0 { keepAlive() } else { unload() }
+    }
+
+    /// Mientras carga o piensa queda apuntado: si Planaby se cierra entonces, al volver se sabe.
+    private func markBusy(_ busy: Bool) {
+        busyCount = max(0, busyCount + (busy ? 1 : -1))
+        if busyCount > 0 {
+            defaults.set(choice.rawValue, forKey: Keys.busy)
+        } else {
+            defaults.removeObject(forKey: Keys.busy)
+        }
     }
 }
 

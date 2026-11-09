@@ -38,6 +38,8 @@ final class VoiceTaskFlow {
     var title: String { presetText == nil ? "Añadir por voz" : "Organizar" }
 
     func start(context: ModelContext) async {
+        // La IA local se carga mientras hablas: al terminar de escuchar ya está lista.
+        LocalModel.shared.prepare()
         cancelled = false
         phase = presetText == nil ? .listening : .thinking
         draft = nil
@@ -157,12 +159,12 @@ struct VoiceTaskPanel: View {
                 listening
             case .thinking:
                 VStack(spacing: Space.m) {
-                    ProgressView().tint(tint).controlSize(.large)
+                    SunsetLoader(phase: .current, size: 88, tint: tint)
                     Text("«\(flow.heard)»")
                         .font(.body)
                         .foregroundStyle(ink.opacity(0.8))
                         .multilineTextAlignment(.center)
-                    Text("Organizando…")
+                    Text(LocalModel.shared.phase == .loading ? "Preparando la IA local…" : "Organizando…")
                         .font(.subheadline)
                         .foregroundStyle(ink.opacity(0.6))
                 }

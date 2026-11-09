@@ -22,6 +22,13 @@ struct LocalModelView: View {
                     Label("Usar la IA local", systemImage: "cpu")
                 }
                 .disabled(!selectedInstalled)
+                if model.phase == .loading || model.phase == .thinking {
+                    HStack(spacing: Space.m) {
+                        SunsetLoader(phase: .current, size: 44)
+                        Text(model.phase == .loading ? "Cargando \(model.choice.title)…" : "Pensando…")
+                            .foregroundStyle(Theme.secondaryText)
+                    }
+                }
             } footer: {
                 Text(status(model))
             }
@@ -38,6 +45,9 @@ struct LocalModelView: View {
 
             Section {
                 if model.phase == .downloading {
+                    // El sol del icono amanece a medida que se descarga.
+                    SunsetLoader(phase: .progress(model.downloadFraction), size: 120)
+                        .frame(maxWidth: .infinity)
                     ProgressView(value: model.downloadFraction) {
                         Text("Descargando \(model.choice.title)…")
                     } currentValueLabel: {
@@ -109,7 +119,11 @@ struct LocalModelView: View {
             switch model.phase {
             case .loading: return "Cargando \(model.choice.title)…"
             case .thinking: return "\(model.choice.title) está pensando…"
-            default: return "Planaby planifica con \(model.choice.title), en el iPhone. Si alguna vez falla, lo intenta con Apple Intelligence."
+            default:
+                let memory = model.isReady
+                    ? " Ahora está cargado; se suelta tras 3 minutos sin usarlo, al empezar a concentrarte o al salir de Planaby."
+                    : " Se carga al empezar a escribir o dictar, no antes."
+                return "Planaby planifica con \(model.choice.title), en el iPhone. Si alguna vez falla, lo intenta con Apple Intelligence." + memory
             }
         }
         let apple = AIProvider.unavailableReason == nil

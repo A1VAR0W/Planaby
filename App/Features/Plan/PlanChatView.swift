@@ -111,8 +111,8 @@ struct PlanChatView: View {
                     }
                     if assistant.isThinking {
                         HStack(spacing: Space.s) {
-                            ProgressView()
-                            Text("Organizando…")
+                            SunsetLoader(phase: .current, size: 44)
+                            Text(LocalModel.shared.phase == .loading ? "Preparando la IA local…" : "Organizando…")
                                 .font(.subheadline)
                                 .foregroundStyle(Theme.secondaryText)
                             Spacer(minLength: Space.s)
@@ -139,6 +139,14 @@ struct PlanChatView: View {
             }
         }
         .safeAreaInset(edge: .bottom) { composer }
+        // La IA local se carga al empezar a escribir (no al abrir el chat): cuando envías, ya
+        // está lista.
+        .onChange(of: input.isEmpty) { _, empty in
+            if !empty { LocalModel.shared.prepare() }
+        }
+        .onChange(of: attachments.count) { _, count in
+            if count > 0 { LocalModel.shared.prepare() }
+        }
     }
 
     private var intro: some View {
@@ -177,6 +185,16 @@ struct PlanChatView: View {
         let hasContent = !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty
         let canSend = hasContent && !assistant.isThinking && importing == 0
         return VStack(alignment: .leading, spacing: Space.s) {
+            // Mientras escribes, la IA local se va cargando.
+            if LocalModel.shared.phase == .loading, !assistant.isThinking {
+                HStack(spacing: Space.s) {
+                    SunsetLoader(phase: .preparing, size: 30)
+                    Text("Preparando la IA local mientras escribes…")
+                        .font(.caption)
+                        .foregroundStyle(Theme.secondaryText)
+                }
+                .transition(.opacity)
+            }
             if let draft = assistant.draft, modifying || inputFocused, !assistant.isThinking {
                 ProposalChips(draft: draft, canUndo: assistant.canUndo) { starter in
                     input = starter
@@ -238,6 +256,7 @@ struct PlanChatView: View {
         .padding(.horizontal, Space.m)
         .padding(.vertical, Space.s)
         .background(.black)
+        .animation(Motion.adaptive(Motion.quick, reduceMotion: reduceMotion), value: LocalModel.shared.phase)
     }
 
     /// Envía lo escrito. Si falla (sin IA, error o cancelación), el texto y los adjuntos vuelven

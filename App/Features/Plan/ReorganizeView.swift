@@ -29,6 +29,9 @@ struct ReorganizeView: View {
                 TextField("Ej.: «Me han pedido el presupuesto para mañana a las 12, unas 3 horas»", text: $news, axis: .vertical)
                     .lineLimit(2...5)
                     .disabled(PlanningAssistant.unavailableReason != nil)
+                    .onChange(of: news.isEmpty) { _, empty in
+                        if !empty { LocalModel.shared.prepare() }
+                    }
             } header: {
                 Text("¿Ha surgido algo?")
             } footer: {
