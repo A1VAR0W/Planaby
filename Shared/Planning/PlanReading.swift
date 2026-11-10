@@ -57,7 +57,7 @@ struct PlanReading: Equatable, Sendable {
             event.endTime = string(entry["endTime"]) ?? ""
             event.endsNextDay = bool(entry["endsNextDay"]) ?? false
             event.durationMinutes = min(720, max(0, int(entry["durationMinutes"]) ?? 0))
-            event.mode = choice(entry["mode"], in: ["work", "personal"]) ?? "unknown"
+            event.mode = mode(entry["mode"]) ?? "unknown"
             event.reminderMinutes = min(1440, max(0, int(entry["reminderMinutes"]) ?? 15))
             event.repeats = choice(entry["repeats"], in: ["none", "weekdays", "daily", "weekly"]) ?? "none"
             reading.events.append(event)
@@ -68,7 +68,7 @@ struct PlanReading: Equatable, Sendable {
             task.deadline = string(entry["deadline"]) ?? ""
             task.estimatedMinutes = min(12000, max(15, int(entry["estimatedMinutes"]) ?? 60))
             task.difficulty = min(5, max(1, int(entry["difficulty"]) ?? 3))
-            task.mode = choice(entry["mode"], in: ["work", "personal"]) ?? "unknown"
+            task.mode = mode(entry["mode"]) ?? "unknown"
             task.priority = min(2, max(0, int(entry["priority"]) ?? 1))
             reading.tasks.append(task)
         }
@@ -85,7 +85,7 @@ struct PlanReading: Equatable, Sendable {
             edit.deadline = string(entry["deadline"]) ?? ""
             edit.priority = int(entry["priority"]) ?? -1
             edit.difficulty = int(entry["difficulty"]) ?? 0
-            edit.mode = choice(entry["mode"], in: ["work", "personal"]) ?? ""
+            edit.mode = mode(entry["mode"]) ?? ""
             edit.repeats = choice(entry["repeats"], in: ["none", "weekdays", "daily", "weekly"]) ?? ""
             edit.reminderMinutes = int(entry["reminderMinutes"]) ?? -1
             edit.workDay = string(entry["workDay"]) ?? ""
@@ -146,6 +146,16 @@ struct PlanReading: Equatable, Sendable {
         case let flag as Bool: flag
         case let text as String: ["true", "si", "sí", "yes", "1"].contains(text.lowercased())
         default: nil
+        }
+    }
+
+    /// El plan, también con los nombres que usa la app («normal», «trabajo»).
+    private static func mode(_ value: Any?) -> String? {
+        guard let text = string(value)?.lowercased() else { return nil }
+        switch text {
+        case "work", "trabajo", "laboral": return "work"
+        case "personal", "normal": return "personal"
+        default: return nil
         }
     }
 

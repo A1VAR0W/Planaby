@@ -55,6 +55,56 @@ enum RequestCheck {
         }
         return total > 1 ? total : nil
     }
+
+    /// Nombres en singular de lo que se planifica («un único evento»).
+    static let singularNouns: Set<String> = [
+        "evento", "cita", "reunion", "llamada", "clase", "recordatorio", "tarea", "examen", "entrega", "visita", "sesion",
+    ]
+
+    /// «Solo quiero un único evento», «solo una cita»: tiene que quedar una sola cosa. «Solo una
+    /// reunión más» añade, no limita.
+    static func wantsOnlyOne(_ text: String) -> Bool {
+        let words = ProposalText.words(text)
+        guard words.contains(where: ["solo", "sola", "solamente", "unicamente", "unico", "unica"].contains) else { return false }
+        for index in words.indices where ["un", "una", "1"].contains(words[index]) {
+            var next = index + 1
+            if next < words.count, ["unico", "unica", "solo", "sola"].contains(words[next]) { next += 1 }
+            guard next < words.count, singularNouns.contains(words[next]) else { continue }
+            if next + 1 < words.count, words[next + 1] == "mas" { return false }
+            return true
+        }
+        return false
+    }
+
+    /// «Nada más», «solo eso», «quita lo demás»: lo que no se nombra sobra.
+    static func wantsNothingElse(_ text: String) -> Bool {
+        let joined = " " + ProposalText.words(text).joined(separator: " ") + " "
+        return [" nada mas ", " solo eso ", " solo ese ", " solo esa ", " unicamente eso ", " quita lo demas ", " quita el resto ",
+                " borra lo demas ", " borra el resto ", " lo demas sobra ", " el resto sobra "].contains(where: joined.contains)
+    }
+
+    /// El plan que dice la petición: «planifica en normal», «en el plan de trabajo». nil si no lo
+    /// dice o nombra los dos. Lo dicho manda sobre lo que deduzca la IA.
+    static func statedMode(in text: String) -> PlanMode? {
+        let joined = " " + ProposalText.words(text).joined(separator: " ") + " "
+        let personal = [" en normal ", " plan normal ", " modo normal ", " en el normal ", " al normal ", " del normal ",
+                        " en personal ", " plan personal ", " modo personal ", " en el personal "]
+        let work = [" en trabajo ", " plan de trabajo ", " plan trabajo ", " modo trabajo ", " modo de trabajo ",
+                    " en el de trabajo ", " al de trabajo "]
+        switch (personal.contains(where: joined.contains), work.contains(where: joined.contains)) {
+        case (true, false): return .personal
+        case (false, true): return .work
+        default: return nil
+        }
+    }
+
+    /// Habla de orden o de prisa («primero», «prioriza», «urgente», «antes que»).
+    static func saysPriority(_ text: String) -> Bool {
+        ProposalText.words(text).contains {
+            ["primero", "primera", "prioriza", "priorizar", "priorizala", "priorizalo", "prioridad", "prioritario", "prioritaria",
+             "urgente", "urgentes", "antes", "adelanta", "adelantar", "importante", "importantes"].contains($0)
+        }
+    }
 }
 
 // MARK: - Que no se cuele nada
@@ -123,6 +173,34 @@ enum RequestGrounding {
         let before = range.lowerBound == text.startIndex ? nil : text[text.index(before: range.lowerBound)]
         let after = range.upperBound == text.endIndex ? nil : text[range.upperBound]
         return !(before?.isLetter ?? false) && !(after?.isLetter ?? false)
+    }
+}
+
+// MARK: - Día y horas de un único evento nuevo
+
+/// Con un solo evento nuevo se sabe de qué habla cada dato de la petición, así que lo escrito
+/// manda sobre lo que diga la IA.
+enum EventGrounding {
+    /// Inicio y fin (minutos desde medianoche). Una franja («de 10 a 12») manda; si no, «empieza
+    /// a las 18» y «acabará a las 20». Si la IA da un inicio que nadie escribió («hay que estar
+    /// antes» → 16:00), vale la primera hora que sí se escribió.
+    static func times(start: Int?, end: Int?, request: String) -> (start: Int?, end: Int?) {
+        if let range = AnswerParsing.range(request) { return (range.start, range.end) }
+        var start = start
+        var end = end
+        if let said = AnswerParsing.explicitStart(request) {
+            start = said
+        } else if let current = start, !AnswerParsing.times(in: request).contains(current), let said = AnswerParsing.startTime(request) {
+            start = said
+        }
+        if let said = AnswerParsing.endTime(request) { end = said }
+        return (start, end)
+    }
+
+    /// El día, si la petición nombra uno solo («para el día 28 de noviembre», esté donde esté).
+    static func onlyDay(in request: String, now: Date, calendar: Calendar = .current) -> Date? {
+        let days = Set(RequestDates.mentions(in: request, now: now, calendar: calendar).map(\.day))
+        return days.count == 1 ? days.first : nil
     }
 }
 
@@ -373,6 +451,61 @@ enum AnswerParsing {
               let match = regex.firstMatch(in: value, range: NSRange(value.startIndex..., in: value)),
               let range = Range(match.range, in: value) else { return nil }
         return time(String(value[range.upperBound...]))
+    }
+
+    private static let endWords = #"\b(?:hasta|termin\w*|acab\w*|fin|final|finalice|finaliza)\b"#
+    private static let startWords = #"\b(?:empiez\w*|empiec\w*|empez\w*|comienz\w*|comienc\w*|comenz\w*|inicio|inicia\w*|arranca\w*)\b"#
+
+    /// El texto hasta donde se empieza a hablar del final («…acabará a las 20» queda fuera).
+    private static func beforeEnd(_ value: String) -> String {
+        guard let regex = try? NSRegularExpression(pattern: endWords),
+              let match = regex.firstMatch(in: value, range: NSRange(value.startIndex..., in: value)),
+              let range = Range(match.range, in: value) else { return value }
+        return String(value[..<range.lowerBound])
+    }
+
+    /// La hora de inicio dicha con todas las letras: «empieza a las 18», «el inicio es a las 9:30».
+    /// nil si no se habla del comienzo.
+    static func explicitStart(_ text: String) -> Int? {
+        let value = normalize(text)
+        guard let regex = try? NSRegularExpression(pattern: startWords),
+              let match = regex.firstMatch(in: value, range: NSRange(value.startIndex..., in: value)),
+              let range = Range(match.range, in: value) else { return nil }
+        return time(beforeEnd(String(value[range.upperBound...])))
+    }
+
+    /// La hora de inicio: la dicha con todas las letras o, si no, la primera hora que no es la de
+    /// fin («reunión a las 10 hasta las 12» → 10:00).
+    static func startTime(_ text: String) -> Int? {
+        explicitStart(text) ?? time(beforeEnd(normalize(text)))
+    }
+
+    /// Todas las horas escritas en el texto, en minutos desde medianoche. Las de 1 a 11 valen
+    /// también por la tarde («a las 6» puede ser 18:00): sirve para saber si una hora que da la IA
+    /// la dijo alguien.
+    static func times(in text: String) -> Set<Int> {
+        let value = normalize(text)
+        var found: Set<Int> = []
+        let patterns = [#"(?<!\d)(\d{1,2})[:.](\d{2})(?!\d)"#, #"\b(?:las|la)\s+(\d{1,2})(?!\d)(?:\s+y\s+(media|cuarto))?"#]
+        for (index, pattern) in patterns.enumerated() {
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+            for match in regex.matches(in: value, range: NSRange(value.startIndex..., in: value)) {
+                let parts = (0..<match.numberOfRanges).map { Range(match.range(at: $0), in: value).map { String(value[$0]) } }
+                guard let hour = parts[1].flatMap({ Int($0) }), (0...23).contains(hour) else { continue }
+                var minute = 0
+                if index == 0 {
+                    minute = parts[2].flatMap { Int($0) } ?? 0
+                } else if parts.count > 2, parts[2] == "media" {
+                    minute = 30
+                } else if parts.count > 2, parts[2] == "cuarto" {
+                    minute = 15
+                }
+                guard (0...59).contains(minute) else { continue }
+                found.insert(hour * 60 + minute)
+                if hour < 12 { found.insert((hour + 12) * 60 + minute) }
+            }
+        }
+        return found
     }
 
     /// Cuánto se mueve solo el comienzo: «adelanta el comienzo media hora» −30, «que empiece una

@@ -867,7 +867,11 @@ final class PlanningAssistant {
                     question: Self.question(for: edit), options: options, edits: edits, index: position
                 ), base: base)
             case .notFound:
-                return .stop("No encuentro «\(target.text)» ni en la propuesta ni en tu calendario.")
+                // Un cambio que no se encuentra no tira los demás: se hace el resto y se dice
+                // cuál no. Un código suelto nunca se enseña (es cosa de la IA, no de la persona).
+                if PlanReadingCheck.bareCode(target.text) == nil {
+                    notes.append("No encuentro «\(target.text)» ni en la propuesta ni en tu calendario.")
+                }
             }
         }
         if kept.isEmpty && !reorganize && prioritize.isEmpty {
@@ -1393,13 +1397,27 @@ final class PlanningAssistant {
     /// petición: nombres exactos, fechas escritas, nada inventado y lo que falta marcado como
     /// provisional (para preguntarlo).
     private static func convert(
-        _ parsed: PlanReading, request: String, sources: [String], saved: SavedIndex, context: ModelContext,
+        _ reading: PlanReading, request: String, sources: [String], saved: SavedIndex, context: ModelContext,
         proposal: PlanDraft?, now: Date = .now
     ) -> Interpretation {
         let fallbackMode = ModeController.shared.mode
         let calendar = Calendar.current
         var result = Interpretation()
         result.request = request
+
+        // Antes de nada: fuera lo repetido, lo que nadie pidió y los códigos que no existen; lo
+        // que ya está en la propuesta se cambia en vez de crearse otra vez.
+        var known = PlanReadingCheck.Known(savedCodes: Set(saved.refs.map(\.code).filter { !$0.isEmpty }))
+        if let proposal {
+            known.events = proposal.newEvents.map { .init(code: proposal.ref($0.id), title: $0.title, created: $0.replaces == nil) }
+            known.tasks = proposal.tasks.map { .init(code: proposal.ref($0.id), title: $0.title, created: $0.existing == nil) }
+        }
+        let parsed = PlanReadingCheck.clean(reading, request: request, sources: sources, known: known, now: now, calendar: calendar)
+        // El plan dicho («planifica en normal») manda sobre lo que deduzca la IA, y no se pregunta.
+        let statedMode = RequestCheck.statedMode(in: request)
+        // Con un solo evento nuevo, el día y las horas escritos son los suyos.
+        let single = parsed.events.count == 1
+        let onlyDay = single ? EventGrounding.onlyDay(in: request, now: now, calendar: calendar) : nil
 
         let titles = parsed.events.map { RequestGrounding.exactTitle($0.title, in: request) }
         let written = RequestDates.days(for: titles, in: request, now: now, calendar: calendar)
@@ -1421,12 +1439,16 @@ final class PlanningAssistant {
             let recurrence = Recurrence(rawValue: event.repeats) ?? .none
             var missing: [ItemField] = []
             // El día escrito en la petición («Subida PRE para el 25 de noviembre») manda.
-            let day = written[index] ?? ProposalFormat.day(event.day, calendar: calendar)
-            if written[index] == nil, recurrence == .none, day == nil || !saysWhen { missing.append(.day) }
-            let startMinute = writtenRange?.start ?? ProposalFormat.minute(event.time)
+            let day = written[index] ?? onlyDay ?? ProposalFormat.day(event.day, calendar: calendar)
+            if written[index] == nil, onlyDay == nil, recurrence == .none, day == nil || !saysWhen { missing.append(.day) }
+            var startMinute = writtenRange?.start ?? ProposalFormat.minute(event.time)
+            var endMinute = writtenRange?.end ?? ProposalFormat.minute(event.endTime)
+            if single, writtenRange == nil {
+                // «Empieza a las 18… acabará como a las 20»: las horas dichas, no otras.
+                (startMinute, endMinute) = EventGrounding.times(start: startMinute, end: endMinute, request: request)
+            }
             if startMinute == nil || !saysTime { missing.append(.time) }
             let minutes = event.durationMinutes > 0 ? event.durationMinutes : nil
-            let endMinute = writtenRange?.end ?? ProposalFormat.minute(event.endTime)
             let start = ProposalEditor.at(minute: startMinute ?? defaultStart, on: day ?? tomorrow, calendar: calendar)
             var times = EventTimes(start: start, end: start.addingTimeInterval(TimeInterval((minutes ?? 60) * 60)))
             var hasEnd = false
@@ -1443,11 +1465,11 @@ final class PlanningAssistant {
             if !(hasEnd || (minutes != nil && saysDuration)) { missing.append(.duration) }
             var item = PlanDraft.Item(
                 title: title, start: times.start, end: times.end,
-                mode: PlanMode(rawValue: event.mode) ?? fallbackMode, kind: .event, recurrence: recurrence,
+                mode: statedMode ?? PlanMode(rawValue: event.mode) ?? fallbackMode, kind: .event, recurrence: recurrence,
                 reminderMinutes: event.reminderMinutes > 0 ? event.reminderMinutes : nil
             )
             item.unconfirmed = missing.isEmpty ? nil : missing
-            if PlanMode(rawValue: event.mode) == nil { undecidedEvents.insert(item.id) }
+            if statedMode == nil, PlanMode(rawValue: event.mode) == nil { undecidedEvents.insert(item.id) }
             events.append(item)
         }
 
@@ -1460,11 +1482,11 @@ final class PlanningAssistant {
             }
             let workload = PlanDraft.Workload(
                 id: UUID(), title: RequestGrounding.exactTitle(task.title, in: request),
-                mode: PlanMode(rawValue: task.mode) ?? fallbackMode,
+                mode: statedMode ?? PlanMode(rawValue: task.mode) ?? fallbackMode,
                 deadline: deadline, estimatedMinutes: task.estimatedMinutes, priority: task.priority,
                 difficulty: task.difficulty
             )
-            if PlanMode(rawValue: task.mode) == nil { undecidedTasks.insert(workload.id) }
+            if statedMode == nil, PlanMode(rawValue: task.mode) == nil { undecidedTasks.insert(workload.id) }
             tasks.append(workload)
         }
 
@@ -1584,12 +1606,13 @@ final class PlanningAssistant {
     private static let creationInstructions = """
         Extraes los eventos y tareas NUEVOS que pide el usuario para su plan en Planaby.
         - Uno por cada cosa nueva, sin omitir ninguna, aunque le falten datos. requestedCount: cuántos pide.
+        - Una cosa pedida es UN solo elemento: no la repitas ni crees una tarea además de un evento para lo mismo. Algo con hora es un evento.
         - title: el nombre exacto que usa el usuario («Subida PRE»), sin la fecha ni la palabra evento.
         - Evento: día y hora fijos (reunión, cita, clase). Tarea: trabajo con fecha límite que se reparte en bloques (entregar, preparar, estudiar).
         - Fechas yyyy-MM-dd y horas HH:mm, calculadas desde «Ahora»; sin año, la próxima que no haya pasado.
-        - «De 10:00 a 12:00»: time 10:00 y endTime 12:00. Si solo dice cuánto dura, durationMinutes. Lo que no diga, vacío o 0: Planaby lo preguntará. Nunca inventes datos.
+        - «De 10:00 a 12:00»: time 10:00 y endTime 12:00. «Empieza a las 18 y acabará como a las 20»: time 18:00 y endTime 20:00, aunque diga que hay que llegar antes. Si solo dice cuánto dura, durationMinutes. Lo que no diga, vacío o 0: Planaby lo preguntará. Nunca inventes datos.
         - Si nombra varias fechas para lo mismo, un evento por fecha con el mismo título.
-        - mode: work si es de trabajo o estudios, personal si es ocio, casa, salud o recados; unknown si no está claro.
+        - mode: work si es de trabajo o estudios, personal si es ocio, casa, salud o recados; unknown si no está claro. Si dice el plan («en normal», «en trabajo»), es ese: normal es personal.
         - Cambios de cosas que ya existen no van aquí.
         - Usa el material adjunto para estimar la duración y la dificultad de las tareas.
         Escribe en español.
@@ -1597,7 +1620,8 @@ final class PlanningAssistant {
 
     private static let changeInstructions = """
         Conviertes la petición en cambios sobre elementos que YA existen: la propuesta pendiente (códigos E eventos y T tareas) o lo guardado (C eventos y P tareas).
-        - Un edit por elemento. target: su código; si no está claro cuál es, las palabras del usuario («la reunión del jueves»).
+        - Un edit por elemento. target: su código, que tiene que estar en la lista de abajo (nunca inventes un código); si no está claro cuál es, las palabras del usuario («la reunión del jueves»).
+        - Si corrige la propuesta («solo quiero un evento de 17:45 a 20:00»): update al que se queda y remove a los que sobran.
         - Escribe SOLO los campos que cambian; los demás no los pongas.
         - «A las 10»: time 10:00 (se mueve entero). «Que termine a las 17:00»: solo endTime. «De 9:00 a 11:00»: time y endTime. «Adelanta el comienzo media hora y conserva el fin»: startShift -30 y keepEnd true.
         - Tareas: «pásala al viernes», workDay; la entrega, deadline; «me llevará 2 horas», minutes 120.

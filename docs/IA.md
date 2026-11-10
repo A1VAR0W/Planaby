@@ -53,6 +53,45 @@ Animación: mientras la IA trabaja se ve el atardecer del icono (`SunsetLoader`,
 agua y un destello recorre el horizonte; en la descarga, el sol sube con el progreso. Va a 30
 fotogramas por segundo y, con «Reducir movimiento», se queda quieta como el icono.
 
+## Repaso de lo que devuelve la IA
+
+Los modelos pequeños se equivocan siempre de las mismas maneras. Con «Planifica en normal para el
+día 28 de noviembre "Actuación Natalia", ponle que empieza a las 18 pero tenemos que estar antes,
+acabará como a las 20» devolvieron dos eventos y dos tareas con el mismo nombre, de 16:00 a 22:00
+y en el plan de Trabajo; y al corregir («solo quiero un único evento, de 17:45 a 20:00, nada
+más») crearon dos eventos más, una tarea «Entregar informe» copiada de los ejemplos y un cambio
+sobre «P1», un código que no existía.
+
+Por eso todo lo que devuelve la IA (la local o la de Apple) pasa primero por
+`PlanReadingCheck.clean`, que son reglas fijas y se prueban sin el modelo:
+
+1. **Una cosa pedida es un solo elemento.** Se quitan los repetidos y la tarea que se llama igual
+   que un evento. Varios siguen siendo varios si la petición lo dice: «dos reuniones», «una el
+   lunes y otra el martes», «el lunes y el miércoles».
+2. **Nada copiado de los ejemplos.** Un título que la persona no ha nombrado y que sale de los
+   ejemplos del modelo se descarta.
+3. **Solo códigos que existen.** Un cambio sobre un código que no está en la propuesta ni en lo
+   guardado se descarta, y nunca se enseña un código en un mensaje. Si un cambio no se encuentra,
+   se hacen los demás y se dice cuál no.
+4. **Lo que ya está en la propuesta no se crea otra vez:** se convierte en un cambio de eso, solo
+   con el día y las horas que diga la petición. «Otra reunión» sí crea una nueva.
+5. **«Solo quiero un único evento»** deja uno (el que se cambia, el que se nombra o, si todos se
+   llaman igual, el primero) y quita los demás que creó la propuesta; con «nada más», también
+   las tareas. Lo guardado no se toca.
+6. **«Pon primero»** solo si la petición habla de orden o de prisa, y solo para tareas.
+
+Y con un solo evento nuevo, lo escrito manda sobre lo que diga la IA (`EventGrounding`):
+
+- **Las horas:** una franja («de 17:45 a 20:00»), «empieza a las 18» y «acabará como a las 20»
+  son esas horas exactas. Si la IA da un inicio que nadie escribió, vale la hora escrita.
+- **El día,** si la petición nombra uno solo, esté donde esté en la frase.
+- **El plan:** «planifica en normal», «en el plan de trabajo». No se pregunta «¿Trabajo o
+  Normal?» si ya se ha dicho.
+
+Las instrucciones de los dos modelos dicen lo mismo con ejemplos (un evento con inicio y fin
+dichos de palabra, y una corrección con «solo quiero un único evento»), pero la garantía es el
+repaso, no el modelo.
+
 ## Qué fallaba con Apple Intelligence
 
 Con «Añade dos eventos, uno Subida PRE para el 25 de noviembre y otro Subida PRO para el 26 de
@@ -198,6 +237,10 @@ ello:
 - `Tests/PlanReadingTests.swift`: el JSON del modelo local (los ejemplos que se le enseñan se
   leen bien, solo cambia lo que viene, valores fuera de rango, texto alrededor y respuestas que
   no son JSON);
+- `Tests/PlanReadingCheckTests.swift`: el caso «Actuación Natalia» tal como falló en el iPhone
+  (un solo evento de una cosa pedida, las horas y el plan escritos, la corrección que deja uno y
+  quita el resto, los códigos que no existen, los títulos copiados de los ejemplos) y que lo que
+  sí son varias cosas siga siéndolo;
 - `Tests/SunsetMotionTests.swift`: la animación del atardecer (el sol no se sale de su sitio, la
   descarga lo hace subir, el reflejo y el destello, y la imagen quieta igual que el icono);
 - `Tests/EventTimesTests.swift`: inicio y fin (solo el fin, solo el inicio, conservar el fin,
@@ -263,3 +306,15 @@ Con la IA local (nada de esto está comprobado todavía en un iPhone):
 23. Dicta por voz: el atardecer grande sale mientras organiza (también en el modo escritorio, con
     su color de noche). Con «Reducir movimiento», queda quieto como el icono.
 24. Descarga el 2B: el sol sube a medida que avanza la descarga.
+
+El caso que falló (con la IA local y con la de Apple):
+
+25. «Planifica en normal para el día 28 de noviembre "Actuación Natalia", ponle que empieza a las
+    18 pero tenemos que estar antes, acabará como a las 20»: un solo evento, el 28 de noviembre,
+    de 18:00 a 20:00, en el plan Normal, sin tareas y sin preguntar «¿Trabajo o Normal?».
+26. Después, «Solo quiero un único evento, de 17:45 a 20:00, nada más»: la propuesta se queda con
+    un evento de 17:45 a 20:00 y sin avisos de «coincide con».
+27. Con esa propuesta abierta, «Añade otra actuación el domingo a las 12»: aparece un segundo
+    evento (aquí sí se pide otro).
+28. Si en algún momento sale un título que no has dicho o un código (E1, P1) en un mensaje,
+    anota la petición exacta.

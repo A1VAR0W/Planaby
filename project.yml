@@ -151,6 +151,7 @@ targets:
       - Shared/Planning/RequestIntent.swift
       - Shared/Planning/PlanReading.swift
       - Shared/Planning/LocalPlanningPrompt.swift
+      - Shared/Planning/PlanReadingCheck.swift
       - Shared/Design/MotionTiming.swift
       - Shared/Design/SunsetMotion.swift
       - Shared/Engine/RefreshPolicy.swift

@@ -48,6 +48,7 @@ Recuerda refrescar la app en SideStore cada 7 días.
 - [x] Planificación fiable con Apple Intelligence: todos los elementos pedidos con su nombre y su fecha exactos, nada inventado, preguntas solo por lo que falta (con respuestas rápidas), cambiar y borrar también lo ya guardado (con confirmación y sin tocar calendarios externos), Descartar, Reintentar y Cancelar. Además, un sistema de movimiento común, el panel de tareas animado en horizontal y el nuevo botón de volumen. Detalles en [docs/IA.md](docs/IA.md).
 - [x] IA local en el iPhone: un modelo abierto más capaz (Qwen3.5 4B, o 2B si falta memoria) que corre con MLX en el propio iPhone, sin conexión y sin que nada salga del dispositivo. Se descarga una vez en Ajustes › Plan › IA de planificación; si falla, se usa Apple Intelligence. Detalles en [docs/IA.md](docs/IA.md).
 - [x] Batería: Planaby solo se despierta para lo que se ve (el temporizador al acabar la fase, el reloj cada minuto, el halo respirando sin repintarse, Spotify cada vez menos si no suena) y la IA local se carga al escribir y se suelta sola. Detalles en [docs/BATERIA.md](docs/BATERIA.md).
+- [x] IA que no se inventa nada: lo que devuelve el modelo pasa por un repaso fijo que quita lo repetido y lo copiado de los ejemplos, respeta las horas, el día y el plan que escribes, y entiende «solo quiero un único evento». Detalles en [docs/IA.md](docs/IA.md).
 
 ## Atajos útiles
 
