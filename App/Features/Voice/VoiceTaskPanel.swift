@@ -151,6 +151,8 @@ struct VoiceTaskPanel: View {
     @Environment(\.modelContext) private var context
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var reviewing = false
+    /// Lo que se va a añadir a la vez que otra cosa, para la alerta de «Añadir».
+    @State private var overlapping: [OverlapNotice.Clash] = []
 
     var body: some View {
         VStack(spacing: Space.l) {
@@ -213,6 +215,9 @@ struct VoiceTaskPanel: View {
         .task { await flow.start(context: context) }
         // Al cerrar la hoja deslizando, el micrófono se apaga.
         .onDisappear { if flow.phase == .listening { flow.cancel() } }
+        .overlapAlert($overlapping, confirm: "Añadir igualmente", cancel: "Cancelar") {
+            flow.accept(context: context)
+        }
         .navigationDestination(isPresented: $reviewing) {
             ProposalReviewView(draft: Binding(
                 get: { flow.draft ?? PlanDraft(items: [], tasks: [], summary: "", warnings: []) },
@@ -300,7 +305,10 @@ struct VoiceTaskPanel: View {
                         .controlSize(.large)
                 }
                 Spacer(minLength: 0)
-                actions(primary: "Añadir", primaryIcon: "plus") { flow.accept(context: context) }
+                actions(primary: "Añadir", primaryIcon: "plus") {
+                    let found = PlanBuilder.clashes(in: draft, context: context)
+                    if found.isEmpty { flow.accept(context: context) } else { overlapping = found }
+                }
             }
         }
     }

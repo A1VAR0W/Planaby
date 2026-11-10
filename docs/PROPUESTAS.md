@@ -82,5 +82,7 @@ calendario hasta «Aceptar propuesta».
 
 - Que la IA entienda bien cada frase depende de Apple Intelligence; si no entiende, la propuesta
   sigue igual y puedes editarla a mano.
-- Una cita nueva que coincide con otra cita (propia o de Outlook/Teams) solo avisa; no se mueve.
+- Una cita nueva que coincide con otra cita (propia, de Outlook/Teams o de la propia propuesta)
+  solo avisa; no se mueve. Al aceptar sale la alerta «Ya tienes algo a esa hora» con «Aceptar
+  igualmente».
 - Las tareas guardadas que entran en una propuesta reciben al aceptar lo que se cambió de ellas.

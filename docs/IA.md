@@ -241,6 +241,8 @@ ello:
   (un solo evento de una cosa pedida, las horas y el plan escritos, la corrección que deja uno y
   quita el resto, los códigos que no existen, los títulos copiados de los ejemplos) y que lo que
   sí son varias cosas siga siéndolo;
+- `Tests/OverlapNoticeTests.swift`: dos cosas a la vez (qué se avisa y cómo, cada pareja una
+  vez, bordes que se tocan, lo que se repite, el texto de la alerta y la marca de la agenda);
 - `Tests/SunsetMotionTests.swift`: la animación del atardecer (el sol no se sale de su sitio, la
   descarga lo hace subir, el reflejo y el destello, y la imagen quieta igual que el icono);
 - `Tests/EventTimesTests.swift`: inicio y fin (solo el fin, solo el inicio, conservar el fin,
@@ -318,3 +320,6 @@ El caso que falló (con la IA local y con la de Apple):
     evento (aquí sí se pide otro).
 28. Si en algún momento sale un título que no has dicho o un código (E1, P1) en un mensaje,
     anota la petición exacta.
+29. Con un evento guardado el sábado de 19:00 a 21:00, pide «Pon ensayo el sábado de 18 a 20»:
+    la IA deja 18:00–20:00 (no lo mueve), la propuesta avisa de que coincide y «Aceptar
+    propuesta» enseña «Ya tienes algo a esa hora». «Aceptar igualmente» guarda los dos.

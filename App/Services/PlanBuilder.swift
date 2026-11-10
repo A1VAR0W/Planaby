@@ -26,6 +26,8 @@ enum PlanBuilder {
         }
         let hasPendingBlocks = pendingTasks(context: context).contains { $0.blocks.contains { $0.start > now } }
         draft.canMakeRoom = !draft.warnings.isEmpty && hasPendingBlocks && !tasks.isEmpty
+        // Después: coincidir con otra cita no es falta de hueco.
+        draft.warnings += clashes(in: draft, context: context, now: now).map { OverlapNotice.line($0, now: now) }
         return draft
     }
 
@@ -63,6 +65,7 @@ enum PlanBuilder {
         if moved > 0 {
             draft.summary = "Reorganizo \(moved == 1 ? "1 bloque" : "\(moved) bloques") que aún no habían empezado. " + draft.summary
         }
+        draft.warnings += clashes(in: draft, context: context, now: now).map { OverlapNotice.line($0, now: now) }
         return draft
     }
 
@@ -180,23 +183,39 @@ enum PlanBuilder {
         return local + external
     }
 
-    /// «Subida PRE coincide con «Comité» (10:00–11:00).»
-    static func conflictWarnings(in draft: PlanDraft, saved: [CalendarEvent], range: DateInterval) -> [String] {
+    /// Lo nuevo (o cambiado) de la propuesta que cae a la vez que otra cita guardada, de otro
+    /// calendario o de la propia propuesta. Lo que aún tiene la hora por confirmar no cuenta.
+    static func clashes(in draft: PlanDraft, saved: [CalendarEvent], range: DateInterval) -> [OverlapNotice.Clash] {
         let outside = conflictCandidates(saved: saved, range: range)
-        let events = draft.newEvents.filter { $0.isIncluded && !$0.isUnconfirmed(.time) && !$0.isUnconfirmed(.day) }
-        var warnings: [String] = []
-        for (index, event) in events.enumerated() {
-            let others = events.enumerated().filter { $0.offset != index }.flatMap { other in
-                other.element.occurrences(in: range).map { EventConflict(title: other.element.title, interval: $0) }
-            }
-            for slot in event.occurrences(in: range) {
-                let times = EventTimes(start: slot.start, end: slot.end)
-                guard let first = EventSchedule.conflicts(times, with: outside + others).first else { continue }
-                let when = EventSchedule.rangeText(EventTimes(start: first.interval.start, end: first.interval.end))
-                warnings.append("«\(event.title)» coincide con «\(first.title)» (\(ProposalFormat.dayName(first.interval.start)) \(when)).")
-                break
-            }
+        let slots = draft.newEvents
+            .filter { $0.isIncluded && !$0.isUnconfirmed(.time) && !$0.isUnconfirmed(.day) }
+            .map { OverlapNotice.Slot(title: $0.title, intervals: $0.occurrences(in: range)) }
+        return OverlapNotice.clashes(slots, outside: outside)
+    }
+
+    /// Lo mismo, leyendo lo guardado: para la alerta de «Aceptar propuesta». Lo que la propuesta
+    /// sustituye, cambia o borra ya no cuenta.
+    static func clashes(in draft: PlanDraft, context: ModelContext, now: Date = .now) -> [OverlapNotice.Clash] {
+        let range = DateInterval(start: now, end: eventHorizon(draft.newEvents, after: now))
+        let removed = draft.replacedSavedIDs
+        let deletedTasks = Set(draft.deletions.filter(\.isTask).map(\.id))
+        let saved = ((try? context.fetch(FetchDescriptor<CalendarEvent>())) ?? []).filter { event in
+            event.kind != .workBlock && !removed.contains(event.persistentModelID)
+                && !(event.task.map { deletedTasks.contains($0.persistentModelID) } ?? false)
         }
+        return clashes(in: draft, saved: saved, range: range)
+    }
+
+    /// Hasta dónde mirar coincidencias: tres semanas, o hasta el final de lo que se propone.
+    private static func eventHorizon(_ events: [PlanDraft.Item], after now: Date) -> Date {
+        max(events.map(\.end).max() ?? now, now.addingTimeInterval(21 * 24 * 3600))
+    }
+
+    /// «Ensayo coincide con «Comité» (lunes 10:00–11:00).» Se avisa, no se mueve: tener dos
+    /// cosas a la vez está permitido.
+    static func conflictWarnings(in draft: PlanDraft, saved: [CalendarEvent], range: DateInterval) -> [String] {
+        var warnings = clashes(in: draft, saved: saved, range: range).map { OverlapNotice.line($0) }
+        let outside = conflictCandidates(saved: saved, range: range)
         for task in draft.tasks {
             guard let slot = task.workSlot(), let first = EventSchedule.conflicts(slot, with: outside).first else { continue }
             warnings.append("La franja de «\(task.title)» coincide con «\(first.title)» (\(EventSchedule.rangeText(EventTimes(start: first.interval.start, end: first.interval.end)))).")
@@ -262,7 +281,7 @@ enum PlanBuilder {
 
         let pending = pendingTasks(context: context)
         let inDraft = Set(draft.tasks.compactMap(\.existing))
-        let horizon = max(draft.tasks.map(\.deadline).max() ?? now, now.addingTimeInterval(21 * 24 * 3600))
+        let horizon = max(draft.tasks.map(\.deadline).max() ?? now, eventHorizon(draft.newEvents, after: now))
         let range = DateInterval(start: now, end: horizon)
         // Lo nuevo y las franjas que se piden libres: los bloques guardados que caen ahí se mueven.
         let taken = draft.newEvents.filter(\.isIncluded).flatMap { $0.occurrences(in: range) } + draft.constraints.freeIntervals

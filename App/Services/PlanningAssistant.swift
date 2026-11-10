@@ -1610,7 +1610,7 @@ final class PlanningAssistant {
         - title: el nombre exacto que usa el usuario («Subida PRE»), sin la fecha ni la palabra evento.
         - Evento: día y hora fijos (reunión, cita, clase). Tarea: trabajo con fecha límite que se reparte en bloques (entregar, preparar, estudiar).
         - Fechas yyyy-MM-dd y horas HH:mm, calculadas desde «Ahora»; sin año, la próxima que no haya pasado.
-        - «De 10:00 a 12:00»: time 10:00 y endTime 12:00. «Empieza a las 18 y acabará como a las 20»: time 18:00 y endTime 20:00, aunque diga que hay que llegar antes. Si solo dice cuánto dura, durationMinutes. Lo que no diga, vacío o 0: Planaby lo preguntará. Nunca inventes datos.
+        - «De 10:00 a 12:00»: time 10:00 y endTime 12:00. «Empieza a las 18 y acabará como a las 20»: time 18:00 y endTime 20:00, aunque diga que hay que llegar antes. Puede tener dos cosas a la vez: nunca cambies una hora para evitar otra cita. Si solo dice cuánto dura, durationMinutes. Lo que no diga, vacío o 0: Planaby lo preguntará. Nunca inventes datos.
         - Si nombra varias fechas para lo mismo, un evento por fecha con el mismo título.
         - mode: work si es de trabajo o estudios, personal si es ocio, casa, salud o recados; unknown si no está claro. Si dice el plan («en normal», «en trabajo»), es ese: normal es personal.
         - Cambios de cosas que ya existen no van aquí.

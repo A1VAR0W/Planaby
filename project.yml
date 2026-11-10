@@ -152,6 +152,7 @@ targets:
       - Shared/Planning/PlanReading.swift
       - Shared/Planning/LocalPlanningPrompt.swift
       - Shared/Planning/PlanReadingCheck.swift
+      - Shared/Planning/OverlapNotice.swift
       - Shared/Design/MotionTiming.swift
       - Shared/Design/SunsetMotion.swift
       - Shared/Engine/RefreshPolicy.swift

@@ -28,6 +28,13 @@ struct PlanView: View {
         let visible = modes.mode.visibleModes
         let _ = external.revision
         let dayRows = rows(on: selectedDay, visible: visible)
+        // Lo que está a la vez que otra cosa (permitido: solo se señala).
+        let together = OverlapNotice.alongside(dayRows.filter { !$0.isAllDay }.map { row -> OverlapNotice.Entry in
+            switch row {
+            case .local(let entry): return OverlapNotice.Entry(id: row.id, title: entry.event.title, interval: entry.interval)
+            case .external(let event): return OverlapNotice.Entry(id: row.id, title: event.title, interval: event.interval)
+            }
+        })
         let pendingTasks = tasks.filter { visible.contains($0.mode) }
 
         List {
@@ -48,7 +55,7 @@ struct PlanView: View {
                         case .external(let event):
                             ExternalAgendaRow(event: event)
                         case .local(let entry):
-                            AgendaRow(entry: entry) {
+                            AgendaRow(entry: entry, alongside: together[row.id] ?? []) {
                                 Task {
                                     await NotificationAccess.requestIfNeeded()
                                     timer.start(library.selected, task: entry.event.task?.title ?? entry.event.title, taskID: entry.event.task?.stableID)
@@ -553,6 +560,8 @@ private struct DayCell: View {
 
 private struct AgendaRow: View {
     let entry: AgendaEntry
+    /// Lo que hay a la vez ese día.
+    var alongside: [String] = []
     let onStart: () -> Void
 
     var body: some View {
@@ -589,6 +598,12 @@ private struct AgendaRow: View {
                 }
                 .font(.caption)
                 .foregroundStyle(Theme.secondaryText)
+                if !alongside.isEmpty {
+                    Label(OverlapNotice.alongsideText(alongside), systemImage: "square.on.square")
+                        .font(.caption)
+                        .foregroundStyle(Theme.orange)
+                        .lineLimit(2)
+                }
             }
 
             Spacer(minLength: 0)

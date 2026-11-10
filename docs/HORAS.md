@@ -32,9 +32,19 @@ se escribe: se calcula y se enseña debajo («Duración 2 h 30 min»).
   dos horas reales. Una hora que no existe (2:30 el día que se adelanta el reloj) pasa a la
   siguiente que sí.
 - Máximo 14 días por evento.
-- **Coincidencias:** debajo de las horas aparece «Coincide con «Comité» · jueves 10:00–11:00»,
-  con las citas guardadas, las de otros calendarios y el resto de la propuesta. Avisa, pero no
-  impide guardar. La propuesta también lo dice en sus avisos.
+- **Coincidencias:** se pueden tener dos cosas a la misma hora (es para organizarse); nunca se
+  impide ni se mueve nada, solo se avisa:
+  - debajo de las horas aparece «Coincide con «Comité» · jueves 10:00–11:00», con las citas
+    guardadas, las de otros calendarios y el resto de la propuesta;
+  - al pulsar «Guardar» sale la alerta «Ya tienes algo a esa hora», que dice con qué coincide,
+    con «Guardar igualmente» o «Cambiar la hora». Al editar un evento sin tocar sus horas no se
+    repite;
+  - al aceptar una propuesta (en la revisión, en la tarjeta del chat o por voz) sale la misma
+    alerta, con «Aceptar igualmente»;
+  - en los avisos de la propuesta cada pareja sale una vez: «Hay dos «Actuación Natalia» a la
+    vez (sábado 17:45–20:00)» en vez de «X coincide con X» dos veces;
+  - en la agenda del día, lo que está a la vez que otra cosa lleva debajo «A la vez que «Cena»».
+- La IA tampoco cambia una hora para evitar otra cita: pone la que dices y Planaby avisa.
 
 ## Con la IA
 
@@ -70,7 +80,9 @@ Nada de esto se ha comprobado todavía en el dispositivo.
    Guarda y comprueba la agenda.
 2. Cambia el fin a 8:00: aparece el aviso y «Guardar» se desactiva. Pulsa «Termina al día
    siguiente»: vuelve a valer.
-3. Crea otro evento que se solape con el anterior: aparece «Coincide con…».
+3. Crea otro evento que se solape con el anterior: aparece «Coincide con…» y, al pulsar
+   «Guardar», la alerta «Ya tienes algo a esa hora». «Guardar igualmente» guarda los dos; en la
+   agenda los dos dicen «A la vez que…». «Cambiar la hora» vuelve al formulario sin guardar.
 4. Cambia la fecha de un evento de 22:00 a 01:00: sigue terminando al día siguiente.
 5. En el chat, prueba las frases de la tabla y revisa cada propuesta antes de aceptar.
 6. En horizontal, crea un evento desde Plan y repite el paso 1.

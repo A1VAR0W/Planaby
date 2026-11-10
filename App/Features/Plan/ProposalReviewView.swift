@@ -14,6 +14,8 @@ struct ProposalReviewView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \CalendarEvent.start) private var existing: [CalendarEvent]
     @State private var editing: Editing?
+    /// Lo que la propuesta pone a la vez que otra cosa, para la alerta de «Aceptar».
+    @State private var overlapping: [OverlapNotice.Clash] = []
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     enum Editing: Identifiable {
@@ -154,10 +156,8 @@ struct ProposalReviewView: View {
         .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .bottom) {
             Button {
-                Task { await NotificationAccess.requestIfNeeded() }
-                // Siempre la última versión: la que se está viendo.
-                PlanBuilder.accept(draft, context: context)
-                onAccepted()
+                let found = PlanBuilder.clashes(in: draft, context: context)
+                if found.isEmpty { accept() } else { overlapping = found }
             } label: {
                 Text("Aceptar propuesta")
                     .font(.headline)
@@ -172,6 +172,7 @@ struct ProposalReviewView: View {
             .padding(.horizontal, Space.m)
             .padding(.bottom, Space.s)
         }
+        .overlapAlert($overlapping, confirm: "Aceptar igualmente", cancel: "Revisar", onConfirm: accept)
         .sheet(item: $editing) { target in
             NavigationStack { editor(for: target) }
                 .presentationDetents([.medium, .large])
@@ -202,6 +203,13 @@ struct ProposalReviewView: View {
                 DraftItemEditor(item: $draft.items[index], conflicts: conflicts(for:))
             }
         }
+    }
+
+    private func accept() {
+        Task { await NotificationAccess.requestIfNeeded() }
+        // Siempre la última versión: la que se está viendo.
+        PlanBuilder.accept(draft, context: context)
+        onAccepted()
     }
 
     // MARK: Cambios

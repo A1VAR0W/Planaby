@@ -22,6 +22,10 @@ struct EventForm: View {
     @State private var notes: String
     /// Más días con lo mismo a la misma hora (solo al crear y si no se repite).
     @State private var otherDays: Set<DateComponents> = []
+    /// Lo que ya hay a esa hora, para la alerta de «Guardar».
+    @State private var overlapping: [OverlapNotice.Clash] = []
+    /// Las horas al abrir: si al editar no se cambian, no se vuelve a avisar.
+    private let initialTimes: EventTimes?
 
     private static let reminderOptions = [-1, 0, 5, 10, 15, 30, 60, 1440]
 
@@ -36,6 +40,7 @@ struct EventForm: View {
         _recurrence = State(initialValue: event?.recurrence ?? (kind == .habit ? .daily : .none))
         _reminder = State(initialValue: event.map { $0.reminderMinutes ?? -1 } ?? 15)
         _notes = State(initialValue: event?.notes ?? "")
+        initialTimes = event.map { EventTimes(start: $0.start, end: $0.end) }
     }
 
     var body: some View {
@@ -80,13 +85,14 @@ struct EventForm: View {
             }
         }
         .navigationTitle(event == nil ? (kind == .habit ? "Nuevo hábito" : "Nuevo evento") : "Editar")
+        .overlapAlert($overlapping, cancel: "Cambiar la hora", onConfirm: save)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancelar", systemImage: "xmark") { dismiss() }
             }
             ToolbarItem(placement: .confirmationAction) {
-                Button("Guardar", systemImage: "checkmark", action: save)
+                Button("Guardar", systemImage: "checkmark", action: attemptSave)
                     .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty || EventSchedule.issue(times) != nil)
             }
         }
@@ -102,6 +108,27 @@ struct EventForm: View {
             excluding: Set([event?.persistentModelID].compactMap { $0 })
         )
         return EventSchedule.conflicts(times, with: candidates)
+    }
+
+    /// Si coincide con algo, primero la alerta; se puede guardar igualmente.
+    private func attemptSave() {
+        let found = clashes
+        if found.isEmpty { save() } else { overlapping = found }
+    }
+
+    /// Lo que coincide con lo que se va a guardar: cada día marcado, con sus horas. Un evento que
+    /// se repite cuenta por su primera vez (como el aviso de debajo de las horas).
+    private var clashes: [OverlapNotice.Clash] {
+        guard EventSchedule.issue(times) == nil, times != initialTimes else { return [] }
+        let copies = [times] + extraDays.map { EventSchedule.moving(times, toDay: $0) }
+        guard let first = copies.map(\.start).min(), let last = copies.map(\.end).max() else { return [] }
+        let outside = PlanBuilder.conflictCandidates(
+            saved: saved, range: DateInterval(start: first, end: last),
+            excluding: Set([event?.persistentModelID].compactMap { $0 })
+        )
+        let name = title.trimmingCharacters(in: .whitespaces)
+        let slots = copies.map { OverlapNotice.Slot(title: name, intervals: [DateInterval(start: $0.start, end: $0.end)]) }
+        return OverlapNotice.clashes(slots, outside: outside)
     }
 
     private func save() {

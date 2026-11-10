@@ -17,6 +17,8 @@ struct PlanChatView: View {
     @State private var showsFiles = false
     @State private var importing = 0
     @State private var confirmingDiscard = false
+    /// Lo que la propuesta pone a la vez que otra cosa, para la alerta de «Aceptar».
+    @State private var overlapping: [OverlapNotice.Clash] = []
     /// La petición en curso, para poder cancelarla.
     @State private var sending: Task<Void, Never>?
     @FocusState private var inputFocused: Bool
@@ -55,6 +57,9 @@ struct PlanChatView: View {
                     .disabled(assistant.messages.isEmpty || assistant.isThinking)
             }
         }
+        .overlapAlert($overlapping, confirm: "Aceptar igualmente", cancel: "Cancelar") {
+            assistant.acceptActive(context: context)
+        }
         .confirmationDialog("¿Borrar la conversación?", isPresented: $confirmingClear, titleVisibility: .visible) {
             Button("Borrar", role: .destructive) { assistant.clearHistory() }
         } message: {
@@ -85,6 +90,13 @@ struct PlanChatView: View {
         }
     }
 
+    /// «Aceptar propuesta» desde la tarjeta: si algo coincide con lo que ya hay, primero la alerta.
+    private func requestAccept() {
+        guard let draft = assistant.draft else { return }
+        let found = PlanBuilder.clashes(in: draft, context: context)
+        if found.isEmpty { assistant.acceptActive(context: context) } else { overlapping = found }
+    }
+
     private var conversation: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -97,7 +109,7 @@ struct PlanChatView: View {
                             message: message, assistant: assistant,
                             onReview: { reviewing = true },
                             onModify: startModifying,
-                            onAccept: { assistant.acceptActive(context: context) },
+                            onAccept: requestAccept,
                             onUndo: { assistant.undo(context: context) },
                             onRedo: { assistant.redo(context: context) },
                             onChooseMode: { mode in assistant.chooseMode(mode, for: message.id, context: context) },

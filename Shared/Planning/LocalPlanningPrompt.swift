@@ -92,6 +92,7 @@ enum LocalPlanningPrompt {
             - Una cosa pedida es UN solo elemento. No repitas elementos ni crees una tarea además de un evento para lo mismo. Si solo nombra una cosa, devuelve una.
             - Algo con hora es un evento, nunca una tarea. Solo hay tareas si habla de un trabajo con entrega o de cuánto le llevará.
             - Las horas son exactamente las que dice: «empieza a las 18… acabará como a las 20» es time 18:00 y endTime 20:00, aunque diga que hay que llegar antes.
+            - Puede tener dos cosas a la misma hora: nunca cambies una hora para evitar otra cita. Planaby avisa de lo que coincide.
             - Si dice en qué plan va («en normal», «en el plan de trabajo»), ese es su mode: normal es personal; trabajo es work.
             - "title": el nombre exacto que usa el usuario, sin la fecha ni la palabra evento.
             - Evento: día y hora fijos (reunión, cita, clase, subida). Tarea: trabajo con fecha límite (entregar, preparar, estudiar).
