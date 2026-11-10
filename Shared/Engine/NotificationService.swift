@@ -32,7 +32,11 @@ final class NotificationService {
             case .vibration, .visual:
                 content.sound = nil
             }
-            if intoBreak {
+            if intoBreak, state.asksAfterFocus == true {
+                // «Preguntar qué hacer»: el descanso no empieza hasta que se elija.
+                content.title = "Concentración terminada"
+                content.body = "Abre Planaby para descansar, seguir o finalizar. El descanso no empieza hasta que lo elijas."
+            } else if intoBreak {
                 content.title = "Buen trabajo. Es hora de descansar"
                 var body = "\(transition.next.title) de \(Self.minutes(transition.nextDuration ?? 0)) min."
                 if let step = context?.nextStep, !step.isEmpty { body += " Después: \(step)." }

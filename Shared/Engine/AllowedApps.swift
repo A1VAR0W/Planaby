@@ -18,18 +18,27 @@ struct AllowedApp: Codable, Equatable, Hashable, Identifiable, Sendable {
 }
 
 /// Apps permitidas: iOS no dice a qué app se va uno (haría falta Tiempo de uso, de pago), así
-/// que la salida se autoriza al tocar la app dentro de Planaby. Desde ahí el tiempo sigue
-/// corriendo, no llegan avisos de «vuelve» y al volver no se apunta nada.
+/// que la salida se autoriza al tocar la app dentro de Planaby. Eso da un pase (`AllowedPass`):
+/// mientras dura, el tiempo sigue corriendo, no llegan avisos de «vuelve» y al volver no se
+/// apunta nada. Planaby sabe que la salida estaba autorizada, no qué app se ha usado.
 enum AllowedApps {
     enum Keys {
-        static let chosen = "allowedApps"
+        /// Las elegidas en cada plan (Trabajo y Normal tienen cada uno las suyas).
+        static func chosen(_ mode: PlanMode) -> String { "allowedApps.\(mode.rawValue)" }
         static let custom = "allowedAppsCustom"
         static let limit = "allowedAppsLimit"
+        static let pass = "allowedAppsPass"
     }
 
-    /// Minutos que se puede estar en una app permitida antes de que vuelvan los avisos. 0: sin límite.
-    static let limitOptions = [5, 10, 15, 30, 60, 0]
+    /// Minutos que dura el pase. 0: hasta terminar la sesión (solo si se elige expresamente).
+    static let limitOptions = [5, 15, 30, 0]
     static let defaultLimit = 15
+    /// En Trabajo vienen ya elegidas las de trabajar; en Normal, ninguna.
+    static let workDefaults = ["teams", "outlook", "safari", "word", "notes"]
+
+    static func limitTitle(_ minutes: Int) -> String {
+        minutes == 0 ? "Hasta terminar la sesión" : "\(minutes) min"
+    }
 
     /// Las que se ofrecen para elegir. El esquema solo abre la app.
     static let catalog: [AllowedApp] = [
@@ -67,10 +76,22 @@ enum AllowedApps {
         AllowedApp(id: "shortcuts", name: "Atajos", symbol: "square.2.layers.3d.fill", url: "shortcuts://"),
     ]
 
-    /// Las elegidas, en el orden del catálogo, y después las añadidas a mano.
-    static func chosen(defaults: UserDefaults = .standard) -> [AllowedApp] {
-        let ids = Set((defaults.string(forKey: Keys.chosen) ?? "").split(separator: ",").map(String.init))
-        return catalog.filter { ids.contains($0.id) } + custom(defaults: defaults)
+    /// Los identificadores elegidos en un plan. Mientras no se toque, Trabajo trae los suyos.
+    static func chosenIDs(_ mode: PlanMode, defaults: UserDefaults = .standard) -> Set<String> {
+        guard let raw = defaults.string(forKey: Keys.chosen(mode)) else {
+            return mode == .work ? Set(workDefaults) : []
+        }
+        return Set(raw.split(separator: ",").map(String.init))
+    }
+
+    static func setChosen(_ ids: Set<String>, for mode: PlanMode, defaults: UserDefaults = .standard) {
+        defaults.set(ids.sorted().joined(separator: ","), forKey: Keys.chosen(mode))
+    }
+
+    /// Las elegidas en un plan, en el orden del catálogo, y después las añadidas a mano.
+    static func chosen(_ mode: PlanMode, defaults: UserDefaults = .standard) -> [AllowedApp] {
+        let ids = chosenIDs(mode, defaults: defaults)
+        return (catalog + custom(defaults: defaults)).filter { ids.contains($0.id) }
     }
 
     static func custom(defaults: UserDefaults = .standard) -> [AllowedApp] {
@@ -83,7 +104,8 @@ enum AllowedApps {
     }
 
     static func limit(defaults: UserDefaults = .standard) -> Int {
-        defaults.object(forKey: Keys.limit) as? Int ?? defaultLimit
+        let stored = defaults.object(forKey: Keys.limit) as? Int ?? defaultLimit
+        return limitOptions.contains(stored) ? stored : defaultLimit
     }
 
     /// Una app escrita a mano: el nombre y, si se sabe, su esquema («miapp» → «miapp://»).
@@ -113,16 +135,58 @@ enum LeaveVerdict: Equatable, Sendable {
     case distraction(seconds: TimeInterval, from: Date)
 
     /// - `grace`: margen normal al salir a cualquier app.
-    /// - `authorized`: se salió tocando una app permitida.
-    /// - `limit`: segundos que se puede estar en una app permitida (0 = sin límite). Lo que pase de
-    ///   ahí cuenta como distracción, desde ese momento.
-    static func judge(leftAt: Date, now: Date, grace: TimeInterval, authorized: Bool, limit: TimeInterval) -> LeaveVerdict {
+    /// - `pass`: el pase que había al salir, si lo había. Lo que pase de su final cuenta como
+    ///   distracción, desde ese momento. Con un pase «hasta terminar la sesión» no cuenta nada.
+    static func judge(leftAt: Date, now: Date, grace: TimeInterval, pass: AllowedPass?) -> LeaveVerdict {
         let away = now.timeIntervalSince(leftAt)
         guard away > 0 else { return .fine }
-        if authorized {
-            guard limit > 0, away >= limit + grace else { return .fine }
-            return .distraction(seconds: away - limit, from: leftAt.addingTimeInterval(limit))
+        if let pass, pass.isActive(at: leftAt) {
+            guard let expiry = pass.expiry, now >= expiry.addingTimeInterval(grace) else { return .fine }
+            return .distraction(seconds: now.timeIntervalSince(expiry), from: expiry)
         }
         return away >= grace ? .distraction(seconds: away, from: leftAt) : .fine
+    }
+}
+
+/// Salida autorizada: se ha tocado una app permitida durante la concentración. Vale para la
+/// sesión en la que se pidió y durante el rato elegido; se guarda para sobrevivir a que iOS
+/// cierre Planaby mientras se está fuera.
+struct AllowedPass: Codable, Equatable, Sendable {
+    /// Lo que se tocó («Teams»). Es lo que se pidió, no una comprobación de la app usada.
+    var app: String
+    var grantedAt: Date
+    /// 0: hasta terminar la sesión.
+    var minutes: Int
+    /// Comienzo de la sesión para la que vale.
+    var session: Date
+
+    var expiry: Date? {
+        minutes > 0 ? grantedAt.addingTimeInterval(TimeInterval(minutes * 60)) : nil
+    }
+
+    func isActive(at now: Date) -> Bool {
+        guard now >= grantedAt else { return false }
+        return expiry.map { now < $0 } ?? true
+    }
+
+    /// Vale ahora y para esta sesión (otra sesión, o ninguna, lo anula).
+    func isValid(at now: Date, session current: Date?) -> Bool {
+        current == session && isActive(at: now)
+    }
+
+    func remaining(at now: Date) -> TimeInterval? {
+        expiry.map { max(0, $0.timeIntervalSince(now)) }
+    }
+
+    static func load(defaults: UserDefaults = .standard) -> AllowedPass? {
+        defaults.data(forKey: AllowedApps.Keys.pass).flatMap { try? JSONDecoder().decode(AllowedPass.self, from: $0) }
+    }
+
+    static func save(_ pass: AllowedPass?, defaults: UserDefaults = .standard) {
+        if let pass, let data = try? JSONEncoder().encode(pass) {
+            defaults.set(data, forKey: AllowedApps.Keys.pass)
+        } else {
+            defaults.removeObject(forKey: AllowedApps.Keys.pass)
+        }
     }
 }

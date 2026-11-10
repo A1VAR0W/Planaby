@@ -308,7 +308,7 @@ struct DeskView: View {
     private func face(state: TimerState?, date: Date, tint: Color, ink: Color) -> some View {
         VStack(spacing: Space.xs) {
             if let state {
-                Eyebrow(text: state.isPaused ? "En pausa" : state.phase.title, color: tint)
+                Eyebrow(text: state.isAwaitingChoice ? "Descanso listo" : state.isPaused ? "En pausa" : state.phase.title, color: tint)
                 Text(state.clockText(at: date))
                     .font(Theme.clock(120))
                     .foregroundStyle(ink.opacity(state.isPaused ? 0.55 : 1))

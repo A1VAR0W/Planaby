@@ -624,6 +624,16 @@ final class PlanningAssistant {
     /// Lo que se entiende sin el modelo: respuestas a una pregunta sobre un dato («1 h»), a
     /// «¿Cuál?», y deshacer, rehacer y aceptar.
     private func answerWithoutAI(_ text: String, context: ModelContext) -> Bool {
+        // «No, uno cada día, no todos el 19»: los días ya se dijeron; se reparten sin el modelo.
+        if let proposal = active {
+            let earlier = messages.dropLast().reversed().filter { $0.role == .user }.map(\.text)
+            if let spread = ProposalSpread.plan(request: text, earlier: Array(earlier.prefix(8)), draft: proposal.history.current, now: .now) {
+                active?.detail = nil
+                active?.clarification = nil
+                applyEdits(spread.edits, mergeSimilar: false, request: text, saved: .empty, context: context)
+                return true
+            }
+        }
         if var proposal = active, let detail = proposal.detail {
             let current = proposal.history.current
             switch detail.answer(text, in: current, now: .now) {

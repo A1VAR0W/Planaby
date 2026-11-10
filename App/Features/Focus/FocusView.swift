@@ -306,7 +306,7 @@ private struct ActiveSessionView: View {
                 ZStack {
                     ProgressRing(progress: state.progress(at: context.date), tint: state.phase.tint, lineWidth: 4)
                     VStack(spacing: Space.s) {
-                        Eyebrow(text: state.isPaused ? "En pausa" : state.phase.title, color: state.phase.tint)
+                        Eyebrow(text: state.isAwaitingChoice ? "Descanso listo" : state.isPaused ? "En pausa" : state.phase.title, color: state.phase.tint)
                         Text(state.clockText(at: context.date))
                             .font(Theme.clock(76))
                             .foregroundStyle(.white.opacity(state.isPaused ? 0.6 : 1))
@@ -344,14 +344,18 @@ private struct ActiveSessionView: View {
             .frame(minHeight: 44)
             .padding(.top, Space.xs)
 
-            // Ir a Teams, al correo… sin que cuente como distracción.
-            Button(action: onAllowed) {
-                Label("Apps permitidas", systemImage: "square.grid.2x2")
-                    .font(.footnote.weight(.medium))
-                    .frame(minHeight: 44)
+            // Ir a Teams, al correo… sin que cuente como distracción. Solo hace falta
+            // concentrándose: en el descanso salir no cuenta.
+            if !state.phase.isBreak {
+                Button(action: onAllowed) {
+                    Label("Apps permitidas", systemImage: "square.grid.2x2")
+                        .font(.footnote.weight(.medium))
+                        .frame(minHeight: 44)
+                }
+                .foregroundStyle(Theme.secondaryText)
+                .buttonStyle(.plain)
+                AllowedPassChip()
             }
-            .foregroundStyle(Theme.secondaryText)
-            .buttonStyle(.plain)
 
             Spacer()
 

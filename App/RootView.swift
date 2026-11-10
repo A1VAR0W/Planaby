@@ -178,7 +178,8 @@ struct RootView: View {
             guard let new, scenePhase == .active else { return }
             let intoBreak = new.next.isBreak
             guard new.endedStarter || AlertPreferences.alerts(intoBreak: intoBreak) else { return }
-            if Preferences.phaseAlertsEnabled { PhaseAlertPlayer.shared.play(intoBreak: intoBreak) }
+            // Si ocurrió estando fuera ya sonó la notificación: ahora solo se enseña.
+            if Preferences.phaseAlertsEnabled, !new.late { PhaseAlertPlayer.shared.play(intoBreak: intoBreak) }
             if AlertPreferences.showsOverlay || new.endedStarter {
                 withAnimation(Motion.adaptive(Motion.emphasized, reduceMotion: reduceMotion)) {
                     transition = new

@@ -146,6 +146,7 @@ targets:
       - Shared/Engine/QuickCapture.swift
       - Shared/Planning/PlanDraft.swift
       - Shared/Planning/ProposalEditing.swift
+      - Shared/Planning/ProposalSpread.swift
       - Shared/Planning/PlanRequest.swift
       - Shared/Planning/EventSchedule.swift
       - Shared/Planning/RequestIntent.swift

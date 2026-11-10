@@ -22,10 +22,7 @@ final class LeaveGuard {
         fileprivate static let leftAt = "leaveGuardLeftAt"
         fileprivate static let locked = "leaveGuardLocked"
         fileprivate static let excusedUntil = "leaveGuardExcusedUntil"
-        /// Se ha tocado una app permitida: la próxima salida (en unos segundos) está autorizada.
-        fileprivate static let allowedUntil = "leaveGuardAllowedUntil"
-        fileprivate static let allowedName = "leaveGuardAllowedName"
-        /// La salida en curso es a una app permitida.
+        /// La salida en curso se hizo con un pase de app permitida.
         fileprivate static let leftAllowed = "leaveGuardLeftAllowed"
     }
 
@@ -41,6 +38,9 @@ final class LeaveGuard {
     }
 
     var returned: Return?
+
+    /// Pase de app permitida, para enseñarlo en Enfoque. Si sigue valiendo lo dice `currentPass`.
+    private(set) var pass: AllowedPass? = AllowedPass.load()
 
     @ObservationIgnored private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
     @ObservationIgnored private let defaults = UserDefaults.standard
@@ -72,10 +72,25 @@ final class LeaveGuard {
     }
 
     /// Se va a una app permitida: el tiempo sigue corriendo, sin avisos de «vuelve» y sin apuntar
-    /// nada al volver. Si se pasa del límite elegido, lo que sobre sí cuenta.
-    func allow(_ name: String) {
-        defaults.set(Date.now.addingTimeInterval(20).timeIntervalSince1970, forKey: Keys.allowedUntil)
-        defaults.set(name, forKey: Keys.allowedName)
+    /// nada al volver, durante `minutes` (0 = hasta terminar la sesión). Lo que pase de ahí sí
+    /// cuenta. Sin sesión en marcha no hace nada.
+    func allow(_ name: String, minutes: Int = AllowedApps.limit()) {
+        guard let session = FocusTimer.shared.state?.sessionStart else { return }
+        set(AllowedPass(app: name, grantedAt: .now, minutes: minutes, session: session))
+    }
+
+    /// Termina el pase antes de tiempo («Ya he vuelto»).
+    func endPass() { set(nil) }
+
+    /// El pase, solo si sigue valiendo para la sesión en marcha.
+    func currentPass(at now: Date = .now) -> AllowedPass? {
+        guard let pass, pass.isValid(at: now, session: FocusTimer.shared.state?.sessionStart) else { return nil }
+        return pass
+    }
+
+    private func set(_ new: AllowedPass?) {
+        pass = new
+        AllowedPass.save(new)
     }
 
     private var isExcused: Bool { defaults.double(forKey: Keys.excusedUntil) > Date.now.timeIntervalSince1970 }
@@ -88,19 +103,17 @@ final class LeaveGuard {
         let now = Date.now
         defaults.set(now.timeIntervalSince1970, forKey: Keys.leftAt)
         defaults.set(false, forKey: Keys.locked)
-        let allowed = defaults.double(forKey: Keys.allowedUntil) > now.timeIntervalSince1970
-        defaults.removeObject(forKey: Keys.allowedUntil)
-        defaults.set(allowed, forKey: Keys.leftAllowed)
-        if allowed {
-            // App permitida: nada de avisos hasta que se pase del límite (si lo hay).
-            let limit = TimeInterval(AllowedApps.limit() * 60)
+        let pass = currentPass(at: now)
+        defaults.set(pass != nil, forKey: Keys.leftAllowed)
+        if let pass {
+            // Salida autorizada: nada de avisos hasta que se acabe el pase (si tiene final).
             UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: Self.ids)
-            if limit > 0 {
-                schedule(from: now, remaining: state.remaining(at: now), after: limit, app: defaults.string(forKey: Keys.allowedName))
+            if let left = pass.remaining(at: now) {
+                schedule(from: now, remaining: state.remaining(at: now), after: left, passMinutes: pass.minutes)
             }
-            return
+        } else {
+            schedule(from: now, remaining: state.remaining(at: now))
         }
-        schedule(from: now, remaining: state.remaining(at: now))
         // Unos segundos despierta para notar si lo que ha pasado es que se ha bloqueado el iPhone.
         endBackground()
         backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "leave-guard") {
@@ -123,14 +136,16 @@ final class LeaveGuard {
         defaults.removeObject(forKey: Keys.leftAt)
         defaults.removeObject(forKey: Keys.locked)
         defaults.removeObject(forKey: Keys.leftAllowed)
+        // El pase con el que se salió, aunque haya caducado estando fuera (hace falta para juzgar).
+        let session = FocusTimer.shared.state?.sessionStart
+        let used = allowed && pass?.session == session ? pass : nil
+        // Un pase caducado o de otra sesión deja de enseñarse.
+        if pass != nil, currentPass() == nil { set(nil) }
         guard left > 0, !locked else { return }
         let wentAt = Date(timeIntervalSince1970: left)
-        guard Date.now.timeIntervalSince(wentAt) < 2 * 3600, FocusTimer.shared.state != nil else { return }
-        // En una app permitida no pasa nada; solo cuenta lo que se pase del límite.
-        let verdict = LeaveVerdict.judge(
-            leftAt: wentAt, now: .now, grace: TimeInterval(Self.grace), authorized: allowed,
-            limit: TimeInterval(AllowedApps.limit() * 60)
-        )
+        guard Date.now.timeIntervalSince(wentAt) < 2 * 3600, session != nil else { return }
+        // Con pase no pasa nada; solo cuenta lo que se pase de su final.
+        let verdict = LeaveVerdict.judge(leftAt: wentAt, now: .now, grace: TimeInterval(Self.grace), pass: used)
         guard case .distraction(let away, let leftAt) = verdict else { return }
 
         let strict = Self.isStrict
@@ -139,7 +154,8 @@ final class LeaveGuard {
         FocusTimer.shared.noteLeave(seconds: away)
         let context = PlanabyStore.container.mainContext
         context.insert(DistractionRecord(
-            date: leftAt, app: "", reason: "Fuera de Planaby \(Self.minutes(away))",
+            date: leftAt, app: "",
+            reason: "Fuera de Planaby \(Self.minutes(away))" + (used == nil ? "" : " tras acabar el tiempo permitido"),
             resisted: false, duringFocus: true, kind: .leave, awaySeconds: away
         ))
         try? context.save()
@@ -166,13 +182,13 @@ final class LeaveGuard {
 
     // MARK: Avisos
 
-    /// `after`: segundos de app permitida antes de empezar a avisar.
-    private func schedule(from now: Date, remaining: TimeInterval?, after: TimeInterval = 0, app: String? = nil) {
+    /// `after`: segundos de pase que quedan antes de empezar a avisar.
+    private func schedule(from now: Date, remaining: TimeInterval?, after: TimeInterval = 0, passMinutes: Int? = nil) {
         let grace = TimeInterval(Self.grace) + after
         let left = remaining.map { " Te quedan \(Self.minutes(max(0, $0 - grace))) de concentración." } ?? ""
         let strict = Self.isStrict ? " Este rato no cuenta." : ""
         let steps: [(after: TimeInterval, title: String, body: String)] = [
-            (grace, "Vuelve a Planaby", (app.map { "Llevas \(Self.minutes(after)) en \($0). " } ?? "") + "Estás en un bloque de concentración." + left),
+            (grace, "Vuelve a Planaby", (passMinutes.map { "Se ha acabado el tiempo permitido (\($0) min). " } ?? "") + "Estás en un bloque de concentración." + left),
             (grace + 60, "Sigues fuera", "Llevas más de un minuto fuera de tu bloque." + strict),
             (grace + 180, "Sigues fuera", "Llevas \(Self.minutes(grace + 180)) fuera de tu bloque." + strict),
             (grace + 600, "¿Sigues ahí?", "Llevas \(Self.minutes(grace + 600)) fuera. Vuelve o pausa la sesión."),

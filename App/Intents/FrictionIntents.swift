@@ -58,7 +58,7 @@ enum BlockableApp: String, AppEnum, CaseIterable, Identifiable {
 struct BlockAppIntent: AppIntent {
     static let title: LocalizedStringResource = "Bloquear app"
     static let description = IntentDescription(
-        "Úsala en una automatización «Al abrir una app». Si en Planaby tienes activado «Bloquear apps», te frena unos segundos antes de usarla."
+        "Úsala en una automatización «Al abrir una app». Si en Planaby tienes activado «Frenar al abrirlas», te frena unos segundos antes de usarla."
     )
     static let supportedModes: IntentModes = [.background, .foreground(.dynamic)]
 

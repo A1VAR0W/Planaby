@@ -47,7 +47,8 @@ struct PhaseTransitionCard: View {
         .task(id: transition.id) {
             // Tras «Empezar ahora» se espera a que decida; si no, se cierra sola (y la sesión sigue
             // con la fase que toca). Al acabar la concentración se deja más rato para elegir.
-            guard !transition.endedStarter else { return }
+            // Con «Preguntar qué hacer» tampoco se cierra: el descanso espera a que se elija.
+            guard !transition.endedStarter, !awaiting else { return }
             try? await Task.sleep(for: .seconds(intoBreak ? 30 : 12))
             if !Task.isCancelled { onClose() }
         }
@@ -56,6 +57,15 @@ struct PhaseTransitionCard: View {
     // MARK: - Textos
 
     private var intoBreak: Bool { transition.next.isBreak }
+
+    /// El descanso está esperando a que se elija («Preguntar qué hacer»).
+    private var awaiting: Bool { intoBreak && timer.state?.isAwaitingChoice == true }
+
+    /// «Descansar»: si el descanso esperaba, empieza ahora; si ya corría, solo se cierra.
+    private func rest() {
+        if awaiting { timer.resume() }
+        onClose()
+    }
 
     private var symbol: String {
         if transition.endedStarter { return "flag.checkered" }
@@ -86,6 +96,11 @@ struct PhaseTransitionCard: View {
     private var message: String {
         if transition.endedStarter {
             return "Lo más difícil era arrancar. Puedes seguir con un bloque de \(library.selected.name) o descansar un momento."
+        }
+        if awaiting {
+            var text = "Tu concentración ha terminado. ¿Descansas, sigues o lo dejas por hoy?"
+            if let nextStep { text += " Siguiente paso: \(nextStep)." }
+            return text
         }
         if intoBreak {
             var text = summary + " Levántate y mira lejos un rato."
@@ -195,7 +210,7 @@ struct PhaseTransitionCard: View {
                 .buttonStyle(.glassProminent)
                 .tint(Theme.orange)
                 HStack(spacing: Space.s) {
-                    Button { onClose() } label: {
+                    Button { rest() } label: {
                         Text("Descansar").frame(maxWidth: .infinity, minHeight: 32)
                     }
                     Button {
@@ -211,7 +226,7 @@ struct PhaseTransitionCard: View {
             // Al acabar la concentración: descansar, seguir concentrado o dar la sesión por terminada.
             // Al acabar el descanso: volver, o terminar.
             VStack(spacing: Space.s) {
-                Button { onClose() } label: {
+                Button { rest() } label: {
                     Text(intoBreak ? "Descansar" : "Vamos")
                         .font(.headline)
                         .foregroundStyle(.black)

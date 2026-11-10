@@ -246,7 +246,7 @@ enum PlanReadingCheck {
     }
 
     /// Los días que nombra la petición, sin repetir y en el orden en que se dicen.
-    private static func orderedDays(in request: String, now: Date, calendar: Calendar) -> [Date] {
+    static func orderedDays(in request: String, now: Date, calendar: Calendar) -> [Date] {
         var days: [Date] = []
         for mention in RequestDates.mentions(in: request, now: now, calendar: calendar).sorted(by: { $0.offset < $1.offset })
         where !days.contains(mention.day) {

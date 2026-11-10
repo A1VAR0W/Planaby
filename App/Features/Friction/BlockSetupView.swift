@@ -69,7 +69,7 @@ struct BlockSetupView: View {
             } header: {
                 Text("2 · Una automatización, una sola vez")
             } footer: {
-                Text("iOS no permite que una app cree la automatización por ti; con estos toques queda hecha para siempre. Después el bloqueo se enciende y apaga con el interruptor «Bloquear apps».")
+                Text("iOS no permite que una app cree la automatización por ti; con estos toques queda hecha para siempre. Después se enciende y apaga con el interruptor «Frenar al abrirlas».")
             }
 
             Section {
@@ -87,7 +87,7 @@ struct BlockSetupView: View {
                     Button("Probar abriendo \(app.name)") { openURL(url) }
                 }
                 if !blocksApps {
-                    Label("«Bloquear apps» está apagado: la automatización llega, pero no te frena.", systemImage: "exclamationmark.triangle.fill")
+                    Label("«Frenar al abrirlas» está apagado: la automatización llega, pero no te frena.", systemImage: "exclamationmark.triangle.fill")
                         .font(.footnote)
                         .foregroundStyle(Theme.orange)
                 }
@@ -126,7 +126,7 @@ struct BlockSetupView: View {
             }
         }
         .onChange(of: rules) { _, new in FrictionGuard.rules = new }
-        .navigationTitle("Frenar apps")
+        .navigationTitle("Apps que quiero evitar")
         .navigationBarTitleDisplayMode(.inline)
     }
 

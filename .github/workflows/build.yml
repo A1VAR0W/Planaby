@@ -1,5 +1,10 @@
 name: Build IPA
 
+# Tres trabajos:
+#   build   compila y empaqueta el IPA (se puede descargar siempre, también desde una PR).
+#   test    pasa los tests de la lógica.
+#   publish crea la release que lee SideStore. Solo en main y solo si build y test han ido bien:
+#           una PR o una rama de trabajo nunca publican.
 on:
   push:
     branches: [main]
@@ -98,24 +103,16 @@ jobs:
             '{version: $version, build: $build, date: $date, notes: $notes, commit: $commit}' > metadata.json
           cat metadata.json
 
+      # IPA de prueba: se descarga desde la página de la ejecución (también en una PR).
       - uses: actions/upload-artifact@v7
         with:
           name: Planaby-ipa
-          path: Planaby.ipa
-
-      - name: Publish release
-        if: github.event_name != 'pull_request'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: build-${{ github.run_number }}
-          name: Planaby build ${{ github.run_number }}
-          prerelease: true
-          files: |
+          path: |
             Planaby.ipa
             metadata.json
-            distribution/icon.png
+          if-no-files-found: error
 
-  # Va en paralelo y no bloquea la publicación del IPA.
+  # Va en paralelo con la compilación; la publicación espera a los dos.
   test:
     runs-on: ${{ inputs.runner || 'macos-15-intel' }}
     timeout-minutes: 30
@@ -138,3 +135,39 @@ jobs:
           echo "Simulador: $UDID"
           xcodebuild test -project Planaby.xcodeproj -scheme PlanabyTests -destination "id=$UDID" CODE_SIGNING_ALLOWED=NO > test.log 2>&1 || { grep -E "✘|recorded an issue|Expectation failed|error:" test.log | head -80; tail -30 test.log; exit 1; }
           grep -E "Test run with|✘|passed after|failed after" test.log || tail -40 test.log
+
+  # La versión de uso diario solo sale si los tests pasan y el IPA se ha generado.
+  publish:
+    needs: [build, test]
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: distribution
+
+      - name: Download the IPA built by this run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download ${{ github.run_id }} --repo ${{ github.repository }} --name Planaby-ipa
+
+      - name: Check the package
+        run: |
+          test -s Planaby.ipa
+          jq -e '.version and .build' metadata.json
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Planaby build ${{ github.run_number }}
+          prerelease: true
+          fail_on_unmatched_files: true
+          files: |
+            Planaby.ipa
+            metadata.json
+            distribution/icon.png

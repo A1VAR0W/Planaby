@@ -31,8 +31,13 @@ struct MessageSettingsView: View {
                 } label: {
                     Label("Apps de trabajo y excepciones", systemImage: "briefcase")
                 }
+                NavigationLink {
+                    FocusModeGuideView()
+                } label: {
+                    Label("Configurar la Concentración Trabajo", systemImage: "moon.fill")
+                }
             } footer: {
-                Text("Concentrándote solo ves lo importante de tus apps de trabajo; lo personal espera al descanso. Lo que puede esperar y lo irrelevante nunca avisan. Para que las apps no te interrumpan, en Ajustes de iOS › Concentración › (p. ej. Trabajo) silencia esas apps y permite Planaby.")
+                Text("Concentrándote solo ves lo importante de tus apps de trabajo; lo personal espera al descanso. Lo que puede esperar y lo irrelevante nunca avisan. Planaby no puede silenciar las notificaciones de otras apps: eso lo hace la Concentración Trabajo del iPhone; la guía de arriba explica cómo dejar pasar Teams y Outlook y callar lo personal.")
             }
 
             Section {
