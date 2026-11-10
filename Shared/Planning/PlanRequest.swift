@@ -374,6 +374,9 @@ enum SpokenText {
 
     static func tidy(_ text: String) -> String {
         var value = text
+        // «cuarenta y cinco» es un solo número: si no, el «y cinco» se leería como otra hora
+        // («17 y cuarenta y cinco» acababa en «17:40 y 5»).
+        value = replace(#"\bcuarenta\s+y\s+cinco\b"#, in: value) { _ in "45" }
         // «las cinco» → «las 5» (solo delante de algo que la convierte en hora).
         let words = hours.keys.sorted { $0.count > $1.count }.joined(separator: "|")
         let tail = #"(?=\s+(?:y\s+(?:media|cuarto|cinco|diez|veinte|veinticinco|treinta|cuarenta|cincuenta|\d)|menos\s|de la\s|en punto|a\s+(?:las?\s+)?(?:\d|"# + words + #")|hasta\s)|\s*[.,;]|\s*$)"#
