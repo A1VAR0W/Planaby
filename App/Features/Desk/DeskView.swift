@@ -388,6 +388,7 @@ struct DeskView: View {
 
             HStack(spacing: Space.s) {
                 if SpotifyController.shared.isConnected { musicButton }
+                inboxButton(tint: tint)
                 tasksButton
                 dimButton
                 // En el borde derecho: el volumen real del iPhone, que se despliega hacia arriba.
@@ -457,6 +458,35 @@ struct DeskView: View {
         .buttonStyle(.glass)
         .buttonBorderShape(.circle)
         .accessibilityLabel(musicVisible ? "Ocultar la música" : "Mostrar la música")
+    }
+
+    /// La cajita de avisos: siempre a mano en el modo escritorio. Lleva la cuenta de lo pendiente
+    /// (ya filtrado: el ruido no cuenta) y se enciende si hay algo urgente.
+    private func inboxButton(tint: Color) -> some View {
+        let pending = commsSnapshot.pending
+        return Button {
+            reveal()
+            comms.inboxRequested = true
+        } label: {
+            Image(systemName: pending > 0 ? "tray.full.fill" : "tray")
+                .font(.system(size: 16, weight: .medium))
+                .frame(width: 44, height: 44)
+                .overlay(alignment: .topTrailing) {
+                    if pending > 0 {
+                        Text(pending > 99 ? "99+" : "\(pending)")
+                            .font(.system(size: 10, weight: .bold).monospacedDigit())
+                            .foregroundStyle(.black)
+                            .padding(.horizontal, 4)
+                            .frame(minWidth: 16, minHeight: 16)
+                            .background(commsSnapshot.urgent > 0 ? tint : Color.white.opacity(0.85), in: .capsule)
+                            .offset(x: 2, y: 2)
+                    }
+                }
+        }
+        .buttonStyle(.glass)
+        .buttonBorderShape(.circle)
+        .accessibilityLabel("Bandeja de avisos")
+        .accessibilityValue(pending == 0 ? "Sin pendientes" : (pending == 1 ? "1 pendiente" : "\(pending) pendientes"))
     }
 
     private var tasksButton: some View {

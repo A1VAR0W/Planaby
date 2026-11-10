@@ -56,6 +56,21 @@ enum RequestCheck {
         return total > 1 ? total : nil
     }
 
+    /// «Todo el día», «el día entero»: no tiene hora de inicio ni de fin que preguntar.
+    static func saysAllDay(_ text: String) -> Bool {
+        let joined = " " + ProposalText.words(text).joined(separator: " ") + " "
+        return [" todo el dia ", " dia entero ", " dia completo ", " todo el dia entero ", " dias enteros ", " dias completos ", " toda la jornada "]
+            .contains(where: joined.contains)
+    }
+
+    /// La petición habla de algo que se repite («cada lunes», «todos los días», «de lunes a viernes»).
+    static func saysRepeat(_ text: String) -> Bool {
+        let words = ProposalText.words(text)
+        let joined = " " + words.joined(separator: " ") + " "
+        if [" todos los ", " todas las ", " de lunes a viernes ", " entre semana ", " a diario ", " cada "].contains(where: joined.contains) { return true }
+        return words.contains(where: ["diario", "diaria", "diariamente", "semanal", "semanalmente", "laborables", "repite", "repetir", "repita", "habito", "rutina"].contains)
+    }
+
     /// Nombres en singular de lo que se planifica («un único evento»).
     static let singularNouns: Set<String> = [
         "evento", "cita", "reunion", "llamada", "clase", "recordatorio", "tarea", "examen", "entrega", "visita", "sesion",
@@ -237,6 +252,25 @@ enum RequestDates {
                let month = months[words[index + 2]] {
                 var year: Int?
                 if index + 4 < words.count, words[index + 3] == "de", let value = Int(words[index + 4]), value > 2000 { year = value }
+                // «19, 20, 23 y 24 de noviembre»: los números de delante son días del mismo mes.
+                var earlier: [(offset: Int, number: Int)] = []
+                var back = index - 1
+                while back >= 0 {
+                    if let value = Int(words[back]), (1...31).contains(value) {
+                        earlier.append((back, value))
+                    } else if !(["y", "e"].contains(words[back]) && back > 0 && Int(words[back - 1]) != nil) {
+                        break
+                    }
+                    back -= 1
+                }
+                // «a las 10 y 25 de noviembre»: eso de delante es una hora, no un día.
+                if back >= 0, ["las", "la"].contains(words[back]) { earlier = [] }
+                for item in earlier.reversed() {
+                    result.removeAll { $0.offset == item.offset }
+                    if let day = date(day: item.number, month: month, year: year, today: today, calendar: calendar) {
+                        result.append(Mention(offset: item.offset, day: day))
+                    }
+                }
                 if let day = date(day: number, month: month, year: year, today: today, calendar: calendar) {
                     result.append(Mention(offset: index, day: day))
                 }

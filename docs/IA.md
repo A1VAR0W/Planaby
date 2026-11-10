@@ -253,6 +253,7 @@ ello:
   (un solo evento de una cosa pedida, las horas y el plan escritos, la corrección que deja uno y
   quita el resto, los códigos que no existen, los títulos copiados de los ejemplos) y que lo que
   sí son varias cosas siga siéndolo;
+- `Tests/AllowedAppsTests.swift`: apps permitidas (no cuentan, el límite, las escritas a mano);
 - `Tests/SpokenTextTests.swift`: las horas dictadas («de cinco y media a siete», «a las seis menos
   cuarto») pasan a cifras y lo que no es una hora no se toca;
 - `Tests/OverlapNoticeTests.swift`: dos cosas a la vez (qué se avisa y cómo, cada pareja una

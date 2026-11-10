@@ -150,6 +150,41 @@ struct PlanReadingCheckTests {
         #expect(clean(both, "Dentista el jueves a las 5 y tengo que preparar la presentación para el viernes, 2 horas").tasks.count == 1)
     }
 
+    // MARK: Varios días
+
+    /// Lo del iPhone: cuatro días de vacaciones salían los cuatro el 19, repitiéndose de lunes a
+    /// viernes y preguntando la hora.
+    @Test func oneEventPerDaySaid() {
+        let request = "Añade en trabajo que el día 19,20,23,24 de noviembre estoy de vacaciones (Todo el día, 19 y 24 incluidos)"
+        var reading = PlanReading()
+        reading.events = (0..<4).map { _ in ReadEvent(title: "vacaciones", day: "2026-11-19", repeats: "weekdays") }
+        let result = clean(reading, request)
+        #expect(result.events.map(\.day) == ["2026-11-19", "2026-11-20", "2026-11-23", "2026-11-24"])
+        #expect(result.events.allSatisfy { $0.repeats == "none" })
+        #expect(RequestCheck.saysAllDay(request) && !RequestCheck.saysRepeat(request))
+        #expect(RequestCheck.statedMode(in: request) == .work)
+
+        // Con un solo evento devuelto y tres días dichos, también.
+        var single = PlanReading()
+        single.events = [ReadEvent(title: "Guardia", day: "2026-11-16")]
+        #expect(clean(single, "Guardia el 16, 17 y 18 de noviembre").events.map(\.day) == ["2026-11-16", "2026-11-17", "2026-11-18"])
+
+        // Lo que se repite de verdad sigue repitiéndose.
+        var habit = PlanReading()
+        habit.events = [ReadEvent(title: "Gimnasio", time: "07:00", repeats: "weekdays")]
+        #expect(clean(habit, "Gimnasio de lunes a viernes a las 7").events.first?.repeats == "weekdays")
+    }
+
+    @Test func aCorrectionDoesNotBringATaskNobodyNamed() {
+        let draft = PlanDraft(items: [
+            PlanDraft.Item(title: "vacaciones", start: at(0), end: at(23, 59), mode: .work, kind: .event),
+        ], tasks: [], summary: "", warnings: [])
+        var reading = PlanReading()
+        reading.tasks = [ReadTask(title: "estudiar", deadline: "2026-11-20 23:59", estimatedMinutes: 450)]
+        let result = clean(reading, "Pero tienes que poner un evento cada día no todos el 19", known: known(draft))
+        #expect(result.tasks.isEmpty)
+    }
+
     @Test func whatThePersonNamesStaysEvenIfAnExampleHasIt() {
         var reading = PlanReading()
         reading.tasks = [ReadTask(title: "Entregar el informe", deadline: "2026-11-13 23:59", estimatedMinutes: 360)]

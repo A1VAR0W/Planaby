@@ -1419,8 +1419,20 @@ final class PlanningAssistant {
         let single = parsed.events.count == 1
         let onlyDay = single ? EventGrounding.onlyDay(in: request, now: now, calendar: calendar) : nil
 
-        let titles = parsed.events.map { RequestGrounding.exactTitle($0.title, in: request) }
-        let written = RequestDates.days(for: titles, in: request, now: now, calendar: calendar)
+        // El nombre tal como se escribió, con la primera letra en mayúscula («vacaciones» → «Vacaciones»).
+        let titles = parsed.events.map { event -> String in
+            let title = RequestGrounding.exactTitle(event.title, in: request)
+            guard let first = title.first, first.isLowercase else { return title }
+            return first.uppercased() + title.dropFirst()
+        }
+        var written = RequestDates.days(for: titles, in: request, now: now, calendar: calendar)
+        // Lo mismo en varios días («vacaciones el 19, 20, 23 y 24»): cada evento trae ya su día del
+        // repaso; el día escrito tras el título sería el primero para todos.
+        for index in titles.indices where titles.indices.contains(where: { $0 != index && ProposalEditor.sameTitle(titles[$0], titles[index]) }) {
+            written[index] = nil
+        }
+        // «Todo el día»: de 00:00 a 23:59 y sin preguntar la hora.
+        let allDay = RequestCheck.saysAllDay(request)
         let saysWhen = RequestDates.saysWhen(request, now: now, calendar: calendar)
         let saysTime = AnswerParsing.time(request) != nil
         let saysDuration = AnswerParsing.duration(request) != nil
@@ -1447,12 +1459,16 @@ final class PlanningAssistant {
                 // «Empieza a las 18… acabará como a las 20»: las horas dichas, no otras.
                 (startMinute, endMinute) = EventGrounding.times(start: startMinute, end: endMinute, request: request)
             }
-            if startMinute == nil || !saysTime { missing.append(.time) }
+            if allDay {
+                startMinute = 0
+                endMinute = 23 * 60 + 59
+            }
+            if !allDay, startMinute == nil || !saysTime { missing.append(.time) }
             let minutes = event.durationMinutes > 0 ? event.durationMinutes : nil
             let start = ProposalEditor.at(minute: startMinute ?? defaultStart, on: day ?? tomorrow, calendar: calendar)
             var times = EventTimes(start: start, end: start.addingTimeInterval(TimeInterval((minutes ?? 60) * 60)))
             var hasEnd = false
-            if let endMinute, startMinute != nil, saysEnd {
+            if let endMinute, startMinute != nil, saysEnd || allDay {
                 let nextDay = (writtenRange?.nextDay ?? false) || (event.endsNextDay && AnswerParsing.endsNextDay(request))
                 if let ended = EventSchedule.settingEnd(endMinute, of: times, nextDay: nextDay, calendar: calendar) {
                     times = ended
@@ -1462,7 +1478,7 @@ final class PlanningAssistant {
                 }
             }
             // La hora de fin (o la duración) solo cuenta si la dijo la persona.
-            if !(hasEnd || (minutes != nil && saysDuration)) { missing.append(.duration) }
+            if !allDay, !(hasEnd || (minutes != nil && saysDuration)) { missing.append(.duration) }
             var item = PlanDraft.Item(
                 title: title, start: times.start, end: times.end,
                 mode: statedMode ?? PlanMode(rawValue: event.mode) ?? fallbackMode, kind: .event, recurrence: recurrence,
@@ -1610,7 +1626,7 @@ final class PlanningAssistant {
         - title: el nombre exacto que usa el usuario («Subida PRE»), sin la fecha ni la palabra evento.
         - Evento: día y hora fijos (reunión, cita, clase). Tarea: trabajo con fecha límite que se reparte en bloques (entregar, preparar, estudiar).
         - Fechas yyyy-MM-dd y horas HH:mm, calculadas desde «Ahora»; sin año, la próxima que no haya pasado.
-        - «De 10:00 a 12:00»: time 10:00 y endTime 12:00. «Empieza a las 18 y acabará como a las 20»: time 18:00 y endTime 20:00, aunque diga que hay que llegar antes. Puede tener dos cosas a la vez: nunca cambies una hora para evitar otra cita. Si solo dice cuánto dura, durationMinutes. Lo que no diga, vacío o 0: Planaby lo preguntará. Nunca inventes datos.
+        - «De 10:00 a 12:00»: time 10:00 y endTime 12:00. «Empieza a las 18 y acabará como a las 20»: time 18:00 y endTime 20:00, aunque diga que hay que llegar antes. Puede tener dos cosas a la vez: nunca cambies una hora para evitar otra cita. «Todo el día»: time 00:00 y endTime 23:59. Si solo dice cuánto dura, durationMinutes. Lo que no diga, vacío o 0: Planaby lo preguntará. Nunca inventes datos.
         - Si nombra varias fechas para lo mismo, un evento por fecha con el mismo título.
         - mode: work si es de trabajo o estudios, personal si es ocio, casa, salud o recados; unknown si no está claro. Si dice el plan («en normal», «en trabajo»), es ese: normal es personal.
         - Cambios de cosas que ya existen no van aquí.

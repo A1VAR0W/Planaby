@@ -128,6 +128,11 @@ enum EventSchedule {
 
     /// «09:00–11:30», o «22:00 – jue 26 01:00» si termina otro día.
     static func rangeText(_ times: EventTimes, calendar: Calendar = .current) -> String {
+        // De 00:00 a 23:59 del mismo día es «todo el día».
+        if daySpan(times, calendar: calendar) == 0, minuteOfDay(times.start, calendar: calendar) == 0,
+           minuteOfDay(times.end, calendar: calendar) == 23 * 60 + 59 {
+            return "todo el día"
+        }
         let start = ProposalFormat.time.string(from: times.start)
         if daySpan(times, calendar: calendar) == 0 {
             return "\(start)–\(ProposalFormat.time.string(from: times.end))"

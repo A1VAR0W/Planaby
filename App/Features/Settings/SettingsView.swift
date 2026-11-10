@@ -285,6 +285,7 @@ struct SettingsView: View {
 
     @AppStorage(FrictionGuard.Keys.lastTrigger) private var lastBlockTrigger: Double = 0
     @AppStorage(FrictionGuard.Keys.apps) private var blockedAppsRaw = ""
+    @AppStorage(AllowedApps.Keys.chosen) private var allowedAppsRaw = ""
 
     private var blockSetupStatus: String {
         if lastBlockTrigger > 0 { return "Activo" }
@@ -307,6 +308,15 @@ struct SettingsView: View {
             }
             .disabled(!leaveGuard)
             NavigationLink {
+                AllowedAppsSettingsView()
+            } label: {
+                LabeledContent {
+                    Text(allowedAppsRaw.isEmpty ? "Ninguna" : "Elegidas")
+                } label: {
+                    Label("Apps permitidas", systemImage: "square.grid.2x2")
+                }
+            }
+            NavigationLink {
                 BlockSetupView()
             } label: {
                 LabeledContent {
@@ -318,7 +328,7 @@ struct SettingsView: View {
         } header: {
             Text("Bloqueo")
         } footer: {
-            Text("Sin configurar nada: mientras te concentras, si te vas a otra app más de \(LeaveGuard.minutes(TimeInterval(leaveGrace))) te llegan avisos para volver, y al volver ves cuánto rato estuviste fuera. Bloquear el iPhone no cuenta. " + (leaveStrict ? "Modo estricto: el rato fuera no cuenta como concentración y el bloque sigue donde lo dejaste." : "Con el modo estricto, el rato fuera no cuenta como concentración.") + " «Frenar apps concretas» es opcional y usa Atajos.")
+            Text("Sin configurar nada: mientras te concentras, si te vas a otra app más de \(LeaveGuard.minutes(TimeInterval(leaveGrace))) te llegan avisos para volver, y al volver ves cuánto rato estuviste fuera. Bloquear el iPhone no cuenta. " + (leaveStrict ? "Modo estricto: el rato fuera no cuenta como concentración y el bloque sigue donde lo dejaste." : "Con el modo estricto, el rato fuera no cuenta como concentración.") + " Las «Apps permitidas» se abren desde Enfoque sin que cuente. «Frenar apps concretas» es opcional y usa Atajos.")
         }
     }
 

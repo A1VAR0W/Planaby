@@ -22,6 +22,11 @@ final class LeaveGuard {
         fileprivate static let leftAt = "leaveGuardLeftAt"
         fileprivate static let locked = "leaveGuardLocked"
         fileprivate static let excusedUntil = "leaveGuardExcusedUntil"
+        /// Se ha tocado una app permitida: la próxima salida (en unos segundos) está autorizada.
+        fileprivate static let allowedUntil = "leaveGuardAllowedUntil"
+        fileprivate static let allowedName = "leaveGuardAllowedName"
+        /// La salida en curso es a una app permitida.
+        fileprivate static let leftAllowed = "leaveGuardLeftAllowed"
     }
 
     static let defaultGrace = 15
@@ -66,6 +71,13 @@ final class LeaveGuard {
         defaults.set(until, forKey: Keys.excusedUntil)
     }
 
+    /// Se va a una app permitida: el tiempo sigue corriendo, sin avisos de «vuelve» y sin apuntar
+    /// nada al volver. Si se pasa del límite elegido, lo que sobre sí cuenta.
+    func allow(_ name: String) {
+        defaults.set(Date.now.addingTimeInterval(20).timeIntervalSince1970, forKey: Keys.allowedUntil)
+        defaults.set(name, forKey: Keys.allowedName)
+    }
+
     private var isExcused: Bool { defaults.double(forKey: Keys.excusedUntil) > Date.now.timeIntervalSince1970 }
 
     // MARK: Salir y volver
@@ -76,6 +88,18 @@ final class LeaveGuard {
         let now = Date.now
         defaults.set(now.timeIntervalSince1970, forKey: Keys.leftAt)
         defaults.set(false, forKey: Keys.locked)
+        let allowed = defaults.double(forKey: Keys.allowedUntil) > now.timeIntervalSince1970
+        defaults.removeObject(forKey: Keys.allowedUntil)
+        defaults.set(allowed, forKey: Keys.leftAllowed)
+        if allowed {
+            // App permitida: nada de avisos hasta que se pase del límite (si lo hay).
+            let limit = TimeInterval(AllowedApps.limit() * 60)
+            UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: Self.ids)
+            if limit > 0 {
+                schedule(from: now, remaining: state.remaining(at: now), after: limit, app: defaults.string(forKey: Keys.allowedName))
+            }
+            return
+        }
         schedule(from: now, remaining: state.remaining(at: now))
         // Unos segundos despierta para notar si lo que ha pasado es que se ha bloqueado el iPhone.
         endBackground()
@@ -95,12 +119,19 @@ final class LeaveGuard {
         endBackground()
         let left = defaults.double(forKey: Keys.leftAt)
         let locked = defaults.bool(forKey: Keys.locked)
+        let allowed = defaults.bool(forKey: Keys.leftAllowed)
         defaults.removeObject(forKey: Keys.leftAt)
         defaults.removeObject(forKey: Keys.locked)
+        defaults.removeObject(forKey: Keys.leftAllowed)
         guard left > 0, !locked else { return }
-        let leftAt = Date(timeIntervalSince1970: left)
-        let away = Date.now.timeIntervalSince(leftAt)
-        guard away >= TimeInterval(Self.grace), away < 2 * 3600, FocusTimer.shared.state != nil else { return }
+        let wentAt = Date(timeIntervalSince1970: left)
+        guard Date.now.timeIntervalSince(wentAt) < 2 * 3600, FocusTimer.shared.state != nil else { return }
+        // En una app permitida no pasa nada; solo cuenta lo que se pase del límite.
+        let verdict = LeaveVerdict.judge(
+            leftAt: wentAt, now: .now, grace: TimeInterval(Self.grace), authorized: allowed,
+            limit: TimeInterval(AllowedApps.limit() * 60)
+        )
+        guard case .distraction(let away, let leftAt) = verdict else { return }
 
         let strict = Self.isStrict
         // Modo estricto: el rato fuera no cuenta; el bloque sigue donde lo dejaste.
@@ -135,12 +166,13 @@ final class LeaveGuard {
 
     // MARK: Avisos
 
-    private func schedule(from now: Date, remaining: TimeInterval?) {
-        let grace = TimeInterval(Self.grace)
+    /// `after`: segundos de app permitida antes de empezar a avisar.
+    private func schedule(from now: Date, remaining: TimeInterval?, after: TimeInterval = 0, app: String? = nil) {
+        let grace = TimeInterval(Self.grace) + after
         let left = remaining.map { " Te quedan \(Self.minutes(max(0, $0 - grace))) de concentración." } ?? ""
         let strict = Self.isStrict ? " Este rato no cuenta." : ""
         let steps: [(after: TimeInterval, title: String, body: String)] = [
-            (grace, "Vuelve a Planaby", "Estás en un bloque de concentración." + left),
+            (grace, "Vuelve a Planaby", (app.map { "Llevas \(Self.minutes(after)) en \($0). " } ?? "") + "Estás en un bloque de concentración." + left),
             (grace + 60, "Sigues fuera", "Llevas más de un minuto fuera de tu bloque." + strict),
             (grace + 180, "Sigues fuera", "Llevas \(Self.minutes(grace + 180)) fuera de tu bloque." + strict),
             (grace + 600, "¿Sigues ahí?", "Llevas \(Self.minutes(grace + 600)) fuera. Vuelve o pausa la sesión."),
