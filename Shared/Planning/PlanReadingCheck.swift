@@ -54,7 +54,15 @@ enum PlanReadingCheck {
             !RequestGrounding.isMentioned(title, in: sources) && isExample(title, examples: examples)
         }
         var events = result.events.filter { !invented($0.title) }
-        var tasks = result.tasks.filter { !invented($0.title) }
+        // Una tarea que nadie ha nombrado y que es un trozo de un ejemplo («Entregar», de «Entregar
+        // informe»), o que acompaña a un evento que sí se pidió, es relleno del modelo.
+        func filler(_ title: String) -> Bool {
+            guard !RequestGrounding.isMentioned(title, in: sources) else { return false }
+            let keys = Set(ProposalText.keywords(title))
+            let fromExample = !keys.isEmpty && examples.contains { keys.isSubset(of: Set(ProposalText.keywords($0))) }
+            return fromExample || !events.isEmpty
+        }
+        var tasks = result.tasks.filter { !invented($0.title) && !filler($0.title) }
 
         // 3. Lo mismo dos veces. Varias fechas («clase el lunes y el miércoles») o varias horas
         // («dos reuniones, a las 10 y a las 12») sí son varios, si la petición lo dice.

@@ -321,6 +321,67 @@ enum RequestDates {
     }
 }
 
+// MARK: - Lo dictado
+
+/// Lo que se dicta llega con las horas habladas («de cinco y media a siete», «a las seis menos
+/// cuarto»). Aquí se pasan a cifras («de 5:30 a 7», «a las 5:45») antes de dárselo a la IA y al
+/// repaso, que así leen lo mismo que si se hubiera escrito. Solo toca horas: el resto queda igual.
+enum SpokenText {
+    private static let hours: [String: Int] = [
+        "una": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5, "seis": 6, "siete": 7, "ocho": 8,
+        "nueve": 9, "diez": 10, "once": 11, "doce": 12,
+    ]
+    private static let minutes: [String: Int] = [
+        "cinco": 5, "diez": 10, "cuarto": 15, "veinte": 20, "veinticinco": 25, "media": 30,
+        "treinta": 30, "cuarenta": 40, "cuarenta y cinco": 45, "cincuenta": 50,
+    ]
+    /// Lo que va delante de una hora.
+    private static let lead = #"(\b(?:a las|a la|las|la|a|de|desde|hasta|entre|sobre las|y las|y la|y)\s+)"#
+
+    static func tidy(_ text: String) -> String {
+        var value = text
+        // «las cinco» → «las 5» (solo delante de algo que la convierte en hora).
+        let words = hours.keys.sorted { $0.count > $1.count }.joined(separator: "|")
+        let tail = #"(?=\s+(?:y\s+(?:media|cuarto|cinco|diez|veinte|veinticinco|treinta|cuarenta|cincuenta|\d)|menos\s|de la\s|en punto|a\s+(?:las?\s+)?(?:\d|"# + words + #")|hasta\s)|\s*[.,;]|\s*$)"#
+        value = replace(lead + "(" + words + ")" + #"\b"# + tail, in: value) { match in
+            guard let hour = hours[match[2].lowercased()] else { return nil }
+            return match[1] + String(hour)
+        }
+        // «5 menos cuarto» → «4:45»; «5 menos diez» → «4:50».
+        value = replace(lead + #"(\d{1,2})\s+menos\s+(cuarto|cinco|diez|veinte|veinticinco)\b"#, in: value) { match in
+            guard let hour = Int(match[2]), (1...24).contains(hour), let minute = minutes[match[3].lowercased()] else { return nil }
+            return match[1] + clock((hour + 23) % 24, 60 - minute)
+        }
+        // «5 y media» → «5:30»; «5 y cuarto» → «5:15»; «5 y 20» → «5:20».
+        let spoken = minutes.keys.sorted { $0.count > $1.count }.joined(separator: "|")
+        value = replace(lead + #"(\d{1,2})\s+y\s+("# + spoken + #"|\d{2})\b(?!\s*(?:horas?|min|de (?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)))"#, in: value) { match in
+            guard let hour = Int(match[2]), (0...23).contains(hour),
+                  let minute = minutes[match[3].lowercased()] ?? Int(match[3]), (0...59).contains(minute) else { return nil }
+            return match[1] + clock(hour, minute)
+        }
+        return value
+    }
+
+    private static func clock(_ hour: Int, _ minute: Int) -> String {
+        "\(hour):" + String(format: "%02d", minute)
+    }
+
+    /// Sustituye cada coincidencia por lo que diga `change` (nil la deja como está).
+    private static func replace(_ pattern: String, in text: String, change: ([String]) -> String?) -> String {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return text }
+        var result = text
+        let found = regex.matches(in: text, range: NSRange(text.startIndex..., in: text))
+        for match in found.reversed() {
+            guard let whole = Range(match.range, in: result) else { continue }
+            let parts = (0..<match.numberOfRanges).map { index in
+                Range(match.range(at: index), in: text).map { String(text[$0]) } ?? ""
+            }
+            if let replacement = change(parts) { result.replaceSubrange(whole, with: replacement) }
+        }
+        return result
+    }
+}
+
 // MARK: - Respuestas cortas
 
 /// «1 h», «media hora», «a las 10», «5 de la tarde»: se entiende sin el modelo.

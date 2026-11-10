@@ -132,6 +132,24 @@ struct PlanReadingCheckTests {
         #expect(result.events.map(\.title) == ["Dentista"] && result.tasks.isEmpty)
     }
 
+    /// Lo del iPhone: se pide un evento y la IA añade una tarea «Entregar» de 10 h.
+    @Test func aTaskNobodyNamedDoesNotComeWithTheEvent() {
+        var reading = PlanReading()
+        reading.events = [ReadEvent(title: "Actuación Natalia", day: "2026-11-28", time: "17:45", endTime: "20:00")]
+        reading.tasks = [ReadTask(title: "Entregar", deadline: "2026-11-28 20:00", estimatedMinutes: 600)]
+        let result = clean(reading, "Pon un evento que se llame \"Actuación Natalia\" para el 28 de noviembre desde las 17:45 a las 20:00")
+        #expect(result.events.count == 1 && result.tasks.isEmpty)
+        // Sola tampoco: es un trozo de un ejemplo que nadie ha dicho.
+        var alone = PlanReading()
+        alone.tasks = [ReadTask(title: "Entregar", deadline: "2026-11-28 20:00", estimatedMinutes: 600)]
+        #expect(clean(alone, "Recuérdame comprar el pan mañana").tasks.isEmpty)
+        // Un evento y una tarea, los dos dichos: se quedan los dos.
+        var both = PlanReading()
+        both.events = [ReadEvent(title: "Dentista", day: "2026-11-12", time: "17:00")]
+        both.tasks = [ReadTask(title: "Preparar la presentación", deadline: "2026-11-13 23:59", estimatedMinutes: 120)]
+        #expect(clean(both, "Dentista el jueves a las 5 y tengo que preparar la presentación para el viernes, 2 horas").tasks.count == 1)
+    }
+
     @Test func whatThePersonNamesStaysEvenIfAnExampleHasIt() {
         var reading = PlanReading()
         reading.tasks = [ReadTask(title: "Entregar el informe", deadline: "2026-11-13 23:59", estimatedMinutes: 360)]
