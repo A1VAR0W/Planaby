@@ -99,24 +99,45 @@ enum Breath {
     }
 }
 
-/// Halo naranja que respira despacio detrás del contenido.
+/// Aura que respira despacio detrás del contenido: un núcleo de luz y dos velos que derivan
+/// muy lentamente, como brasas tras un cristal.
 ///
-/// Se dibuja una sola vez y solo se animan su tamaño y su opacidad: SwiftUI interpola entre
-/// inhalar y exhalar sin volver a pintar el degradado, y la vista solo despierta dos veces por
-/// respiración (no 30 veces por segundo). Así puede respirar siempre sin gastar batería.
+/// - Cada capa es un círculo con su propio tamaño, que se desvanece del todo antes de llegar a
+///   su borde. Así nunca se ve un corte al encoger (antes el degradado se pintaba en el
+///   rectángulo de la pantalla y al exhalar aparecía un cuadrado).
+/// - Se dibuja una sola vez. Solo se animan tamaño, posición y opacidad, que el sistema
+///   interpola sin volver a pintar: la vista despierta dos veces por respiración, no 30 veces
+///   por segundo. Puede respirar siempre sin gastar batería.
 struct BreathingGlow: View {
     let tint: Color
     var strength: Double = 0.22
-    /// false: halo quieto (el modo escritorio de noche o atenuado).
+    /// false: aura quieta (el modo escritorio de noche o atenuado).
     var animated = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var level = 0.5
+    /// Los dos velos van y vuelven con periodos distintos, así el dibujo no se repite a la vista.
+    @State private var driftA = false
+    @State private var driftB = false
 
     var body: some View {
-        RadialGradient(colors: [tint.opacity(strength), .clear], center: .center, startRadius: 0, endRadius: 400)
-            // Lo mismo que antes: radio de 260 a 400 pt y brillo del 55 al 100 %.
-            .scaleEffect(0.65 + 0.35 * level)
-            .opacity(0.55 + 0.45 * level)
+        // `Color.clear` ocupa lo que le den; las capas van encima sin recortarse ni empujar.
+        Color.clear
+            .overlay {
+                ZStack {
+                    // Velo ancho y tenue: da profundidad al negro.
+                    AuraLayer(tint: tint, opacity: strength * 0.55, diameter: 1100)
+                        .scaleEffect(0.92 + 0.08 * level)
+                        .offset(x: driftA ? 46 : -38, y: driftA ? 90 : 150)
+                    // Velo lateral: se cruza con el otro muy despacio.
+                    AuraLayer(tint: tint, opacity: strength * 0.5, diameter: 720)
+                        .scaleEffect(0.9 + 0.1 * level)
+                        .offset(x: driftB ? -84 : 70, y: driftB ? -70 : -20)
+                    // Núcleo: el que respira de verdad.
+                    AuraLayer(tint: tint, opacity: strength, diameter: 860)
+                        .scaleEffect(0.74 + 0.26 * level)
+                        .opacity(0.6 + 0.4 * level)
+                }
+            }
             .allowsHitTesting(false)
             .ignoresSafeArea()
             .accessibilityHidden(true)
@@ -125,9 +146,15 @@ struct BreathingGlow: View {
 
     private func breathe(_ on: Bool) async {
         guard on else {
-            withAnimation(.easeInOut(duration: 1)) { level = 0.5 }
+            withAnimation(.easeInOut(duration: 1.5)) {
+                level = 0.5
+                driftA = false
+                driftB = false
+            }
             return
         }
+        withAnimation(.easeInOut(duration: 37).repeatForever(autoreverses: true)) { driftA = true }
+        withAnimation(.easeInOut(duration: 53).repeatForever(autoreverses: true)) { driftB = true }
         // Empieza donde va la respiración y sigue con ella.
         level = Breath.level(at: .now)
         while !Task.isCancelled {
@@ -135,6 +162,27 @@ struct BreathingGlow: View {
             withAnimation(.easeInOut(duration: turn.duration)) { level = turn.level }
             try? await Task.sleep(for: .seconds(turn.duration))
         }
+    }
+}
+
+/// Una capa del aura: luz que cae como una campana (sin anillo ni borde visibles) y llega a
+/// cero antes del límite de su propio círculo.
+private struct AuraLayer: View {
+    let tint: Color
+    let opacity: Double
+    let diameter: CGFloat
+
+    /// Caída suave: mucha luz en el centro y una cola larga y casi invisible.
+    private static let falloff: [(location: Double, weight: Double)] = [
+        (0, 1), (0.12, 0.86), (0.26, 0.6), (0.42, 0.36), (0.58, 0.18), (0.74, 0.07), (0.88, 0.02), (1, 0),
+    ]
+
+    var body: some View {
+        RadialGradient(
+            stops: Self.falloff.map { Gradient.Stop(color: tint.opacity(opacity * $0.weight), location: $0.location) },
+            center: .center, startRadius: 0, endRadius: diameter / 2
+        )
+        .frame(width: diameter, height: diameter)
     }
 }
 
@@ -149,8 +197,11 @@ struct PhaseBackground: View {
     var body: some View {
         ZStack {
             Color.black
-            BreathingGlow(tint: tint, strength: isBreak ? 0.30 : 0.16, animated: animated)
+            BreathingGlow(tint: tint, strength: isBreak ? 0.34 : 0.2, animated: animated)
                 .offset(y: -120)
+            // El borde inferior se apaga: los botones quedan sobre negro limpio.
+            LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .center, endPoint: .bottom)
+                .allowsHitTesting(false)
         }
         .ignoresSafeArea()
         .animation(.easeInOut(duration: 1.2), value: tint)
