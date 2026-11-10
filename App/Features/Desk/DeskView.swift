@@ -211,9 +211,19 @@ struct DeskView: View {
                     if music {
                         // Modo carátula: lo que suena en Spotify, como en StandBy. Con las tareas
                         // al lado pasa a columna (carátula y controles se recolocan sin cortes).
+                        // Si hay comunicaciones, su línea va encima y la carátula baja para dejarle
+                        // sitio: nunca tapa los controles de la música.
                         DeskNowPlaying(state: state, date: date, tint: tint, ink: ink, night: night, compact: tasks)
-                            .padding(.top, tasks ? Space.s : 0)
+                            .padding(.top, (tasks ? Space.s : 0) + (presentation.commsText == nil ? 0 : 40))
                             .transition(panelTransition(edge: .leading))
+                        if let text = presentation.commsText {
+                            VStack(spacing: 0) {
+                                commsLine(text, tint: tint, ink: ink)
+                                Spacer(minLength: 0)
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .transition(.opacity)
+                        }
                     } else {
                         VStack(spacing: 0) {
                             Spacer(minLength: 0)
@@ -276,27 +286,34 @@ struct DeskView: View {
                 }
             }
             if let text = presentation.commsText {
-                Button { comms.inboxRequested = true } label: {
-                    HStack(spacing: Space.s) {
-                        Circle()
-                            .fill(tint)
-                            .frame(width: 7, height: 7)
-                            .accessibilityHidden(true)
-                        Text(text)
-                            .font(.footnote.weight(.medium))
-                            .foregroundStyle(ink.opacity(0.75))
-                    }
-                    .frame(minHeight: 36)
-                    .padding(.horizontal, Space.s)
-                    .contentShape(.rect)
-                }
-                .buttonStyle(.plain)
-                .accessibilityHint("Abre la bandeja")
+                commsLine(text, tint: tint, ink: ink)
             }
         }
         .lineLimit(1)
         .minimumScaleFactor(0.8)
         .multilineTextAlignment(.center)
+    }
+
+    /// «2 comunicaciones laborales importantes»: solo el número, nunca quién ni qué. Abre la bandeja.
+    private func commsLine(_ text: String, tint: Color, ink: Color) -> some View {
+        Button { comms.inboxRequested = true } label: {
+            HStack(spacing: Space.s) {
+                Circle()
+                    .fill(tint)
+                    .frame(width: 7, height: 7)
+                    .accessibilityHidden(true)
+                Text(text)
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(ink.opacity(0.75))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .frame(minHeight: 36)
+            .padding(.horizontal, Space.s)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Abre la bandeja")
     }
 
     /// La cifra, con la fase encima y la hora debajo.

@@ -7,11 +7,11 @@ import Testing
 private let start = Date(timeIntervalSinceReferenceDate: 800_000_000)
 private func minute(_ value: Double) -> Date { start.addingTimeInterval(value * 60) }
 
-/// Segundos que quedan, comparados con margen (son Double).
-private func left(_ state: TimerState, at date: Date, is expected: TimeInterval) -> Bool {
-    guard let remaining = state.remaining(at: date) else { return false }
-    return abs(remaining - expected) < 0.5
-}
+/// Lo que queda de la fase, en el tipo que devuelve el temporizador. Comparar `TimeInterval?`
+/// con una cuenta de enteros (`4 * 60`) dentro de `#expect` hacía que la cuenta se evaluara
+/// como `Int` por separado y la comparación fallaba aunque los dos valían 240: el temporizador
+/// estaba bien, la comprobación no.
+private func seconds(_ minutes: Int) -> TimeInterval? { TimeInterval(minutes * 60) }
 
 private func session(asks: Bool) -> TimerState {
     var state = TimerState(method: .pomodoro, at: start)
@@ -25,7 +25,7 @@ struct PhaseChoiceTests {
         var state = session(asks: false)
         #expect(state.catchUp(to: minute(26)) == 1)
         #expect(state.phase == .shortBreak && !state.isPaused && !state.isAwaitingChoice)
-        #expect(left(state, at: minute(26), is: 4 * 60))
+        #expect(state.remaining(at: minute(26)) == seconds(4))
         // Y sigue sola: descanso de 5 y otra concentración.
         #expect(state.catchUp(to: minute(31)) == 1)
         #expect(state.phase == .focus)
@@ -60,7 +60,7 @@ struct PhaseChoiceTests {
         // «Descansar» a los 40 min: el descanso entero empieza entonces.
         state.resume(at: minute(40))
         #expect(state.phase == .shortBreak && !state.isPaused && !state.isAwaitingChoice)
-        #expect(left(state, at: minute(40), is: 5 * 60))
+        #expect(state.remaining(at: minute(40)) == seconds(5))
         #expect(state.focusedSeconds == 25 * 60)
         // Después vuelve la concentración y, al acabar, se pregunta otra vez.
         #expect(state.catchUp(to: minute(46)) == 1)
@@ -74,7 +74,7 @@ struct PhaseChoiceTests {
         state.catchUp(to: minute(30))
         state.beginFocus(at: minute(30))
         #expect(state.phase == .focus && !state.isPaused && !state.isAwaitingChoice)
-        #expect(left(state, at: minute(30), is: 25 * 60))
+        #expect(state.remaining(at: minute(30)) == seconds(25))
         // No se pierde lo trabajado ni se cuenta dos veces.
         #expect(state.focusedSeconds == 25 * 60)
         #expect(state.totalFocused(at: minute(40)) == 35 * 60)

@@ -361,40 +361,70 @@ enum RequestDates {
 /// cuarto»). Aquí se pasan a cifras («de 5:30 a 7», «a las 5:45») antes de dárselo a la IA y al
 /// repaso, que así leen lo mismo que si se hubiera escrito. Solo toca horas: el resto queda igual.
 enum SpokenText {
+    /// Horas dichas con palabras, de la 1 a las 24 (en 24 h se dice «a las diecisiete»).
     private static let hours: [String: Int] = [
         "una": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5, "seis": 6, "siete": 7, "ocho": 8,
-        "nueve": 9, "diez": 10, "once": 11, "doce": 12,
+        "nueve": 9, "diez": 10, "once": 11, "doce": 12, "trece": 13, "catorce": 14, "quince": 15,
+        "dieciseis": 16, "dieciséis": 16, "diecisiete": 17, "dieciocho": 18, "diecinueve": 19,
+        "veinte": 20, "veintiuna": 21, "veintiuno": 21, "veintidos": 22, "veintidós": 22,
+        "veintitres": 23, "veintitrés": 23, "veinticuatro": 0,
     ]
+    /// Minutos dichos con palabras, después de «y» o de «menos».
     private static let minutes: [String: Int] = [
-        "cinco": 5, "diez": 10, "cuarto": 15, "veinte": 20, "veinticinco": 25, "media": 30,
-        "treinta": 30, "cuarenta": 40, "cuarenta y cinco": 45, "cincuenta": 50,
+        "cinco": 5, "diez": 10, "cuarto": 15, "quince": 15, "veinte": 20, "veinticinco": 25,
+        "media": 30, "treinta": 30, "cuarenta": 40, "cincuenta": 50,
+    ]
+    private static let tens: [String: Int] = ["veinte": 20, "treinta": 30, "cuarenta": 40, "cincuenta": 50]
+    private static let units: [String: Int] = [
+        "uno": 1, "una": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5, "seis": 6, "siete": 7, "ocho": 8, "nueve": 9,
     ]
     /// Lo que va delante de una hora.
     private static let lead = #"(\b(?:a las|a la|las|la|a|de|desde|hasta|entre|sobre las|y las|y la|y)\s+)"#
+    /// Lo que no es una hora aunque lo parezca: duraciones («2 y media horas») y fechas.
+    private static let notAnHour = #"(?!\s*(?:horas?|h\b|min|de (?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)))"#
+
+    private static func alternation(_ keys: some Collection<String>) -> String {
+        keys.sorted { $0.count > $1.count }.joined(separator: "|")
+    }
+
+    private static func hourValue(_ text: String) -> Int? {
+        Int(text) ?? hours[text.lowercased()]
+    }
 
     static func tidy(_ text: String) -> String {
         var value = text
-        // «cuarenta y cinco» es un solo número: si no, el «y cinco» se leería como otra hora
-        // («17 y cuarenta y cinco» acababa en «17:40 y 5»).
-        value = replace(#"\bcuarenta\s+y\s+cinco\b"#, in: value) { _ in "45" }
-        // «las cinco» → «las 5» (solo delante de algo que la convierte en hora).
-        let words = hours.keys.sorted { $0.count > $1.count }.joined(separator: "|")
-        let tail = #"(?=\s+(?:y\s+(?:media|cuarto|cinco|diez|veinte|veinticinco|treinta|cuarenta|cincuenta|\d)|menos\s|de la\s|en punto|a\s+(?:las?\s+)?(?:\d|"# + words + #")|hasta\s)|\s*[.,;]|\s*$)"#
-        value = replace(lead + "(" + words + ")" + #"\b"# + tail, in: value) { match in
-            guard let hour = hours[match[2].lowercased()] else { return nil }
-            return match[1] + String(hour)
+        let hourWords = alternation(hours.keys)
+        let hourToken = #"(\d{1,2}|"# + hourWords + ")"
+
+        // 1. Los minutos compuestos son un solo número: «y cuarenta y cinco» → «y 45». Si no, el
+        //    «y cinco» se leía como otra hora («17 y cuarenta y cinco» acababa en «17:40 y 5»).
+        value = replace(#"(\by\s+)("# + alternation(tens.keys) + #")\s+y\s+("# + alternation(units.keys) + #")\b"#, in: value) { match in
+            guard let ten = tens[match[2].lowercased()], let unit = units[match[3].lowercased()] else { return nil }
+            return match[1] + String(ten + unit)
         }
-        // «5 menos cuarto» → «4:45»; «5 menos diez» → «4:50».
-        value = replace(lead + #"(\d{1,2})\s+menos\s+(cuarto|cinco|diez|veinte|veinticinco)\b"#, in: value) { match in
-            guard let hour = Int(match[2]), (1...24).contains(hour), let minute = minutes[match[3].lowercased()] else { return nil }
+
+        // 2. «seis menos cuarto» o «6 menos cuarto» → «5:45».
+        value = replace(lead + hourToken + #"\s+menos\s+(cuarto|cinco|diez|veinte|veinticinco)\b"#, in: value) { match in
+            guard let hour = hourValue(match[2]), (0...24).contains(hour), let minute = minutes[match[3].lowercased()] else { return nil }
             return match[1] + clock((hour + 23) % 24, 60 - minute)
         }
-        // «5 y media» → «5:30»; «5 y cuarto» → «5:15»; «5 y 20» → «5:20».
-        let spoken = minutes.keys.sorted { $0.count > $1.count }.joined(separator: "|")
-        value = replace(lead + #"(\d{1,2})\s+y\s+("# + spoken + #"|\d{2})\b(?!\s*(?:horas?|min|de (?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)))"#, in: value) { match in
-            guard let hour = Int(match[2]), (0...23).contains(hour),
+
+        // 3. «cinco y media», «17 y 45», «nueve y veinte» → «5:30», «17:45», «9:20». Va antes que
+        //    las horas sueltas para que «y cinco» sean minutos de la hora de delante.
+        value = replace(lead + hourToken + #"\s+y\s+("# + alternation(minutes.keys) + #"|\d{2})\b"# + notAnHour, in: value) { match in
+            guard let hour = hourValue(match[2]), (0...24).contains(hour),
                   let minute = minutes[match[3].lowercased()] ?? Int(match[3]), (0...59).contains(minute) else { return nil }
-            return match[1] + clock(hour, minute)
+            // «entre dos y cinco» es una franja, no las 2:05.
+            let word = match[3].lowercased()
+            if match[1].trimmingCharacters(in: .whitespaces).lowercased() == "entre", word != "media", word != "cuarto" { return nil }
+            return match[1] + clock(hour % 24, minute)
+        }
+
+        // 4. «las cinco» → «las 5» (solo delante de algo que la convierte en hora).
+        let tail = #"(?=\s+(?:y\s+(?:media|cuarto|cinco|diez|veinte|veinticinco|treinta|cuarenta|cincuenta|\d)|menos\s|de la\s|en punto|a\s+(?:las?\s+)?(?:\d|"# + hourWords + #")|hasta\s)|\s*[.,;)]|\s*$)"#
+        value = replace(lead + "(" + hourWords + ")" + #"\b"# + tail, in: value) { match in
+            guard let hour = hours[match[2].lowercased()] else { return nil }
+            return match[1] + String(hour)
         }
         return value
     }

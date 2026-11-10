@@ -20,7 +20,9 @@ final class NotificationService {
         var index = 0
         for transition in state.upcomingTransitions(limit: Self.maxScheduled) {
             let intoBreak = transition.next.isBreak
-            guard AlertPreferences.alerts(intoBreak: intoBreak) else { continue }
+            // Con «Preguntar qué hacer» este aviso es el que dice que hay que elegir: va siempre.
+            let mustChoose = intoBreak && state.asksAfterFocus == true
+            guard mustChoose || AlertPreferences.alerts(intoBreak: intoBreak) else { continue }
             let content = UNMutableNotificationContent()
             content.threadIdentifier = "planaby-phase"
             content.interruptionLevel = .active

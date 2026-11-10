@@ -148,6 +148,15 @@ enum LeaveVerdict: Equatable, Sendable {
     }
 }
 
+extension LeaveVerdict {
+    /// Hasta cuándo se cuenta una salida: si la concentración acababa antes de volver, hasta ese
+    /// momento (lo de después ya era descanso, y salir en el descanso no cuenta).
+    static func countUntil(now: Date, focusEndsAt: Date?) -> Date {
+        guard let focusEndsAt else { return now }
+        return min(now, focusEndsAt)
+    }
+}
+
 /// Salida autorizada: se ha tocado una app permitida durante la concentración. Vale para la
 /// sesión en la que se pidió y durante el rato elegido; se guarda para sobrevivir a que iOS
 /// cierre Planaby mientras se está fuera.

@@ -66,6 +66,20 @@ struct AllowedAppsTests {
         #expect(verdict == .distraction(seconds: 120, from: late))
     }
 
+    @Test func timeAfterTheFocusBlockEndedDoesNotCount() {
+        // Se sale 2 min antes de acabar el bloque y se vuelve 20 min después: cuentan 2 min, no 20
+        // (el resto ya era descanso).
+        let focusEnds = left.addingTimeInterval(120)
+        let until = LeaveVerdict.countUntil(now: left.addingTimeInterval(20 * 60), focusEndsAt: focusEnds)
+        #expect(until == focusEnds)
+        #expect(LeaveVerdict.judge(leftAt: left, now: until, grace: 15, pass: nil) == .distraction(seconds: 120, from: left))
+        // Si el bloque acababa a los 10 s, nada cuenta.
+        let soon = LeaveVerdict.countUntil(now: left.addingTimeInterval(600), focusEndsAt: left.addingTimeInterval(10))
+        #expect(LeaveVerdict.judge(leftAt: left, now: soon, grace: 15, pass: nil) == .fine)
+        // Sin final (concentración libre), cuenta hasta volver.
+        #expect(LeaveVerdict.countUntil(now: focusEnds, focusEndsAt: nil) == focusEnds)
+    }
+
     @Test func thePassEndsWithTheSession() {
         let now = granted.addingTimeInterval(60)
         #expect(pass(0).isValid(at: now, session: session))

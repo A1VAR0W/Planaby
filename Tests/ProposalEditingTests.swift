@@ -93,6 +93,51 @@ struct ProposalEditingTests {
         #expect(outcome.draft.items.first { $0.id == choice.id }?.start == at(3, 16))
     }
 
+    @Test func changingOnlyTuesdaysMeetingLeavesTheRest() throws {
+        // Dos «Reunión» (martes y jueves) y una tarea: «Cambia solamente la reunión del martes a las 12».
+        var draft = sample()
+        draft.items = [
+            PlanDraft.Item(title: "Reunión", start: at(1, 10), end: at(1, 11), mode: .work, kind: .event),
+            PlanDraft.Item(title: "Reunión", start: at(3, 10), end: at(3, 11), mode: .work, kind: .event),
+        ]
+        draft.assignRefs()
+        let before = draft
+        var changes = ProposalChanges()
+        changes.startMinute = 12 * 60
+        let outcome = try applied(ProposalEditor.apply([.update(ProposalTarget(text: "la reunión del martes", kind: .event), changes)], to: draft))
+        #expect(outcome.draft.items.count == 2)
+        #expect(outcome.draft.items[0].id == before.items[0].id)
+        #expect(outcome.draft.items[0].start == at(1, 12) && outcome.draft.items[0].durationMinutes == 60)
+        #expect(outcome.draft.items[1] == before.items[1])
+        #expect(outcome.draft.tasks == before.tasks)
+        // Por número de día también: «la del 12» (jueves 12 de noviembre).
+        let second = try applied(ProposalEditor.apply([.update(ProposalTarget(text: "la reunión del 12", kind: .event), changes)], to: draft))
+        #expect(second.draft.items[1].start == at(3, 12))
+        #expect(second.draft.items[0] == before.items[0])
+    }
+
+    @Test func startAndEndGiveTheDuration() throws {
+        // «Reunión de 10:30 a 12:00»: inicio, fin y 90 min calculados; no hace falta decir la duración.
+        let range = try #require(AnswerParsing.range("de 10:30 a 12:00"))
+        #expect(range.start == 10 * 60 + 30 && range.end == 12 * 60)
+        var changes = ProposalChanges()
+        changes.startMinute = range.start
+        changes.endMinute = range.end
+        let outcome = try applied(ProposalEditor.apply([.update(ProposalTarget(text: "E1"), changes)], to: sample()))
+        let meeting = outcome.draft.newEvents[0]
+        #expect(meeting.start == at(3, 10, 30) && meeting.end == at(3, 12))
+        #expect(meeting.durationMinutes == 90)
+    }
+
+    @Test func removingOneEventKeepsTheOthers() throws {
+        var draft = sample()
+        draft.items.append(PlanDraft.Item(title: "Dentista", start: at(2, 17), end: at(2, 18), mode: .personal, kind: .event))
+        draft.assignRefs()
+        let outcome = try applied(ProposalEditor.apply([.remove(ProposalTarget(text: "el dentista", kind: .event))], to: draft))
+        #expect(outcome.draft.newEvents.map(\.title) == ["Reunión con Jonatan"])
+        #expect(outcome.draft.tasks == draft.tasks)
+    }
+
     @Test func undoAndRedo() {
         var history = ProposalHistory(sample())
         var next = sample()

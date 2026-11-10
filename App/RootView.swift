@@ -177,10 +177,13 @@ struct RootView: View {
         .onChange(of: timer.lastTransition) { _, new in
             guard let new, scenePhase == .active else { return }
             let intoBreak = new.next.isBreak
-            guard new.endedStarter || AlertPreferences.alerts(intoBreak: intoBreak) else { return }
+            // Un descanso que espera a que se elija se enseña siempre: si no, la sesión se quedaría
+            // parada sin que se vea por qué.
+            let mustChoose = intoBreak && timer.state?.isAwaitingChoice == true
+            guard new.endedStarter || mustChoose || AlertPreferences.alerts(intoBreak: intoBreak) else { return }
             // Si ocurrió estando fuera ya sonó la notificación: ahora solo se enseña.
             if Preferences.phaseAlertsEnabled, !new.late { PhaseAlertPlayer.shared.play(intoBreak: intoBreak) }
-            if AlertPreferences.showsOverlay || new.endedStarter {
+            if AlertPreferences.showsOverlay || new.endedStarter || mustChoose {
                 withAnimation(Motion.adaptive(Motion.emphasized, reduceMotion: reduceMotion)) {
                     transition = new
                 }
