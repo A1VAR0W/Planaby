@@ -211,9 +211,19 @@ struct DeskView: View {
                     if music {
                         // Modo carátula: lo que suena en Spotify, como en StandBy. Con las tareas
                         // al lado pasa a columna (carátula y controles se recolocan sin cortes).
+                        // Si hay comunicaciones, su línea va encima y la carátula baja para dejarle
+                        // sitio: nunca tapa los controles de la música.
                         DeskNowPlaying(state: state, date: date, tint: tint, ink: ink, night: night, compact: tasks)
-                            .padding(.top, tasks ? Space.s : 0)
+                            .padding(.top, (tasks ? Space.s : 0) + (presentation.commsText == nil ? 0 : 40))
                             .transition(panelTransition(edge: .leading))
+                        if let text = presentation.commsText {
+                            VStack(spacing: 0) {
+                                commsLine(text, tint: tint, ink: ink)
+                                Spacer(minLength: 0)
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .transition(.opacity)
+                        }
                     } else {
                         VStack(spacing: 0) {
                             Spacer(minLength: 0)
@@ -276,27 +286,34 @@ struct DeskView: View {
                 }
             }
             if let text = presentation.commsText {
-                Button { comms.inboxRequested = true } label: {
-                    HStack(spacing: Space.s) {
-                        Circle()
-                            .fill(tint)
-                            .frame(width: 7, height: 7)
-                            .accessibilityHidden(true)
-                        Text(text)
-                            .font(.footnote.weight(.medium))
-                            .foregroundStyle(ink.opacity(0.75))
-                    }
-                    .frame(minHeight: 36)
-                    .padding(.horizontal, Space.s)
-                    .contentShape(.rect)
-                }
-                .buttonStyle(.plain)
-                .accessibilityHint("Abre la bandeja")
+                commsLine(text, tint: tint, ink: ink)
             }
         }
         .lineLimit(1)
         .minimumScaleFactor(0.8)
         .multilineTextAlignment(.center)
+    }
+
+    /// «2 comunicaciones laborales importantes»: solo el número, nunca quién ni qué. Abre la bandeja.
+    private func commsLine(_ text: String, tint: Color, ink: Color) -> some View {
+        Button { comms.inboxRequested = true } label: {
+            HStack(spacing: Space.s) {
+                Circle()
+                    .fill(tint)
+                    .frame(width: 7, height: 7)
+                    .accessibilityHidden(true)
+                Text(text)
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(ink.opacity(0.75))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .frame(minHeight: 36)
+            .padding(.horizontal, Space.s)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Abre la bandeja")
     }
 
     /// La cifra, con la fase encima y la hora debajo.
@@ -308,7 +325,7 @@ struct DeskView: View {
     private func face(state: TimerState?, date: Date, tint: Color, ink: Color) -> some View {
         VStack(spacing: Space.xs) {
             if let state {
-                Eyebrow(text: state.isPaused ? "En pausa" : state.phase.title, color: tint)
+                Eyebrow(text: state.isAwaitingChoice ? "Descanso listo" : state.isPaused ? "En pausa" : state.phase.title, color: tint)
                 Text(state.clockText(at: date))
                     .font(Theme.clock(120))
                     .foregroundStyle(ink.opacity(state.isPaused ? 0.55 : 1))
@@ -388,6 +405,7 @@ struct DeskView: View {
 
             HStack(spacing: Space.s) {
                 if SpotifyController.shared.isConnected { musicButton }
+                inboxButton(tint: tint)
                 tasksButton
                 dimButton
                 // En el borde derecho: el volumen real del iPhone, que se despliega hacia arriba.
@@ -457,6 +475,35 @@ struct DeskView: View {
         .buttonStyle(.glass)
         .buttonBorderShape(.circle)
         .accessibilityLabel(musicVisible ? "Ocultar la música" : "Mostrar la música")
+    }
+
+    /// La cajita de avisos: siempre a mano en el modo escritorio. Lleva la cuenta de lo pendiente
+    /// (ya filtrado: el ruido no cuenta) y se enciende si hay algo urgente.
+    private func inboxButton(tint: Color) -> some View {
+        let pending = commsSnapshot.pending
+        return Button {
+            reveal()
+            comms.inboxRequested = true
+        } label: {
+            Image(systemName: pending > 0 ? "tray.full.fill" : "tray")
+                .font(.system(size: 16, weight: .medium))
+                .frame(width: 44, height: 44)
+                .overlay(alignment: .topTrailing) {
+                    if pending > 0 {
+                        Text(pending > 99 ? "99+" : "\(pending)")
+                            .font(.system(size: 10, weight: .bold).monospacedDigit())
+                            .foregroundStyle(.black)
+                            .padding(.horizontal, 4)
+                            .frame(minWidth: 16, minHeight: 16)
+                            .background(commsSnapshot.urgent > 0 ? tint : Color.white.opacity(0.85), in: .capsule)
+                            .offset(x: 2, y: 2)
+                    }
+                }
+        }
+        .buttonStyle(.glass)
+        .buttonBorderShape(.circle)
+        .accessibilityLabel("Bandeja de avisos")
+        .accessibilityValue(pending == 0 ? "Sin pendientes" : (pending == 1 ? "1 pendiente" : "\(pending) pendientes"))
     }
 
     private var tasksButton: some View {

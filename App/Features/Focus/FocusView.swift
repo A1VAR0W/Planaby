@@ -12,6 +12,7 @@ struct FocusView: View {
     @State private var showsStartNow = false
     @State private var showsContext = false
     @State private var showsStuck = false
+    @State private var showsAllowed = false
     @State private var ratingStart: Date?
     @AppStorage("askFocusRating") private var asksRating = true
     @Query(filter: #Predicate<MessageItem> { !$0.isRead }) private var unread: [MessageItem]
@@ -30,6 +31,7 @@ struct FocusView: View {
                 ActiveSessionView(
                     state: state, onChangeMethod: { showingMethods = true },
                     onContext: { showsContext = true }, onStuck: { showsStuck = true },
+                    onAllowed: { showsAllowed = true },
                     onStopped: { summary in
                         // Valoración opcional, solo en sesiones de al menos 10 minutos.
                         if asksRating, let summary, summary.focusedSeconds >= 600 { ratingStart = summary.start }
@@ -120,6 +122,10 @@ struct FocusView: View {
         }
         .sheet(isPresented: $showsStuck) {
             NavigationStack { StuckSheet() }
+        }
+        .sheet(isPresented: $showsAllowed) {
+            NavigationStack { AllowedAppsSheet() }
+                .presentationDetents([.medium, .large])
         }
         .sheet(item: Binding(get: { ratingStart.map(RatingTarget.init) }, set: { ratingStart = $0?.start })) { target in
             SessionRatingSheet(sessionStart: target.start)
@@ -246,6 +252,7 @@ private struct ActiveSessionView: View {
     let onChangeMethod: () -> Void
     let onContext: () -> Void
     let onStuck: () -> Void
+    let onAllowed: () -> Void
     let onStopped: (CompletedSession?) -> Void
     @Environment(FocusTimer.self) private var timer
     @State private var confirmingStop = false
@@ -299,7 +306,7 @@ private struct ActiveSessionView: View {
                 ZStack {
                     ProgressRing(progress: state.progress(at: context.date), tint: state.phase.tint, lineWidth: 4)
                     VStack(spacing: Space.s) {
-                        Eyebrow(text: state.isPaused ? "En pausa" : state.phase.title, color: state.phase.tint)
+                        Eyebrow(text: state.isAwaitingChoice ? "Descanso listo" : state.isPaused ? "En pausa" : state.phase.title, color: state.phase.tint)
                         Text(state.clockText(at: context.date))
                             .font(Theme.clock(76))
                             .foregroundStyle(.white.opacity(state.isPaused ? 0.6 : 1))
@@ -336,6 +343,19 @@ private struct ActiveSessionView: View {
             .buttonStyle(.plain)
             .frame(minHeight: 44)
             .padding(.top, Space.xs)
+
+            // Ir a Teams, al correo… sin que cuente como distracción. Solo hace falta
+            // concentrándose: en el descanso salir no cuenta.
+            if !state.phase.isBreak {
+                Button(action: onAllowed) {
+                    Label("Apps permitidas", systemImage: "square.grid.2x2")
+                        .font(.footnote.weight(.medium))
+                        .frame(minHeight: 44)
+                }
+                .foregroundStyle(Theme.secondaryText)
+                .buttonStyle(.plain)
+                AllowedPassChip()
+            }
 
             Spacer()
 

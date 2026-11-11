@@ -5,6 +5,8 @@ enum Preferences {
     // App Group
     static let dailyGoalMinutes = "dailyGoalMinutes"
     static let phaseAlerts = "phaseAlerts"
+    /// Al terminar la concentración: preguntar qué hacer en vez de empezar el descanso solo.
+    static let askAfterFocus = "askAfterFocus"
 
     // Solo la app: modo escritorio
     static let deskDimmed = "deskDimmed"
@@ -21,6 +23,8 @@ enum Preferences {
     static let planShowsMonth = "planShowsMonth"
 
     static let defaultDailyGoal = 120
+
+    static var asksAfterFocus: Bool { AppGroup.defaults.bool(forKey: askAfterFocus) }
 
     static var phaseAlertsEnabled: Bool {
         AppGroup.defaults.object(forKey: phaseAlerts) as? Bool ?? true

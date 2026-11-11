@@ -27,7 +27,7 @@ packages:
 settings:
   base:
     SWIFT_VERSION: "6.0"
-    MARKETING_VERSION: "1.0.0"
+    MARKETING_VERSION: "1.1.0"
     CURRENT_PROJECT_VERSION: "1"
     TARGETED_DEVICE_FAMILY: "1"
     DEVELOPMENT_TEAM: ""
@@ -146,6 +146,7 @@ targets:
       - Shared/Engine/QuickCapture.swift
       - Shared/Planning/PlanDraft.swift
       - Shared/Planning/ProposalEditing.swift
+      - Shared/Planning/ProposalSpread.swift
       - Shared/Planning/PlanRequest.swift
       - Shared/Planning/EventSchedule.swift
       - Shared/Planning/RequestIntent.swift
@@ -156,6 +157,7 @@ targets:
       - Shared/Design/MotionTiming.swift
       - Shared/Design/SunsetMotion.swift
       - Shared/Engine/RefreshPolicy.swift
+      - Shared/Engine/AllowedApps.swift
       - Shared/Engine/VolumeLevel.swift
       - Shared/Engine/AlertPreferences.swift
     settings:

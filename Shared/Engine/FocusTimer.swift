@@ -22,12 +22,16 @@ final class FocusTimer {
         let endedStarter: Bool
         /// Cuánto duró la fase que acaba de terminar («Has trabajado durante 25 minutos»).
         var finishedDuration: TimeInterval? = nil
+        /// El cambio ocurrió con Planaby en segundo plano y se enseña al volver: sin sonido.
+        var late = false
     }
 
     private(set) var lastTransition: AutomaticTransition?
 
     @ObservationIgnored private let notifications = NotificationService()
     @ObservationIgnored private let liveActivity = LiveActivityService()
+    /// Comienzo de la fase cuya tarjeta ya se ha enseñado: nunca dos veces la misma.
+    @ObservationIgnored private var announced: Date?
 
     private init() {
         state = TimerState.loadShared()
@@ -38,7 +42,14 @@ final class FocusTimer {
         if state != nil { stop() }
         // El plan (Trabajo o Normal) se lee del App Group: también arrancan sesiones los widgets.
         let mode = AppGroup.defaults.string(forKey: "planMode")
-        commit(TimerState(method: method, at: .now, taskTitle: task, taskID: taskID, mode: mode))
+        var new = TimerState(method: method, at: .now, taskTitle: task, taskID: taskID, mode: mode)
+        new.asksAfterFocus = Preferences.asksAfterFocus ? true : nil
+        commit(new)
+    }
+
+    /// Ajustes › «Al terminar la concentración»: vale también para la sesión en marcha.
+    func setAsksAfterFocus(_ asks: Bool) {
+        mutate { $0.asksAfterFocus = asks ? true : nil }
     }
 
     /// Cambia la tarea de la sesión en marcha (al retomar con otra o al elegirla después).
@@ -121,25 +132,45 @@ final class FocusTimer {
         guard var updated = state else { return }
         let before = updated.phase
         let beforeDuration = updated.phaseEnd.map { $0.timeIntervalSince(updated.phaseStart) }
-        if updated.catchUp(to: now) > 0 {
+        let transitions = updated.catchUp(to: now)
+        if transitions > 0 {
             // Solo si acaba de pasar: al abrir la app horas después no se enseña un aviso viejo.
-            if now.timeIntervalSince(updated.phaseStart) < 5 {
-                lastTransition = AutomaticTransition(
-                    finished: before, next: updated.phase,
-                    nextDuration: updated.phaseEnd.map { $0.timeIntervalSince(updated.phaseStart) },
-                    endedStarter: before == .focus && updated.method.id == FocusMethod.starter.id,
-                    finishedDuration: beforeDuration
-                )
+            // Un descanso que espera a que se elija sí se enseña siempre.
+            if now.timeIntervalSince(updated.phaseStart) < 5 || updated.isAwaitingChoice {
+                announce(from: before, duration: beforeDuration, to: updated, late: false)
             }
             commit(updated)
         }
     }
 
     /// Relee el estado compartido y vuelve a sincronizar notificaciones, widgets y Live Activity.
-    func sync() {
+    /// Se llama al volver a Planaby: si la concentración acabó estando fuera (en Teams, con el
+    /// iPhone bloqueado…), se enseña ahora la tarjeta para elegir, una sola vez.
+    func sync(now: Date = .now) {
         var current = TimerState.loadShared()
-        current?.catchUp(to: .now)
+        let before = current?.phase
+        let beforeDuration = current.flatMap { state in state.phaseEnd.map { $0.timeIntervalSince(state.phaseStart) } }
+        let transitions = current?.catchUp(to: now) ?? 0
         commit(current)
+        guard let current, let before else { return }
+        if current.isAwaitingChoice {
+            // Esperando desde antes (o desde ahora mismo): hay que elegir.
+            announce(from: .focus, duration: transitions == 1 ? beforeDuration : nil, to: current, late: true)
+        } else if transitions == 1, before == .focus, current.phase.isBreak {
+            // El descanso empezó solo estando fuera y sigue en marcha.
+            announce(from: before, duration: beforeDuration, to: current, late: true)
+        }
+    }
+
+    private func announce(from finished: PhaseKind, duration: TimeInterval?, to state: TimerState, late: Bool) {
+        guard announced != state.phaseStart else { return }
+        announced = state.phaseStart
+        lastTransition = AutomaticTransition(
+            finished: finished, next: state.phase,
+            nextDuration: state.phaseEnd.map { $0.timeIntervalSince(state.phaseStart) },
+            endedStarter: finished == .focus && state.method.id == FocusMethod.starter.id,
+            finishedDuration: duration, late: late
+        )
     }
 
     /// Vuelve a pintar widgets y Live Activity sin tocar el estado (p. ej. al llegar una

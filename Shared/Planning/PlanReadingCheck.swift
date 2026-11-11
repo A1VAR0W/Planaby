@@ -54,7 +54,17 @@ enum PlanReadingCheck {
             !RequestGrounding.isMentioned(title, in: sources) && isExample(title, examples: examples)
         }
         var events = result.events.filter { !invented($0.title) }
-        var tasks = result.tasks.filter { !invented($0.title) }
+        // Una tarea que nadie ha nombrado y que es un trozo de un ejemplo («Entregar», de «Entregar
+        // informe»), o que acompaña a un evento que sí se pidió, es relleno del modelo.
+        func filler(_ title: String) -> Bool {
+            guard !RequestGrounding.isMentioned(title, in: sources) else { return false }
+            // Lo que ya está en la propuesta se trata más abajo (se funde con lo que hay).
+            guard !known.tasks.contains(where: { ProposalEditor.sameTitle($0.title, title) }) else { return false }
+            let keys = Set(ProposalText.keywords(title))
+            let fromExample = !keys.isEmpty && examples.contains { keys.isSubset(of: Set(ProposalText.keywords($0))) }
+            return fromExample || !events.isEmpty || known.hasProposal || !result.edits.isEmpty
+        }
+        var tasks = result.tasks.filter { !invented($0.title) && !filler($0.title) }
 
         // 3. Lo mismo dos veces. Varias fechas («clase el lunes y el miércoles») o varias horas
         // («dos reuniones, a las 10 y a las 12») sí son varios, si la petición lo dice.
@@ -67,6 +77,27 @@ enum PlanReadingCheck {
             if completeness(event) > completeness(unique[twin]) { unique[twin] = event }
         }
         events = unique
+        // Varios días para lo mismo («vacaciones el 19, 20, 23 y 24»): un evento por día dicho,
+        // cada uno en el suyo. Los modelos pequeños los ponen todos en el primero.
+        let listed = orderedDays(in: request, now: now, calendar: calendar).map { dayText($0, calendar: calendar) }
+        if listed.count > 1, let first = events.first, events.allSatisfy({ ProposalEditor.sameTitle($0.title, first.title) }),
+           events.count >= 2 || listed.count >= 3, Set(events.map(\.day)) != Set(listed) {
+            let template = events.max { completeness($0) < completeness($1) } ?? first
+            events = listed.map { day in
+                if let own = events.first(where: { $0.day == day }) { return own }
+                var copy = template
+                copy.day = day
+                return copy
+            }
+        }
+        // Que se repita solo si lo dice la petición («cada lunes»): si no, es de un día.
+        if !RequestCheck.saysRepeat(request) {
+            events = events.map { event in
+                var event = event
+                event.repeats = "none"
+                return event
+            }
+        }
         // Algo con hora es un evento: no hace falta además una tarea que se llame igual.
         tasks = tasks.filter { task in !events.contains { ProposalEditor.sameTitle($0.title, task.title) } }
         var uniqueTasks: [ReadTask] = []
@@ -212,6 +243,16 @@ enum PlanReadingCheck {
             }
         }
         return fields == ProposalEditFields(action: "update", target: code) ? nil : fields
+    }
+
+    /// Los días que nombra la petición, sin repetir y en el orden en que se dicen.
+    static func orderedDays(in request: String, now: Date, calendar: Calendar) -> [Date] {
+        var days: [Date] = []
+        for mention in RequestDates.mentions(in: request, now: now, calendar: calendar).sorted(by: { $0.offset < $1.offset })
+        where !days.contains(mention.day) {
+            days.append(mention.day)
+        }
+        return days
     }
 
     /// Dos eventos con el mismo nombre son el mismo salvo que la petición hable de varios días

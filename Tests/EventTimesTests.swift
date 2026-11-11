@@ -106,6 +106,11 @@ struct EventScheduleTests {
         #expect(madrid.component(.hour, from: gap) == 3)
     }
 
+    @Test func aWholeDayIsSaidSo() {
+        #expect(EventSchedule.rangeText(times(at(2, 0), at(2, 23, 59))) == "todo el día")
+        #expect(EventSchedule.rangeText(times(at(2, 0), at(2, 23))) == "00:00–23:00")
+    }
+
     @Test func conflictsIgnoreTouchingEdges() {
         let meeting = EventConflict(title: "Comité", interval: DateInterval(start: at(2, 11, 30), end: at(2, 12, 30)))
         let lunch = EventConflict(title: "Comida", interval: DateInterval(start: at(2, 10), end: at(2, 11)))

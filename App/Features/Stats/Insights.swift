@@ -304,7 +304,7 @@ struct InsightsSection: View {
 
     private func distractionDetail(_ insights: Insights) -> String {
         let total = insights.resisted + insights.gaveIn
-        guard total > 0 else { return "Opcional: Ajustes › Bloqueo › Frenar apps" }
+        guard total > 0 else { return "Opcional: Ajustes › Control de distracciones › Apps que quiero evitar" }
         var text = "de \(total) pausas conscientes"
         if let top = insights.topApps.first { text += " · más: \(top.app)" }
         return text

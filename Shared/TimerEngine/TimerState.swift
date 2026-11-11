@@ -54,6 +54,11 @@ struct TimerState: Codable, Equatable, Sendable {
     var skippedBreaks: Int?
     /// Sesión de «Empezar ahora» (unos minutos para arrancar).
     var isStarter: Bool?
+    /// «Preguntar qué hacer» al acabar la concentración: el descanso no empieza solo.
+    var asksAfterFocus: Bool?
+    /// La concentración acabó sola y el descanso espera a que se elija descansar, seguir o
+    /// finalizar. Es un descanso en pausa desde su primer segundo: no corre ni avanza de fase.
+    var awaitingChoice: Bool?
 
     init(method: FocusMethod, at now: Date, taskTitle: String? = nil, taskID: UUID? = nil, mode: String? = nil) {
         self.method = method
@@ -71,6 +76,7 @@ struct TimerState: Codable, Equatable, Sendable {
     }
 
     var isPaused: Bool { pausedAt != nil }
+    var isAwaitingChoice: Bool { awaitingChoice == true && pausedAt != nil }
 
     func elapsed(at now: Date) -> TimeInterval {
         max(0, (pausedAt ?? now).timeIntervalSince(phaseStart))
@@ -123,6 +129,7 @@ struct TimerState: Codable, Equatable, Sendable {
             focusedSeconds += elapsed(at: now)
         }
         pausedAt = nil
+        awaitingChoice = nil
         phase = .focus
         phaseStart = now
         let length = minutes.map { TimeInterval($0 * 60) } ?? method.duration(of: .focus)
@@ -130,6 +137,8 @@ struct TimerState: Codable, Equatable, Sendable {
     }
 
     mutating func resume(at now: Date) {
+        // Reanudar un descanso que esperaba es elegir «Descansar»: empieza ahora.
+        awaitingChoice = nil
         guard let pausedAt else { return }
         let shift = now.timeIntervalSince(pausedAt)
         phaseStart.addTimeInterval(shift)
@@ -153,7 +162,8 @@ struct TimerState: Codable, Equatable, Sendable {
     mutating func skip(at now: Date) {
         if phase.isBreak { skippedBreaks = (skippedBreaks ?? 0) + 1 }
         resume(at: now)
-        completePhase(endingAt: now)
+        // Se ha pedido expresamente: no hay nada que preguntar.
+        completePhase(endingAt: now, automatic: false)
     }
 
     /// Aplica las transiciones que ocurrieron mientras la app no estaba activa.
@@ -171,7 +181,8 @@ struct TimerState: Codable, Equatable, Sendable {
         guard pausedAt == nil else { return [] }
         var copy = self
         var result: [PhaseTransition] = []
-        while result.count < limit, let end = copy.phaseEnd {
+        // Un descanso que espera a que se elija no avanza solo: ahí se acaban los avisos.
+        while result.count < limit, copy.pausedAt == nil, let end = copy.phaseEnd {
             let finished = copy.phase
             copy.completePhase(endingAt: end)
             result.append(PhaseTransition(
@@ -197,12 +208,18 @@ struct TimerState: Codable, Equatable, Sendable {
             .formatted(.time(pattern: seconds >= 3600 ? .hourMinuteSecond : .minuteSecond))
     }
 
-    private mutating func completePhase(endingAt end: Date) {
+    /// `automatic`: la fase acabó sola (no con «Saltar»). Con «Preguntar qué hacer», el descanso
+    /// queda entonces en pausa desde su comienzo hasta que se elija.
+    private mutating func completePhase(endingAt end: Date, automatic: Bool = true) {
         if phase == .focus {
             let worked = end.timeIntervalSince(phaseStart)
             focusedSeconds += worked
             completedCycles += 1
             begin(method.breakKind(afterCompletedCycles: completedCycles), at: end, focusElapsed: worked)
+            if automatic, asksAfterFocus == true {
+                pausedAt = end
+                awaitingChoice = true
+            }
         } else {
             begin(.focus, at: end)
         }

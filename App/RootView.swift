@@ -151,18 +151,22 @@ struct RootView: View {
         .modifier(CaptureToastOverlay(bottomPadding: isDesk ? 84 : 150))
         .sensoryFeedback(.warning, trigger: leaveGuard.returned?.id)
         // Cambio de fase con la app delante: tarjeta, sonido y vibración según «Avisos de concentración».
-        // En el modo escritorio va arriba a la izquierda, encima del panel de música (sin
-        // reconstruirlo) y sin tapar la lista de tareas; se va sola. Con la captura rápida abierta
+        // Va centrada en la pantalla (también en el modo escritorio), sobre un velo que apaga lo de
+        // detrás: es lo único que hay que mirar en ese momento. Con la captura rápida abierta
         // espera a que se cierre (el sonido ya ha sonado): nunca dos tarjetas a la vez.
-        .overlay(alignment: isDesk ? .topLeading : .top) {
+        .overlay {
             if let transition, !(isDesk && capture.composer != nil) {
-                PhaseTransitionCard(transition: transition) {
-                    withAnimation(.easeIn(duration: 0.18)) { self.transition = nil }
+                ZStack {
+                    Color.black.opacity(0.45)
+                        .ignoresSafeArea()
+                        .onTapGesture { withAnimation(.easeIn(duration: 0.18)) { self.transition = nil } }
+                        .accessibilityHidden(true)
+                    PhaseTransitionCard(transition: transition) {
+                        withAnimation(.easeIn(duration: 0.18)) { self.transition = nil }
+                    }
+                    .frame(maxWidth: 460)
                 }
-                .frame(maxWidth: isDesk ? 460 : nil)
-                .padding(.top, Space.s)
-                .padding(.leading, isDesk ? Space.m : 0)
-                .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+                .transition(reduceMotion ? .opacity : .scale(scale: 0.94).combined(with: .opacity))
                 .zIndex(1)
             }
         }
@@ -173,9 +177,13 @@ struct RootView: View {
         .onChange(of: timer.lastTransition) { _, new in
             guard let new, scenePhase == .active else { return }
             let intoBreak = new.next.isBreak
-            guard new.endedStarter || AlertPreferences.alerts(intoBreak: intoBreak) else { return }
-            if Preferences.phaseAlertsEnabled { PhaseAlertPlayer.shared.play(intoBreak: intoBreak) }
-            if AlertPreferences.showsOverlay || new.endedStarter {
+            // Un descanso que espera a que se elija se enseña siempre: si no, la sesión se quedaría
+            // parada sin que se vea por qué.
+            let mustChoose = intoBreak && timer.state?.isAwaitingChoice == true
+            guard new.endedStarter || mustChoose || AlertPreferences.alerts(intoBreak: intoBreak) else { return }
+            // Si ocurrió estando fuera ya sonó la notificación: ahora solo se enseña.
+            if Preferences.phaseAlertsEnabled, !new.late { PhaseAlertPlayer.shared.play(intoBreak: intoBreak) }
+            if AlertPreferences.showsOverlay || new.endedStarter || mustChoose {
                 withAnimation(Motion.adaptive(Motion.emphasized, reduceMotion: reduceMotion)) {
                     transition = new
                 }

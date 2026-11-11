@@ -92,6 +92,18 @@ Las instrucciones de los dos modelos dicen lo mismo con ejemplos (un evento con 
 dichos de palabra, y una corrección con «solo quiero un único evento»), pero la garantía es el
 repaso, no el modelo.
 
+### Tareas de relleno y voz
+
+- Una tarea que nadie ha nombrado se descarta si es un trozo de un ejemplo («Entregar», de
+  «Entregar informe») o si viene pegada a un evento que sí se pidió. Pedir un evento ya no trae
+  una tarea de 10 h.
+- Por voz, las horas habladas se pasan a cifras antes de interpretarlas (`SpokenText`): «de cinco
+  y media a siete» es «de 5:30 a 7». En la tarjeta se ve la frase ya entendida.
+- La tarjeta de voz enseña inicio y fin, y el plan. Si no se dijo el día o la hora, pone «día sin
+  decir» u «hora sin decir» (antes enseñaba una hora inventada) y el botón principal pasa a ser
+  «Repetir»; «Revisar» sigue ahí para ponerlo a mano. Con todo dicho hay un micrófono para dictar
+  otra vez.
+
 ## Qué fallaba con Apple Intelligence
 
 Con «Añade dos eventos, uno Subida PRE para el 25 de noviembre y otro Subida PRO para el 26 de
@@ -241,6 +253,9 @@ ello:
   (un solo evento de una cosa pedida, las horas y el plan escritos, la corrección que deja uno y
   quita el resto, los códigos que no existen, los títulos copiados de los ejemplos) y que lo que
   sí son varias cosas siga siéndolo;
+- `Tests/AllowedAppsTests.swift`: apps permitidas (no cuentan, el límite, las escritas a mano);
+- `Tests/SpokenTextTests.swift`: las horas dictadas («de cinco y media a siete», «a las seis menos
+  cuarto») pasan a cifras y lo que no es una hora no se toca;
 - `Tests/OverlapNoticeTests.swift`: dos cosas a la vez (qué se avisa y cómo, cada pareja una
   vez, bordes que se tocan, lo que se repite, el texto de la alerta y la marca de la agenda);
 - `Tests/SunsetMotionTests.swift`: la animación del atardecer (el sol no se sale de su sitio, la

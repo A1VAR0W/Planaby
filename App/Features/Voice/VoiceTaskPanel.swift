@@ -48,10 +48,13 @@ final class VoiceTaskFlow {
         heard = presetText ?? ""
         do {
             let text: String
+            // Las horas habladas («de cinco y media a siete») se pasan a cifras: la IA y el repaso
+            // leen lo mismo que si se hubiera escrito, y en la tarjeta se ve lo que se ha entendido.
             if let presetText {
-                text = presetText
+                text = SpokenText.tidy(presetText)
             } else {
-                text = try await speech.listen()
+                let spoken = try await speech.listen()
+                text = SpokenText.tidy(spoken)
             }
             guard !cancelled else { return }
             guard !text.isEmpty else {
@@ -284,8 +287,19 @@ struct VoiceTaskPanel: View {
             ForEach(events) { event in
                 ProposalLine(
                     symbol: event.kind.symbol, tint: tint, ink: ink, title: event.title,
-                    detail: event.start.formatted(.dateTime.weekday(.wide).day().month().hour().minute())
+                    detail: Self.detail(of: event)
                 )
+            }
+            if draft.hasUnconfirmed {
+                // Lo que no se dijo no se inventa en silencio.
+                Label(
+                    flow.presetText == nil
+                        ? "Falta algo por decir. Repítelo con el día y la hora, o pulsa «Revisar» para ponerlo a mano."
+                        : "Falta algo por decir. Pulsa «Revisar» para ponerlo a mano.",
+                    systemImage: "exclamationmark.triangle.fill"
+                )
+                .font(.footnote)
+                .foregroundStyle(tint)
             }
             if draft.tasks.isEmpty && events.isEmpty {
                 Text(draft.summary).foregroundStyle(ink)
@@ -304,10 +318,24 @@ struct VoiceTaskPanel: View {
                         .buttonStyle(.glass)
                         .controlSize(.large)
                 }
+                if flow.presetText == nil, !draft.hasUnconfirmed {
+                    Button("Repetir", systemImage: "mic.fill") { restart() }
+                        .labelStyle(.iconOnly)
+                        .font(.body.weight(.semibold))
+                        .frame(width: 44, height: 44)
+                        .buttonStyle(.glass)
+                        .buttonBorderShape(.circle)
+                        .accessibilityLabel("Dictar otra vez")
+                }
                 Spacer(minLength: 0)
-                actions(primary: "Añadir", primaryIcon: "plus") {
-                    let found = PlanBuilder.clashes(in: draft, context: context)
-                    if found.isEmpty { flow.accept(context: context) } else { overlapping = found }
+                if flow.presetText == nil, draft.hasUnconfirmed {
+                    // Con el día o la hora sin decir, lo primero es repetirlo (o revisarlo a mano).
+                    actions(primary: "Repetir", primaryIcon: "mic.fill") { restart() }
+                } else {
+                    actions(primary: "Añadir", primaryIcon: "plus") {
+                        let found = PlanBuilder.clashes(in: draft, context: context)
+                        if found.isEmpty { flow.accept(context: context) } else { overlapping = found }
+                    }
                 }
             }
         }
@@ -342,6 +370,23 @@ struct VoiceTaskPanel: View {
             .tint(tint)
             .controlSize(.large)
         }
+    }
+
+    /// «sábado 28 nov · 17:45–20:00», diciendo lo que falta en vez de enseñar una hora inventada.
+    private static func detail(of event: PlanDraft.Item) -> String {
+        let day = event.isUnconfirmed(.day)
+            ? "día sin decir"
+            : event.start.formatted(.dateTime.weekday(.wide).day().month())
+        let times = EventTimes(start: event.start, end: event.end)
+        let hours: String
+        if event.isUnconfirmed(.time) {
+            hours = "hora sin decir"
+        } else if event.isUnconfirmed(.duration) {
+            hours = "\(ProposalFormat.time.string(from: event.start)) · fin sin decir"
+        } else {
+            hours = EventSchedule.rangeText(times)
+        }
+        return "\(day) · \(hours) · \(event.mode.title)"
     }
 
     private func restart() {

@@ -13,28 +13,28 @@ struct PhaseTransitionCard: View {
     @Query(sort: \MessageItem.received, order: .reverse) private var messages: [MessageItem]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Space.m) {
-            HStack(alignment: .top, spacing: Space.m) {
+        VStack(spacing: Space.m) {
+            // Todo centrado: icono, título y mensaje en el medio de la tarjeta.
+            VStack(spacing: Space.s) {
                 Image(systemName: symbol)
-                    .font(.title2)
+                    .font(.largeTitle)
                     .foregroundStyle(tint)
-                    .frame(width: 32)
                     .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: Space.xs) {
-                    Text(title)
-                        .font(.headline)
-                    Text(message)
-                        .font(.subheadline)
-                        .foregroundStyle(Theme.secondaryText)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 0)
+                Text(title)
+                    .font(.title3.weight(.semibold))
+                    .multilineTextAlignment(.center)
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.secondaryText)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            .frame(maxWidth: .infinity)
             commsSummary
             captureSummary
             actions
         }
-        .padding(Space.m)
+        .padding(Space.l)
         .glassEffect(.regular, in: .rect(cornerRadius: Theme.cardRadius))
         // Acento del color de la fase que empieza: se distingue a la primera de la música de detrás.
         .overlay {
@@ -45,9 +45,11 @@ struct PhaseTransitionCard: View {
         .accessibilityElement(children: .contain)
         .accessibilityAddTraits(.isModal)
         .task(id: transition.id) {
-            // Tras «Empezar ahora» se espera a que decida; si no, se cierra sola.
-            guard !transition.endedStarter else { return }
-            try? await Task.sleep(for: .seconds(8))
+            // Tras «Empezar ahora» se espera a que decida; si no, se cierra sola (y la sesión sigue
+            // con la fase que toca). Al acabar la concentración se deja más rato para elegir.
+            // Con «Preguntar qué hacer» tampoco se cierra: el descanso espera a que se elija.
+            guard !transition.endedStarter, !awaiting else { return }
+            try? await Task.sleep(for: .seconds(intoBreak ? 30 : 12))
             if !Task.isCancelled { onClose() }
         }
     }
@@ -55,6 +57,15 @@ struct PhaseTransitionCard: View {
     // MARK: - Textos
 
     private var intoBreak: Bool { transition.next.isBreak }
+
+    /// El descanso está esperando a que se elija («Preguntar qué hacer»).
+    private var awaiting: Bool { intoBreak && timer.state?.isAwaitingChoice == true }
+
+    /// «Descansar»: si el descanso esperaba, empieza ahora; si ya corría, solo se cierra.
+    private func rest() {
+        if awaiting { timer.resume() }
+        onClose()
+    }
 
     private var symbol: String {
         if transition.endedStarter { return "flag.checkered" }
@@ -85,6 +96,11 @@ struct PhaseTransitionCard: View {
     private var message: String {
         if transition.endedStarter {
             return "Lo más difícil era arrancar. Puedes seguir con un bloque de \(library.selected.name) o descansar un momento."
+        }
+        if awaiting {
+            var text = "Tu concentración ha terminado. ¿Descansas, sigues o lo dejas por hoy?"
+            if let nextStep { text += " Siguiente paso: \(nextStep)." }
+            return text
         }
         if intoBreak {
             var text = summary + " Levántate y mira lejos un rato."
@@ -194,7 +210,7 @@ struct PhaseTransitionCard: View {
                 .buttonStyle(.glassProminent)
                 .tint(Theme.orange)
                 HStack(spacing: Space.s) {
-                    Button { onClose() } label: {
+                    Button { rest() } label: {
                         Text("Descansar").frame(maxWidth: .infinity, minHeight: 32)
                     }
                     Button {
@@ -207,17 +223,10 @@ struct PhaseTransitionCard: View {
                 .buttonStyle(.glass)
             }
         } else {
-            HStack(spacing: Space.s) {
-                if intoBreak {
-                    Button {
-                        timer.skip()
-                        onClose()
-                    } label: {
-                        Text("Saltar descanso").frame(maxWidth: .infinity, minHeight: 32)
-                    }
-                    .buttonStyle(.glass)
-                }
-                Button { onClose() } label: {
+            // Al acabar la concentración: descansar, seguir concentrado o dar la sesión por terminada.
+            // Al acabar el descanso: volver, o terminar.
+            VStack(spacing: Space.s) {
+                Button { rest() } label: {
                     Text(intoBreak ? "Descansar" : "Vamos")
                         .font(.headline)
                         .foregroundStyle(.black)
@@ -225,6 +234,26 @@ struct PhaseTransitionCard: View {
                 }
                 .buttonStyle(.glassProminent)
                 .tint(tint)
+                HStack(spacing: Space.s) {
+                    if intoBreak {
+                        Button {
+                            // Otro bloque de concentración desde ahora, sin descanso.
+                            timer.refocus()
+                            onClose()
+                        } label: {
+                            Text("Seguir").frame(maxWidth: .infinity, minHeight: 32)
+                        }
+                        .accessibilityLabel("Seguir concentrado sin descansar")
+                    }
+                    Button {
+                        timer.stop()
+                        onClose()
+                    } label: {
+                        Text("Finalizar").frame(maxWidth: .infinity, minHeight: 32)
+                    }
+                    .accessibilityLabel("Finalizar la sesión")
+                }
+                .buttonStyle(.glass)
             }
         }
     }

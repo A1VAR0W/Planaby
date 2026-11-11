@@ -203,7 +203,27 @@ enum ProposalEditResult: Equatable {
 enum ProposalEditor {
     /// Encuentra el elemento al que se refiere `target`. Primero por código; luego por título;
     /// si sigue habiendo varios, es ambiguo (se pregunta, nunca se elige uno al azar).
-    static func resolve(_ target: ProposalTarget, in draft: PlanDraft) -> ProposalResolution {
+    /// Los eventos de `ids` que caen en el día nombrado en `text` (día de la semana o número
+    /// del mes). Vacío si el texto no nombra ningún día.
+    static func sameDay(_ ids: [UUID], as text: String, in draft: PlanDraft, calendar: Calendar = .current) -> [UUID] {
+        let words = ProposalText.words(text)
+        let weekdays = RequestDates.weekdaysMentioned(in: text)
+        var days: Set<Int> = []
+        for (index, word) in words.enumerated() where index > 0 {
+            if let number = Int(word), (1...31).contains(number), ["del", "dia", "el"].contains(words[index - 1]) {
+                days.insert(number)
+            }
+        }
+        guard !weekdays.isEmpty || !days.isEmpty else { return [] }
+        return ids.filter { id in
+            guard let item = draft.items.first(where: { $0.id == id }) else { return false }
+            let weekday = calendar.component(.weekday, from: item.start)
+            let day = calendar.component(.day, from: item.start)
+            return (weekdays.isEmpty || weekdays.contains(weekday)) && (days.isEmpty || days.contains(day))
+        }
+    }
+
+    static func resolve(_ target: ProposalTarget, in draft: PlanDraft, calendar: Calendar = .current) -> ProposalResolution {
         var candidates: [(id: UUID, title: String, isTask: Bool)] = []
         if target.kind != .task { candidates += draft.newEvents.map { ($0.id, $0.title, false) } }
         if target.kind != .event { candidates += draft.tasks.map { ($0.id, $0.title, true) } }
@@ -221,7 +241,10 @@ enum ProposalEditor {
         let scored = candidates.map { ($0.id, ProposalText.score(query: query, title: $0.title)) }
         if let best = scored.map(\.1).max(), best > 0 {
             let winners = scored.filter { $0.1 == best }.map(\.0)
-            return winners.count == 1 ? .found(winners[0]) : .ambiguous(winners)
+            if winners.count == 1 { return .found(winners[0]) }
+            // «La reunión del martes», «la del 20»: el día dicho desempata entre iguales.
+            let byDay = sameDay(winners, as: target.text, in: draft, calendar: calendar)
+            return byDay.count == 1 ? .found(byDay[0]) : .ambiguous(winners)
         }
         // «Quita eso», «la cita»: si solo hay uno de ese tipo, es ese.
         if candidates.count == 1 { return .found(candidates[0].id) }
@@ -238,7 +261,7 @@ enum ProposalEditor {
         var resolved: [Int: UUID] = [:]
         for (index, edit) in edits.enumerated() {
             guard let target = edit.target else { continue }
-            switch resolve(target, in: draft) {
+            switch resolve(target, in: draft, calendar: calendar) {
             case .found(let id):
                 resolved[index] = id
             case .ambiguous(let ids):

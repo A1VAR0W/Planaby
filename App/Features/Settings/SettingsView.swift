@@ -12,6 +12,7 @@ struct SettingsView: View {
 
     @AppStorage(Preferences.dailyGoalMinutes, store: AppGroup.defaults) private var goalMinutes = Preferences.defaultDailyGoal
     @AppStorage(Preferences.phaseAlerts, store: AppGroup.defaults) private var phaseAlerts = true
+    @AppStorage(Preferences.askAfterFocus, store: AppGroup.defaults) private var askAfterFocus = false
     @AppStorage(Preferences.deskKeepAwake) private var keepAwake = true
     @AppStorage(Preferences.deskDimmed) private var dimmed = false
     @AppStorage(Preferences.deskAutoMusic) private var deskAutoMusic = true
@@ -74,10 +75,19 @@ struct SettingsView: View {
                     Label("Objetivo diario", systemImage: "target")
                 }
             }
+            Picker(selection: $askAfterFocus) {
+                Text("Empezar el descanso").tag(false)
+                Text("Preguntar qué hacer").tag(true)
+            } label: {
+                Label("Al terminar", systemImage: "flag.checkered")
+            }
+            .onChange(of: askAfterFocus) { _, asks in timer.setAsksAfterFocus(asks) }
         } header: {
             Text("Concentración")
         } footer: {
-            Text("El objetivo marca el anillo de Enfoque y la línea de referencia en Progreso.")
+            Text("El objetivo marca el anillo de Enfoque y la línea de referencia en Progreso. " + (askAfterFocus
+                ? "Al terminar la concentración, el descanso espera a que elijas: descansar, seguir o finalizar."
+                : "Al terminar la concentración, el descanso empieza solo; durante 30 s puedes elegir seguir o finalizar."))
         }
     }
 
@@ -285,6 +295,14 @@ struct SettingsView: View {
 
     @AppStorage(FrictionGuard.Keys.lastTrigger) private var lastBlockTrigger: Double = 0
     @AppStorage(FrictionGuard.Keys.apps) private var blockedAppsRaw = ""
+    @AppStorage(AllowedApps.Keys.limit) private var allowedLimit = AllowedApps.defaultLimit
+    @AppStorage(FrictionGuard.Keys.scope) private var frictionScope = FrictionScope.focus.rawValue
+    @AppStorage(FrictionGuard.Keys.intensity) private var frictionIntensity = FrictionIntensity.balanced.rawValue
+
+    private var allowedAppsStatus: String {
+        let count = AllowedApps.chosen(modes.mode).count
+        return count == 0 ? "Ninguna" : "\(count) en \(modes.mode.title)"
+    }
 
     private var blockSetupStatus: String {
         if lastBlockTrigger > 0 { return "Activo" }
@@ -294,7 +312,7 @@ struct SettingsView: View {
     private var frictionSection: some View {
         Section {
             Toggle(isOn: $leaveGuard) {
-                Label("Avisar si salgo de Planaby", systemImage: "hand.raised.fill")
+                Label("Control de distracciones", systemImage: "hand.raised.fill")
             }
             Picker(selection: $leaveGrace) {
                 ForEach(LeaveGuard.graceOptions, id: \.self) { Text(LeaveGuard.minutes(TimeInterval($0))).tag($0) }
@@ -303,23 +321,55 @@ struct SettingsView: View {
             }
             .disabled(!leaveGuard)
             Toggle(isOn: $leaveStrict) {
-                Label("Modo estricto", systemImage: "lock.fill")
+                Label("No contar el rato fuera", systemImage: "lock.fill")
             }
             .disabled(!leaveGuard)
+            NavigationLink {
+                AllowedAppsSettingsView()
+            } label: {
+                LabeledContent {
+                    Text(allowedAppsStatus)
+                } label: {
+                    Label("Apps permitidas", systemImage: "checkmark.shield")
+                }
+            }
             NavigationLink {
                 BlockSetupView()
             } label: {
                 LabeledContent {
                     Text(blockSetupStatus)
                 } label: {
-                    Label("Frenar apps concretas", systemImage: "wand.and.stars")
+                    Label("Apps que quiero evitar", systemImage: "wand.and.stars")
                 }
             }
+            Picker(selection: $frictionIntensity) {
+                ForEach(FrictionIntensity.allCases) { Text($0.title).tag($0.rawValue) }
+            } label: {
+                Label("Intensidad", systemImage: "dial.medium")
+            }
+            Picker(selection: $frictionScope) {
+                ForEach(FrictionScope.allCases) { Text($0.title).tag($0.rawValue) }
+            } label: {
+                Label("Cuándo", systemImage: "clock")
+            }
         } header: {
-            Text("Bloqueo")
+            Text("Control de distracciones")
         } footer: {
-            Text("Sin configurar nada: mientras te concentras, si te vas a otra app más de \(LeaveGuard.minutes(TimeInterval(leaveGrace))) te llegan avisos para volver, y al volver ves cuánto rato estuviste fuera. Bloquear el iPhone no cuenta. " + (leaveStrict ? "Modo estricto: el rato fuera no cuenta como concentración y el bloque sigue donde lo dejaste." : "Con el modo estricto, el rato fuera no cuenta como concentración.") + " «Frenar apps concretas» es opcional y usa Atajos.")
+            Text(frictionFooter)
         }
+    }
+
+    /// Lo que hace el control, sin prometer un bloqueo que iOS no permite.
+    private var frictionFooter: String {
+        let intensity = FrictionIntensity(rawValue: frictionIntensity) ?? .balanced
+        var lines = [
+            "Planaby no bloquea apps: te avisa y te hace parar a pensar.",
+            "Si sales de Planaby más de \(LeaveGuard.minutes(TimeInterval(leaveGrace))) mientras te concentras, te llegan avisos para volver" + (leaveStrict ? " y ese rato no cuenta como concentración." : "."),
+            "Las apps permitidas (\(AllowedApps.limitTitle(allowedLimit).lowercased())) se abren desde Enfoque y no cuentan.",
+            "Las que quieres evitar te piden una pausa de \(intensity.baseSeconds) s al abrirlas, con pases de \(intensity.passMinutes) min (usa Atajos).",
+        ]
+        if !leaveGuard { lines[1] = "Los avisos al salir de Planaby están apagados." }
+        return lines.joined(separator: " ")
     }
 
     private var musicSection: some View {
